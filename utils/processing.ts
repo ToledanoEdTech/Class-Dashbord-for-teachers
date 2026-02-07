@@ -38,13 +38,25 @@ const NEGATIVE_KEYWORDS = [
 
 // --- Helpers ---
 
-/** If value looks like a serial number (number or only digits), return '' so caller uses fallback (e.g. כללי). Avoids showing "1", "2" as subject on mobile when column order differs. */
-const normalizeSubject = (val: any): string => {
-  if (val == null || val === '') return '';
-  const s = String(val).trim();
-  if (/^\d+$/.test(s)) return ''; // only digits = serial number, not a subject name
-  if (typeof val === 'number' && !Number.isNaN(val)) return '';
-  return s;
+/** Find column index where header cell matches any of the given strings (contains). Returns -1 if not found. */
+const findCol = (headerRow: any[], ...keywords: string[]): number => {
+  for (let c = 0; c < headerRow.length; c++) {
+    const cell = headerRow[c];
+    const s = typeof cell === 'string' ? cell : String(cell ?? '').trim();
+    if (keywords.some(kw => s.includes(kw))) return c;
+  }
+  return -1;
+};
+
+/** Subject column: prefer "מקצוע", avoid columns that are only serial number (מס' / מספר). */
+const findSubjectCol = (headerRow: any[]): number => {
+  for (let c = 0; c < headerRow.length; c++) {
+    const cell = headerRow[c];
+    const s = (typeof cell === 'string' ? cell : String(cell ?? '')).trim();
+    if (s.includes('מקצוע') && !/^מס['\u0592]?\s*$|^מספר\s*$/.test(s)) return c;
+    if (s.includes('שיעור') && !s.includes('מס') && !/^\d+$/.test(s)) return c; // שיעור but not מס' שיעור
+  }
+  return -1;
 };
 
 const parseDate = (dateVal: any): Date | null => {
@@ -155,7 +167,23 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
 
   // --- Process Behavior Data ---
   let headerRowIndex = behaviorData.findIndex(row => row.some(cell => typeof cell === 'string' && cell.includes('שם המורה')));
-  if (headerRowIndex === -1) headerRowIndex = 2; 
+  if (headerRowIndex === -1) headerRowIndex = 2;
+
+  const headerRow = behaviorData[headerRowIndex] || [];
+  // Column indices by header (so mobile/desktop get same columns regardless of order)
+  const col = {
+    teacher: findCol(headerRow, 'שם המורה') >= 0 ? findCol(headerRow, 'שם המורה') : 1,
+    subject: findSubjectCol(headerRow) >= 0 ? findSubjectCol(headerRow) : 2,
+    date: findCol(headerRow, 'תאריך') >= 0 ? findCol(headerRow, 'תאריך') : 3,
+    lessonNumber: findCol(headerRow, 'מס\' שיעור', 'מספר שיעור', 'מס. שיעור') >= 0 ? findCol(headerRow, 'מס\' שיעור', 'מספר שיעור', 'מס. שיעור') : 4,
+    studentId: findCol(headerRow, 'ת.ז', 'תעודת זהות') >= 0 ? findCol(headerRow, 'ת.ז', 'תעודת זהות') : 6,
+    studentName: findCol(headerRow, 'שם התלמיד') >= 0 ? findCol(headerRow, 'שם התלמיד') : 7,
+    type: findCol(headerRow, 'סוג', 'הערה', 'אירוע') >= 0 ? findCol(headerRow, 'סוג', 'הערה', 'אירוע') : 10,
+    justification: findCol(headerRow, 'הצדקה', 'נימוק') >= 0 ? findCol(headerRow, 'הצדקה', 'נימוק') : 11,
+    comment: findCol(headerRow, 'הערות', 'הערה') >= 0 ? findCol(headerRow, 'הערות', 'הערה') : 13,
+  };
+  // Avoid using "מס'" for lesson number if it's the same as subject (e.g. "מס' שיעור" vs "מקצוע")
+  if (col.lessonNumber === col.subject) col.lessonNumber = 4;
 
   const events: BehaviorEvent[] = [];
   
@@ -163,31 +191,32 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
     const row = behaviorData[i];
     if (!row || row.length < 7) continue;
 
-    const rawId = row[6];
+    const rawId = row[col.studentId];
     if (!rawId) continue; 
     const studentId = String(rawId).trim(); 
 
-    const date = parseDate(row[3]);
+    const date = parseDate(row[col.date]);
     if (!date) continue;
 
-    const eventTypeStr = row[10] || '';
-    const justificationStr = row[11] || '';
+    const eventTypeStr = (row[col.type] ?? '') as string;
+    const justificationStr = (row[col.justification] ?? '') as string;
 
-    const rawSubject = row[2];
-    const subject = normalizeSubject(rawSubject) || 'כללי';
+    const rawSubject = row[col.subject];
+    const s = String(rawSubject ?? '').trim();
+    const subjectFinal = s && !/^\d+$/.test(s) ? s : 'כללי';
 
     events.push({
       id: `evt-${i}`,
       studentId: studentId,
-      studentName: row[7] || 'Unknown',
+      studentName: (row[col.studentName] ?? 'Unknown') as string,
       date: date,
-      teacher: row[1] || '',
-      subject,
-      lessonNumber: parseInt(row[4]) || 0,
+      teacher: (row[col.teacher] ?? '') as string,
+      subject: subjectFinal,
+      lessonNumber: parseInt(row[col.lessonNumber] as any) || 0,
       type: eventTypeStr,
-      category: categorizeEvent(eventTypeStr, justificationStr), // Pass justification
+      category: categorizeEvent(eventTypeStr, justificationStr),
       justification: justificationStr,
-      comment: row[13] || ''
+      comment: (row[col.comment] ?? '') as string
     });
   }
 
