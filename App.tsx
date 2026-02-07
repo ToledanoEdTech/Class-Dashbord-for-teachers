@@ -85,6 +85,7 @@ const App: React.FC = () => {
           <StudentProfile 
             student={selectedStudent} 
             onBack={handleBack} 
+            classAverage={state.classAverage}
           />
         )}
       </main>

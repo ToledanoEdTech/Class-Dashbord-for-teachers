@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, EventType } from '../types';
-import { ArrowRight, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download } from 'lucide-react';
+import { ArrowRight, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX } from 'lucide-react';
 import {
   LineChart,
   Line,
@@ -20,6 +20,7 @@ import * as XLSX from 'xlsx';
 interface StudentProfileProps {
   student: Student;
   onBack: () => void;
+  classAverage: number;
 }
 
 // Local helper for startOfWeek to avoid import issues
@@ -115,7 +116,7 @@ const CustomGradeTooltip = ({ active, payload, label }: any) => {
     return null;
 };
 
-const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack }) => {
+const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classAverage }) => {
   const [activeTab, setActiveTab] = useState<'trends' | 'grades' | 'behavior' | 'insights'>('trends');
 
   // Scroll to top on mount
@@ -132,6 +133,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack }) => {
         ["שם התלמיד", student.name],
         ["ת.ז", student.id],
         ["ממוצע ציונים", student.averageScore],
+        ["ממוצע כיתתי", classAverage],
         ["אירועים שליליים", student.negativeCount],
         ["אירועים חיוביים", student.positiveCount],
         ["רמת סיכון", student.riskLevel],
@@ -270,6 +272,24 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack }) => {
     return { chartData: data, viewMode: isDailyView ? 'daily' : 'weekly' };
   }, [student.behaviorEvents]);
 
+  // Absence Analysis
+  const absenceData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    student.behaviorEvents.forEach(e => {
+        // Look for typical Hebrew keywords for absence
+        const type = e.type || '';
+        if (type.includes('חיסור') || type.includes('הברזה') || type.includes('אי הגעה') || type.includes('נעדר')) {
+            const subj = e.subject || 'כללי';
+            counts[subj] = (counts[subj] || 0) + 1;
+        }
+    });
+    
+    // Sort by count descending and return array
+    return Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .filter(([_, count]) => count > 0);
+  }, [student.behaviorEvents]);
+
   return (
     <div className="pb-20 animate-fade-in bg-slate-50 min-h-screen">
       
@@ -365,7 +385,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack }) => {
                          </div>
                          <div className="flex items-center gap-1">
                             <div className="w-3 h-0.5 bg-orange-400 border-dashed border-t"></div>
-                            <span>ממוצע תלמיד ({student.averageScore})</span>
+                            <span>ממוצע כיתתי ({classAverage.toFixed(1)})</span>
                          </div>
                     </div>
                 </div>
@@ -382,7 +402,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack }) => {
                         <YAxis domain={[0, 100]} />
                         <Tooltip content={<CustomGradeTooltip />} cursor={{ stroke: '#94a3b8', strokeWidth: 1 }} />
                         <ReferenceLine y={55} label={{ value: "55", position: 'right', fill: 'red', fontSize: 10 }} stroke="red" strokeDasharray="3 3" />
-                        <ReferenceLine y={student.averageScore} label={{ value: "ממוצע", position: 'right', fill: 'orange', fontSize: 10 }} stroke="orange" strokeDasharray="5 5" />
+                        <ReferenceLine y={classAverage} label={{ value: "כיתתי", position: 'right', fill: 'orange', fontSize: 10 }} stroke="orange" strokeDasharray="5 5" />
                         <Line type="monotone" dataKey="score" stroke="#2563eb" strokeWidth={3} activeDot={{ r: 6 }} dot={{ r: 4 }} />
                         </LineChart>
                     </ResponsiveContainer>
@@ -506,23 +526,29 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack }) => {
 
         {activeTab === 'insights' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Correlations */}
+                
+                {/* Absence Analysis Card */}
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                     <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <AlertCircle className="text-blue-500" />
-                        הצלבות והקשרים
+                        <UserX className="text-red-500" />
+                        מוקדי חיסורים
                     </h3>
-                    {student.correlations.length > 0 ? (
-                        <ul className="space-y-4">
-                            {student.correlations.map((corr, idx) => (
-                                <li key={idx} className="p-3 bg-blue-50 rounded-lg text-sm text-blue-900 border-r-4 border-blue-500">
-                                    {corr.description}
-                                    <div className="text-xs text-blue-400 mt-1">{format(corr.date, 'dd/MM/yyyy')}</div>
-                                </li>
+                    {absenceData.length > 0 ? (
+                        <div className="space-y-3">
+                            <p className="text-sm text-slate-600 mb-2">פירוט מקצועות בהם נרשמו חיסורים:</p>
+                            {absenceData.map(([subject, count], idx) => (
+                                <div key={idx} className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100">
+                                    <span className="font-medium text-slate-700">{subject}</span>
+                                    <span className={`text-sm font-bold px-2 py-0.5 rounded
+                                        ${count > 3 ? 'bg-red-100 text-red-700' : 'bg-orange-50 text-orange-700'}
+                                    `}>
+                                        {count} חיסורים
+                                    </span>
+                                </div>
                             ))}
-                        </ul>
+                        </div>
                     ) : (
-                        <p className="text-slate-500 text-sm">לא נמצאו קורלציות ישירות בין התנהגות לציונים.</p>
+                        <p className="text-slate-500 text-sm">לא נרשמו חיסורים לתלמיד זה.</p>
                     )}
                 </div>
 
@@ -533,6 +559,18 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack }) => {
                         המלצות למורה
                     </h3>
                     <ul className="space-y-4">
+                        {/* Auto-generated Attendance Insight */}
+                        {absenceData.some(([_, count]) => count > 3) && (
+                             <li className="flex gap-3 items-start">
+                                <div className="w-6 h-6 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0 text-xs font-bold">!</div>
+                                <p className="text-sm text-slate-700">
+                                    שים לב: התלמיד צובר חיסורים רבים ב-
+                                    <span className="font-bold"> {absenceData[0][0]}</span>.
+                                     מומלץ לברר את הסיבה מולו.
+                                </p>
+                            </li>
+                        )}
+
                         {student.averageScore < 65 && (
                             <li className="flex gap-3 items-start">
                                 <div className="w-6 h-6 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0 text-xs font-bold">1</div>
@@ -563,11 +601,27 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack }) => {
                                 <p className="text-sm text-slate-700">נראה כי אירועי משמעת משפיעים על הציונים (או להיפך). שקול התערבות יועצת.</p>
                             </li>
                         )}
-                         <li className="flex gap-3 items-start">
-                            <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 text-xs font-bold">i</div>
-                            <p className="text-sm text-slate-700">בדוק נוכחות בשיעורי בוקר, נראה שיש דפוס של איחורים.</p>
-                        </li>
                     </ul>
+                </div>
+
+                {/* Correlations (Moved to be the 3rd card in grid, full width on mobile or just flow) */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 md:col-span-2">
+                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <AlertCircle className="text-blue-500" />
+                        הצלבות והקשרים
+                    </h3>
+                    {student.correlations.length > 0 ? (
+                        <ul className="space-y-4">
+                            {student.correlations.map((corr, idx) => (
+                                <li key={idx} className="p-3 bg-blue-50 rounded-lg text-sm text-blue-900 border-r-4 border-blue-500">
+                                    {corr.description}
+                                    <div className="text-xs text-blue-400 mt-1">{format(corr.date, 'dd/MM/yyyy')}</div>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="text-slate-500 text-sm">לא נמצאו קורלציות ישירות בין התנהגות לציונים.</p>
+                    )}
                 </div>
             </div>
         )}
