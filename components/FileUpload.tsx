@@ -23,11 +23,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[80vh] bg-slate-50 p-6">
-      <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-8 space-y-8">
+    <div className="flex flex-col items-center justify-center min-h-[80vh] bg-slate-50 p-4 md:p-6">
+      <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-6 md:p-8 space-y-6 md:space-y-8">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-slate-800">ברוכים הבאים ל-ToledanoEdTech</h1>
-          <p className="text-slate-500">העלה את קבצי הנתונים כדי להתחיל בניתוח הכיתה</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-800">ברוכים הבאים ל-ToledanoEdTech</h1>
+          <p className="text-sm md:text-base text-slate-500">העלה את קבצי הנתונים כדי להתחיל בניתוח הכיתה</p>
         </div>
 
         <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-sm text-blue-800 space-y-2">
@@ -35,13 +35,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
                 <AlertCircle size={16} />
                 הנחיות להורדת קבצים:
             </h3>
-            <ul className="list-disc list-inside space-y-1 opacity-90">
+            <ul className="list-disc list-inside space-y-1 opacity-90 text-xs md:text-sm">
                 <li><strong>קובץ התנהגות:</strong> היכנס ליומן מחנך &#8592; דוחות &#8592; פירוט אירועי התנהגות (יש לוודא שמופיעה עמודת הפירוט).</li>
                 <li><strong>קובץ ציונים:</strong> היכנס למערכת הציונים &#8592; הורד קובץ "ציונים שוטפים - סדין".</li>
             </ul>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           {/* Behavior File Input */}
           <div className="relative group">
             <input
@@ -50,11 +50,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
               onChange={(e) => setBehaviorFile(e.target.files?.[0] || null)}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
             />
-            <div className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all h-48
+            <div className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all h-40 md:h-48
               ${behaviorFile ? 'border-green-500 bg-green-50' : 'border-slate-300 group-hover:border-blue-400 bg-slate-50'}`}>
-              <FileText className={`w-12 h-12 mb-3 ${behaviorFile ? 'text-green-600' : 'text-slate-400'}`} />
-              <span className="font-medium text-slate-700">קובץ התנהגות</span>
-              <span className="text-xs text-slate-400 mt-1">
+              <FileText className={`w-10 h-10 md:w-12 md:h-12 mb-3 ${behaviorFile ? 'text-green-600' : 'text-slate-400'}`} />
+              <span className="font-medium text-slate-700 text-sm md:text-base">קובץ התנהגות</span>
+              <span className="text-xs text-slate-400 mt-1 truncate max-w-full px-2">
                 {behaviorFile ? behaviorFile.name : 'יומן מחנך (פירוט אירועים)'}
               </span>
             </div>
@@ -68,11 +68,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
               onChange={(e) => setGradesFile(e.target.files?.[0] || null)}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
             />
-             <div className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all h-48
+             <div className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center transition-all h-40 md:h-48
               ${gradesFile ? 'border-green-500 bg-green-50' : 'border-slate-300 group-hover:border-blue-400 bg-slate-50'}`}>
-              <FileSpreadsheet className={`w-12 h-12 mb-3 ${gradesFile ? 'text-green-600' : 'text-slate-400'}`} />
-              <span className="font-medium text-slate-700">קובץ ציונים</span>
-              <span className="text-xs text-slate-400 mt-1">
+              <FileSpreadsheet className={`w-10 h-10 md:w-12 md:h-12 mb-3 ${gradesFile ? 'text-green-600' : 'text-slate-400'}`} />
+              <span className="font-medium text-slate-700 text-sm md:text-base">קובץ ציונים</span>
+              <span className="text-xs text-slate-400 mt-1 truncate max-w-full px-2">
                 {gradesFile ? gradesFile.name : 'ציונים שוטפים - סדין'}
               </span>
             </div>
@@ -83,7 +83,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
             <button
             onClick={handleSubmit}
             disabled={!behaviorFile || !gradesFile || loading}
-            className={`w-full py-4 rounded-xl text-white font-bold text-lg shadow-lg transition-all flex items-center justify-center gap-2
+            className={`w-full py-3 md:py-4 rounded-xl text-white font-bold text-base md:text-lg shadow-lg transition-all flex items-center justify-center gap-2
                 ${(!behaviorFile || !gradesFile) ? 'bg-slate-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 hover:shadow-blue-200'}`}
             >
             {loading ? (
