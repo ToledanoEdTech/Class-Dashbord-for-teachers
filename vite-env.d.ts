@@ -1,5 +1,7 @@
 /* Manual type definitions for Vite environment to replace missing vite/client types */
 
+declare module 'lucide-react';
+
 declare module '*.svg' {
   const content: string;
   export default content;

@@ -1,0 +1,13 @@
+/* טיפוגרפיה וכללי בסיס - Tailwind נטען מ-CDN ב-index.html */
+html { scroll-behavior: smooth; }
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #1e293b;
+}
+
+/* Focus לנגישות */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px white, 0 0 0 4px #0c8ee6;
+}

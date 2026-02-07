@@ -41,13 +41,12 @@ const CustomBehaviorTooltip = ({ active, payload, label }: any) => {
         const negatives = Object.entries(details).filter(([key, val]: any) => val > 0 && data.negativeTypes.includes(key));
 
         return (
-            <div className="bg-white p-3 border border-slate-200 rounded-lg shadow-lg text-right text-sm z-50 min-w-[150px]">
-                <p className="font-bold text-slate-700 border-b pb-1 mb-2">{label}</p>
-                
-                <div className="space-y-2">
+            <div className="bg-white/95 backdrop-blur-sm p-4 border border-slate-200 rounded-xl shadow-elevated text-right text-sm z-50 min-w-[180px]">
+                <p className="font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">{label}</p>
+                <div className="space-y-3">
                     {positives.length > 0 && (
                         <div>
-                            <p className="text-xs font-bold text-green-600 mb-1">חיזוקים:</p>
+                            <p className="text-xs font-bold text-emerald-600 mb-1.5">חיזוקים:</p>
                             {positives.map(([key, val]: any) => (
                                 <div key={key} className="flex justify-between text-slate-600 text-xs">
                                     <span>{key}</span>
@@ -56,10 +55,9 @@ const CustomBehaviorTooltip = ({ active, payload, label }: any) => {
                             ))}
                         </div>
                     )}
-                    
                     {negatives.length > 0 && (
                         <div>
-                            <p className="text-xs font-bold text-red-600 mb-1">טעון שיפור:</p>
+                            <p className="text-xs font-bold text-red-600 mb-1.5">טעון שיפור:</p>
                             {negatives.map(([key, val]: any) => (
                                 <div key={key} className="flex justify-between text-slate-600 text-xs">
                                     <span>{key}</span>
@@ -68,14 +66,12 @@ const CustomBehaviorTooltip = ({ active, payload, label }: any) => {
                             ))}
                         </div>
                     )}
-
                     {positives.length === 0 && negatives.length === 0 && (
                         <p className="text-slate-400 text-xs">אין אירועים רשומים בתקופה זו</p>
                     )}
-                    
-                    <div className="mt-2 pt-2 border-t text-xs font-bold flex justify-between">
+                    <div className="mt-2 pt-2 border-t border-slate-100 text-xs font-bold flex justify-between">
                         <span>ציון מאזן:</span>
-                        <span dir="ltr" className={data.score >= 0 ? 'text-green-600' : 'text-red-600'}>
+                        <span dir="ltr" className={data.score >= 0 ? 'text-emerald-600' : 'text-red-600'}>
                             {data.score > 0 ? '+' : ''}{data.score}
                         </span>
                     </div>
@@ -92,21 +88,20 @@ const CustomGradeTooltip = ({ active, payload, label }: any) => {
         const grades = data.grades || [];
 
         return (
-            <div className="bg-white p-3 border border-slate-200 rounded-lg shadow-lg text-right text-sm z-50 min-w-[200px]">
-                <p className="font-bold text-slate-700 border-b pb-1 mb-2">{label}</p>
-                <div className="mb-2 flex justify-between text-slate-800 font-bold text-xs">
+            <div className="bg-white/95 backdrop-blur-sm p-4 border border-slate-200 rounded-xl shadow-elevated text-right text-sm z-50 min-w-[220px]">
+                <p className="font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">{label}</p>
+                <div className="mb-3 flex justify-between text-slate-800 font-bold text-xs">
                     <span>ממוצע שבועי:</span>
-                    <span>{data.score.toFixed(1)}</span>
+                    <span className="text-primary-600">{data.score.toFixed(1)}</span>
                 </div>
-                
-                <div className="space-y-1 max-h-40 overflow-y-auto">
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
                     {grades.map((g: any, idx: number) => (
-                        <div key={idx} className="flex justify-between items-center text-xs bg-slate-50 p-1 rounded">
-                             <div className="flex flex-col">
+                        <div key={idx} className="flex justify-between items-center text-xs bg-slate-50/80 p-2 rounded-lg">
+                            <div className="flex flex-col">
                                 <span className="font-medium text-slate-700">{g.subject}</span>
                                 <span className="text-[10px] text-slate-400">{g.assignment}</span>
-                             </div>
-                             <span className={`font-bold ${g.score < 70 ? 'text-red-500' : 'text-slate-600'}`}>{g.score}</span>
+                            </div>
+                            <span className={`font-bold ${g.score < 70 ? 'text-red-600' : 'text-slate-700'}`}>{g.score}</span>
                         </div>
                     ))}
                 </div>
@@ -291,93 +286,93 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
         .filter(([_, count]) => count > 0);
   }, [student.behaviorEvents]);
 
-  return (
-    <div className="pb-20 animate-fade-in bg-slate-50 min-h-screen">
-      
-      {/* Sticky Header Wrapper */}
-      <div className="sticky top-16 z-40 bg-slate-50/95 backdrop-blur-md border-b border-slate-200 shadow-sm transition-all">
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4">
-            <button 
-                onClick={onBack}
-                className="flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors mb-3 md:mb-4 text-sm md:text-base"
-            >
-                <ArrowRight size={18} />
-                חזרה לדשבורד
-            </button>
+  const riskStyles = {
+    high: 'text-red-700 font-bold bg-red-50 border-red-200',
+    medium: 'text-amber-700 font-bold bg-amber-50 border-amber-200',
+    low: 'text-emerald-700 font-bold bg-emerald-50 border-emerald-200',
+  };
+  const riskLabels = { high: 'סיכון גבוה', medium: 'סיכון בינוני', low: 'סיכון נמוך' };
 
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-start md:items-center gap-4">
-                    <div className={`w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center text-lg md:text-xl font-bold text-white shadow-md shrink-0
-                        ${student.averageScore < 60 ? 'bg-red-500' : student.averageScore < 80 ? 'bg-orange-400' : 'bg-green-500'}
-                    `}>
-                        {Math.round(student.averageScore)}
-                    </div>
-                    <div>
-                    <h1 className="text-xl md:text-2xl font-bold text-slate-800 leading-tight">{student.name}</h1>
-                    <div className="text-slate-500 text-xs md:text-sm flex flex-wrap gap-x-3 gap-y-1 mt-1">
-                        <span>ת.ז: {student.id}</span>
-                        <span className="text-slate-300 hidden md:inline">|</span>
-                        <span>{student.grades.length} ציונים</span>
-                        <span className="text-slate-300 hidden md:inline">|</span>
-                        <span>{student.behaviorEvents.length} אירועי התנהגות</span>
-                    </div>
-                    </div>
+  return (
+    <div className="pb-24 animate-fade-in min-h-screen bg-gradient-to-br from-slate-50 via-white to-primary-50/20">
+      {/* Sticky Header */}
+      <div className="sticky top-16 z-40 glass border-b border-slate-200/80 shadow-soft">
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-5">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 text-slate-500 hover:text-primary-600 transition-colors mb-4 text-sm md:text-base font-medium"
+          >
+            <ArrowRight size={18} strokeWidth={2} />
+            חזרה לדשבורד
+          </button>
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start md:items-center gap-4">
+              <div className={`w-14 h-14 md:w-16 md:h-16 rounded-2xl flex items-center justify-center text-xl md:text-2xl font-bold text-white shadow-lg shrink-0
+                ${student.averageScore < 60 ? 'bg-gradient-to-br from-red-500 to-rose-600' : 
+                  student.averageScore < 80 ? 'bg-gradient-to-br from-amber-500 to-orange-500' : 
+                  'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
+                {Math.round(student.averageScore)}
+              </div>
+              <div>
+                <h1 className="text-xl md:text-2xl font-bold text-slate-800 leading-tight tracking-tight">{student.name}</h1>
+                <div className="text-slate-500 text-xs md:text-sm flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+                  <span>ת.ז: {student.id}</span>
+                  <span className="text-slate-300 hidden md:inline">|</span>
+                  <span>{student.grades.length} ציונים</span>
+                  <span className="text-slate-300 hidden md:inline">|</span>
+                  <span>{student.behaviorEvents.length} אירועי התנהגות</span>
                 </div>
-                
-                <div className="flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end gap-2 mt-2 md:mt-0">
-                    <div className="flex gap-2 items-center md:flex-col md:items-end md:gap-0">
-                         {student.riskLevel === 'high' && (
-                            <span className="text-red-700 font-bold text-xs md:text-sm bg-red-50 px-2 py-0.5 rounded border border-red-100">סיכון גבוה</span>
-                        )}
-                        {student.riskLevel === 'medium' && (
-                            <span className="text-orange-700 font-bold text-xs md:text-sm bg-orange-50 px-2 py-0.5 rounded border border-orange-100">סיכון בינוני</span>
-                        )}
-                        {student.riskLevel === 'low' && (
-                            <span className="text-green-700 font-bold text-xs md:text-sm bg-green-50 px-2 py-0.5 rounded border border-green-100">סיכון נמוך</span>
-                        )}
-                        <span className="text-[10px] text-slate-400 mt-0.5 md:block hidden">ציון סיכון: {student.riskScore}/10</span>
-                    </div>
-                    
-                    <button 
-                        onClick={handleExport} 
-                        className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 md:px-4 md:py-2 rounded-lg hover:bg-slate-50 font-medium text-xs md:text-sm flex items-center gap-2 shadow-sm"
-                    >
-                        <Download size={14} className="md:w-4 md:h-4" />
-                        <span className="hidden md:inline">ייצוא לאקסל</span>
-                        <span className="md:hidden">ייצוא</span>
-                    </button>
-                </div>
+              </div>
             </div>
 
-            {/* Tabs inside Sticky Header */}
-            <div className="flex gap-2 overflow-x-auto mt-4 pb-1 scrollbar-hide">
-                {[
-                { id: 'trends', label: 'מגמות וניתוח' },
-                { id: 'grades', label: 'גיליון ציונים' },
-                { id: 'behavior', label: 'יומן התנהגות' },
-                { id: 'insights', label: 'תובנות' },
-                ].map(tab => (
-                <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as any)}
-                    className={`px-3 py-2 md:px-4 md:py-2 rounded-lg font-medium transition-all whitespace-nowrap text-sm flex-shrink-0
-                    ${activeTab === tab.id 
-                        ? 'bg-blue-600 text-white shadow-md' 
-                        : 'text-slate-500 hover:bg-white hover:text-slate-700 bg-slate-100/50'}`}
-                >
-                    {tab.label}
-                </button>
-                ))}
+            <div className="flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end gap-3 mt-2 md:mt-0">
+              <div className="flex gap-2 items-center md:flex-col md:items-end md:gap-1">
+                <span className={`px-3 py-1 rounded-xl text-xs md:text-sm border ${riskStyles[student.riskLevel]}`}>
+                  {riskLabels[student.riskLevel]}
+                </span>
+                <span className="text-[10px] text-slate-400 hidden md:block">ציון סיכון: {student.riskScore}/10</span>
+              </div>
+              <button
+                onClick={handleExport}
+                className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl hover:bg-slate-50 hover:border-slate-300 font-medium text-sm flex items-center gap-2 shadow-card transition-all"
+              >
+                <Download size={16} strokeWidth={2} />
+                <span className="hidden md:inline">ייצוא לאקסל</span>
+                <span className="md:hidden">ייצוא</span>
+              </button>
             </div>
           </div>
+
+          {/* Tabs */}
+          <div className="flex gap-2 overflow-x-auto mt-5 pb-1 scrollbar-hide">
+            {[
+              { id: 'trends', label: 'מגמות וניתוח' },
+              { id: 'grades', label: 'גיליון ציונים' },
+              { id: 'behavior', label: 'יומן התנהגות' },
+              { id: 'insights', label: 'תובנות' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap text-sm flex-shrink-0
+                  ${activeTab === tab.id
+                    ? 'bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/25'
+                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Content */}
       <div className="max-w-7xl mx-auto p-4 md:p-6 min-h-[500px]">
         {activeTab === 'trends' && (
-          <div className="grid grid-cols-1 gap-4 md:gap-6">
+          <div className="grid grid-cols-1 gap-5 md:gap-6">
             {/* Grades Chart */}
-            <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 hover:shadow-card-hover transition-shadow">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-2">
                     <h3 className="text-lg font-bold text-slate-700">מגמת ציונים (ממוצע שבועי)</h3>
                     <div className="flex gap-4 text-xs flex-wrap">
@@ -407,7 +402,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                             <Tooltip content={<CustomGradeTooltip />} cursor={{ stroke: '#94a3b8', strokeWidth: 1 }} />
                             <ReferenceLine y={55} label={{ value: "55", position: 'right', fill: 'red', fontSize: 10 }} stroke="red" strokeDasharray="3 3" />
                             <ReferenceLine y={classAverage} label={{ value: "כיתתי", position: 'right', fill: 'orange', fontSize: 10 }} stroke="orange" strokeDasharray="5 5" />
-                            <Line type="monotone" dataKey="score" stroke="#2563eb" strokeWidth={3} activeDot={{ r: 6 }} dot={{ r: 4 }} />
+                            <Line type="monotone" dataKey="score" stroke="#0c8ee6" strokeWidth={3} activeDot={{ r: 6 }} dot={{ r: 4 }} />
                             </LineChart>
                         </ResponsiveContainer>
                     ) : (
@@ -418,7 +413,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
             </div>
 
             {/* Behavior Chart */}
-             <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 hover:shadow-card-hover transition-shadow">
                 <div className="flex justify-between items-center mb-4 md:mb-6">
                     <h3 className="text-lg font-bold text-slate-700">מאזן התנהגות</h3>
                     <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded">
@@ -446,9 +441,9 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                                     <YAxis allowDecimals={false} width={30} tick={{ fontSize: 10 }} />
                                     <Tooltip content={<CustomBehaviorTooltip />} cursor={{fill: 'transparent'}} />
                                     <ReferenceLine y={0} stroke="#cbd5e1" />
-                                    <Bar dataKey="score" fill="#3b82f6" radius={[4, 4, 0, 0]}>
+                                    <Bar dataKey="score" radius={[6, 6, 0, 0]}>
                                         {behaviorChartData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.score >= 0 ? '#22c55e' : '#ef4444'} />
+                                            <Cell key={`cell-${index}`} fill={entry.score >= 0 ? '#10b981' : '#ef4444'} />
                                         ))}
                                     </Bar>
                                 </BarChart>
@@ -467,7 +462,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                  {/* Mobile Cards View for Grades */}
                  <div className="md:hidden space-y-3">
                     {student.grades.map((grade, idx) => (
-                        <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+                        <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-card flex justify-between items-center">
                             <div>
                                 <h4 className="font-bold text-slate-800">{grade.subject}</h4>
                                 <div className="text-sm text-slate-600 mt-1">{grade.assignment}</div>
@@ -477,9 +472,9 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                                     <span>משקל {grade.weight}%</span>
                                 </div>
                             </div>
-                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shadow-sm
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold
                                 ${grade.score < 60 ? 'bg-red-50 text-red-600 border border-red-100' : 
-                                  grade.score < 80 ? 'bg-yellow-50 text-yellow-600 border border-yellow-100' : 'bg-green-50 text-green-600 border border-green-100'}
+                                  grade.score < 80 ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}
                             `}>
                                 {grade.score}
                             </div>
@@ -488,9 +483,9 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                  </div>
 
                 {/* Desktop Table View for Grades */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hidden md:block">
+                <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden hidden md:block">
                     <table className="w-full text-right">
-                        <thead className="bg-slate-50 text-slate-500 text-sm">
+                        <thead className="bg-slate-50/80 text-slate-500 text-sm">
                             <tr>
                                 <th className="px-6 py-4">מקצוע</th>
                                 <th className="px-6 py-4">מטלה</th>
@@ -507,9 +502,9 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                                     <td className="px-6 py-4 text-slate-400 text-sm">{format(grade.date, 'dd/MM/yyyy')}</td>
                                     <td className="px-6 py-4 text-slate-400">{grade.weight}%</td>
                                     <td className="px-6 py-4">
-                                        <span className={`font-bold px-2 py-1 rounded
-                                            ${grade.score < 60 ? 'bg-red-100 text-red-700' : 
-                                            grade.score < 80 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}
+                                        <span className={`font-bold px-2 py-1 rounded-lg
+                                            ${grade.score < 60 ? 'bg-red-50 text-red-700' : 
+                                            grade.score < 80 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}
                                         `}>
                                             {grade.score}
                                         </span>
@@ -525,12 +520,12 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
         {activeTab === 'behavior' && (
              <div className="space-y-3 md:space-y-4">
                  {student.behaviorEvents.length === 0 ? (
-                     <div className="text-center py-10 text-slate-400 bg-white rounded-2xl shadow-sm">אין אירועי התנהגות רשומים.</div>
+                     <div className="text-center py-12 text-slate-400 bg-white rounded-2xl shadow-card border border-slate-100">אין אירועי התנהגות רשומים.</div>
                  ) : (
                     student.behaviorEvents.map((event, idx) => (
-                        <div key={idx} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-start gap-3 md:gap-4">
+                        <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-card flex items-start gap-3 md:gap-4 hover:shadow-card-hover transition-shadow">
                             <div className={`mt-1 p-2 rounded-full shrink-0 
-                                ${event.category === EventType.POSITIVE ? 'bg-green-100 text-green-600' : 
+                                ${event.category === EventType.POSITIVE ? 'bg-emerald-100 text-emerald-600' : 
                                   event.category === EventType.NEGATIVE ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
                                 {event.category === EventType.POSITIVE && <Award size={18} className="md:w-5 md:h-5" />}
                                 {event.category === EventType.NEGATIVE && <AlertTriangle size={18} className="md:w-5 md:h-5" />}
@@ -563,7 +558,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                 
                 {/* Absence Analysis Card */}
-                <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 hover:shadow-card-hover transition-shadow">
                     <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                         <UserX className="text-red-500" size={20} />
                         מוקדי חיסורים
@@ -574,8 +569,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                             {absenceData.map(([subject, count], idx) => (
                                 <div key={idx} className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100">
                                     <span className="font-medium text-slate-700 text-sm">{displaySubject(subject)}</span>
-                                    <span className={`text-xs font-bold px-2 py-1 rounded
-                                        ${count > 3 ? 'bg-red-100 text-red-700' : 'bg-orange-50 text-orange-700'}
+                                    <span className={`text-xs font-bold px-2 py-1 rounded-lg
+                                        ${count > 3 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}
                                     `}>
                                         {count} חיסורים
                                     </span>
@@ -588,9 +583,9 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                 </div>
 
                 {/* Recommendations */}
-                <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 hover:shadow-card-hover transition-shadow">
                     <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <BookOpen className="text-green-500" size={20} />
+                        <BookOpen className="text-emerald-500" size={20} />
                         המלצות למורה
                     </h3>
                     <ul className="space-y-4">
@@ -620,7 +615,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                         )}
                         {student.gradeTrend === 'improving' && (
                             <li className="flex gap-3 items-start">
-                                <div className="w-6 h-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center shrink-0 text-xs font-bold">✓</div>
+                                <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 text-xs font-bold">✓</div>
                                 <p className="text-sm text-slate-700">מגמת ציונים בעלייה! חשוב לשמר את המוטיבציה עם מילה טובה.</p>
                             </li>
                         )}
@@ -632,7 +627,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                         )}
                         {student.correlations.length > 0 && (
                             <li className="flex gap-3 items-start">
-                                <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 text-xs font-bold">?</div>
+                                <div className="w-6 h-6 rounded-full bg-primary-100 text-primary-600 flex items-center justify-center shrink-0 text-xs font-bold">?</div>
                                 <p className="text-sm text-slate-700">נראה כי אירועי משמעת משפיעים על הציונים (או להיפך). שקול התערבות יועצת.</p>
                             </li>
                         )}
@@ -640,15 +635,15 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                 </div>
 
                 {/* Correlations */}
-                <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 md:col-span-2">
+                <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 md:col-span-2 hover:shadow-card-hover transition-shadow">
                     <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <AlertCircle className="text-blue-500" size={20} />
+                        <AlertCircle className="text-primary-500" size={20} />
                         הצלבות והקשרים
                     </h3>
                     {student.correlations.length > 0 ? (
                         <ul className="space-y-3 md:space-y-4">
                             {student.correlations.map((corr, idx) => (
-                                <li key={idx} className="p-3 bg-blue-50 rounded-lg text-sm text-blue-900 border-r-4 border-blue-500">
+                                <li key={idx} className="p-4 bg-primary-50/80 rounded-xl text-sm text-slate-800 border-r-4 border-primary-500">
                                     {corr.description}
                                     <div className="text-xs text-blue-400 mt-1">{format(corr.date, 'dd/MM/yyyy')}</div>
                                 </li>
