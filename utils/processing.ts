@@ -38,6 +38,15 @@ const NEGATIVE_KEYWORDS = [
 
 // --- Helpers ---
 
+/** If value looks like a serial number (number or only digits), return '' so caller uses fallback (e.g. כללי). Avoids showing "1", "2" as subject on mobile when column order differs. */
+const normalizeSubject = (val: any): string => {
+  if (val == null || val === '') return '';
+  const s = String(val).trim();
+  if (/^\d+$/.test(s)) return ''; // only digits = serial number, not a subject name
+  if (typeof val === 'number' && !Number.isNaN(val)) return '';
+  return s;
+};
+
 const parseDate = (dateVal: any): Date | null => {
   if (!dateVal) return null;
   
@@ -164,13 +173,16 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
     const eventTypeStr = row[10] || '';
     const justificationStr = row[11] || '';
 
+    const rawSubject = row[2];
+    const subject = normalizeSubject(rawSubject) || 'כללי';
+
     events.push({
       id: `evt-${i}`,
       studentId: studentId,
       studentName: row[7] || 'Unknown',
       date: date,
       teacher: row[1] || '',
-      subject: row[2] || '',
+      subject,
       lessonNumber: parseInt(row[4]) || 0,
       type: eventTypeStr,
       category: categorizeEvent(eventTypeStr, justificationStr), // Pass justification

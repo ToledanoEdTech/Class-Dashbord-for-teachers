@@ -272,19 +272,20 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
     return { chartData: data, viewMode: isDailyView ? 'daily' : 'weekly' };
   }, [student.behaviorEvents]);
 
-  // Absence Analysis
+  // Absence Analysis (subject can be numeric on mobile when column order differs in Excel parsing)
+  const displaySubject = (raw: string) => (/^\d+$/.test(String(raw).trim()) ? 'מקצוע לא צוין' : (raw || 'כללי'));
+
   const absenceData = useMemo(() => {
     const counts: Record<string, number> = {};
     student.behaviorEvents.forEach(e => {
-        // Look for typical Hebrew keywords for absence
         const type = e.type || '';
         if (type.includes('חיסור') || type.includes('הברזה') || type.includes('אי הגעה') || type.includes('נעדר')) {
-            const subj = e.subject || 'כללי';
+            const raw = e.subject ?? '';
+            const subj = /^\d+$/.test(String(raw).trim()) ? 'כללי' : (raw || 'כללי');
             counts[subj] = (counts[subj] || 0) + 1;
         }
     });
     
-    // Sort by count descending and return array
     return Object.entries(counts)
         .sort((a, b) => b[1] - a[1])
         .filter(([_, count]) => count > 0);
@@ -544,7 +545,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                                     </span>
                                 </div>
                                 <p className="text-slate-600 text-xs md:text-sm mt-1 truncate">
-                                    <span className="font-medium text-slate-800">{event.subject}</span> • המורה {event.teacher}
+                                    <span className="font-medium text-slate-800">{displaySubject(event.subject)}</span> • המורה {event.teacher}
                                 </p>
                                 {event.comment && (
                                     <div className="mt-2 bg-slate-50 p-2 rounded text-xs md:text-sm text-slate-600 italic">
@@ -572,7 +573,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                             <p className="text-sm text-slate-600 mb-2">פירוט מקצועות בהם נרשמו חיסורים:</p>
                             {absenceData.map(([subject, count], idx) => (
                                 <div key={idx} className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100">
-                                    <span className="font-medium text-slate-700 text-sm">{subject}</span>
+                                    <span className="font-medium text-slate-700 text-sm">{displaySubject(subject)}</span>
                                     <span className={`text-xs font-bold px-2 py-1 rounded
                                         ${count > 3 ? 'bg-red-100 text-red-700' : 'bg-orange-50 text-orange-700'}
                                     `}>
@@ -599,7 +600,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                                 <div className="w-6 h-6 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0 text-xs font-bold">!</div>
                                 <p className="text-sm text-slate-700">
                                     שים לב: התלמיד צובר חיסורים רבים ב-
-                                    <span className="font-bold"> {absenceData[0][0]}</span>.
+                                    <span className="font-bold"> {displaySubject(absenceData[0][0])}</span>.
                                      מומלץ לברר את הסיבה מולו.
                                 </p>
                             </li>
