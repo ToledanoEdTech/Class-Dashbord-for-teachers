@@ -62,7 +62,7 @@ const parseDate = (dateVal: any): Date | null => {
   return null;
 };
 
-const categorizeEvent = (eventType: string): EventType => {
+const categorizeEvent = (eventType: string, justification: string = ''): EventType => {
   if (!eventType) return EventType.NEUTRAL;
   
   // Robust normalization:
@@ -76,8 +76,31 @@ const categorizeEvent = (eventType: string): EventType => {
     .replace(/\s+/g, ' ')
     .trim();
   
+  const normalizedJustification = justification.trim();
+
   // Priority Logic: Check NEGATIVE first.
-  if (NEGATIVE_KEYWORDS.some(k => normalizedType.includes(k))) return EventType.NEGATIVE;
+  if (NEGATIVE_KEYWORDS.some(k => normalizedType.includes(k))) {
+      // EXCEPTION: Justified Absences (חיסור מוצדק)
+      // If it is an absence, check if it is justified either by title or by justification column.
+      if (normalizedType.includes('חיסור')) {
+          // Check 1: Title contains "Justified"
+          if (normalizedType.includes('מוצדק')) {
+              return EventType.NEUTRAL;
+          }
+
+          // Check 2: Justification column has valid content
+          // We filter out "Without justification" phrases just in case
+          const hasJustification = normalizedJustification.length > 0 && 
+                                   !normalizedJustification.includes('ללא') && 
+                                   !normalizedJustification.includes('לא מוצדק');
+          
+          if (hasJustification) {
+              return EventType.NEUTRAL;
+          }
+      }
+      return EventType.NEGATIVE;
+  }
+
   if (POSITIVE_KEYWORDS.some(k => normalizedType.includes(k))) return EventType.POSITIVE;
   
   return EventType.NEUTRAL;
@@ -139,6 +162,7 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
     if (!date) continue;
 
     const eventTypeStr = row[10] || '';
+    const justificationStr = row[11] || '';
 
     events.push({
       id: `evt-${i}`,
@@ -149,8 +173,8 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
       subject: row[2] || '',
       lessonNumber: parseInt(row[4]) || 0,
       type: eventTypeStr,
-      category: categorizeEvent(eventTypeStr),
-      justification: row[11] || '',
+      category: categorizeEvent(eventTypeStr, justificationStr), // Pass justification
+      justification: justificationStr,
       comment: row[13] || ''
     });
   }
