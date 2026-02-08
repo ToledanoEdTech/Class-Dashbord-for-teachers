@@ -120,10 +120,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
     return result.sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       if (sortBy === 'average') return b.averageScore - a.averageScore;
-      if (sortBy === 'risk') {
-        const riskScore = { high: 3, medium: 2, low: 1 };
-        return riskScore[b.riskLevel] - riskScore[a.riskLevel];
-      }
+      if (sortBy === 'risk') return a.riskScore - b.riskScore;
       return 0;
     });
   }, [studentsInRange, searchTerm, sortBy]);

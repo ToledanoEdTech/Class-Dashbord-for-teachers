@@ -386,6 +386,18 @@ export function calculateStudentStats(
   const maxNB = settings.maxNegativeBehaviors;
   const attThr = settings.attendanceThreshold;
 
+  /**
+   * אלגוריתם ציון סיכון (1–10, 10 = סיכון נמוך):
+   * מתחיל מ-10 ומוריד לפי גורמים:
+   *
+   * ציונים: ממוצע מתחת ל-55 (-4), 55-65 (-2), 65-75 (-1)
+   * מגמת ציונים: ירידה חזקה (דלתא≤-10) (-2), ירידה (-1), שיפור (+0.5)
+   * התנהגות אחרונה: ציון≤-12 (-4), ≤-6 (-2), <0 (-1)
+   * מגמת התנהגות: מידרדר (-1), משתפר (+0.3)
+   * סך אירועים שליליים: >15 (-2), >סף (-1)
+   * חיסורים: ≥סף (-2), קרוב לסף (-0.5)
+   * מאזן חיובי: כשחיוביים>שליליים (+0.2) – נותן קרדיט לחיזוקים
+   */
   let score = 10;
   if (average < minGT) score -= 4;
   else if (average < minGT + 10) score -= 2;
@@ -404,6 +416,7 @@ export function calculateStudentStats(
   else if (negativeCount > maxNB) score -= 1;
   if (absenceCount >= attThr) score -= 2;
   else if (absenceCount >= Math.max(1, attThr - 1)) score -= 0.5;
+  if (positiveCount > negativeCount && negativeCount > 0) score += 0.2;
   score = Math.max(1, Math.min(10, score));
   score = Math.round(score * 10) / 10;
 

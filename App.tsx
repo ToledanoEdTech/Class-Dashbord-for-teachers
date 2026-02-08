@@ -7,7 +7,7 @@ import { Student, AppState, ClassGroup, RiskSettings } from './types';
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
 import { saveToStorage, loadFromStorage } from './utils/storage';
-import { GraduationCap, LayoutDashboard, Upload, Menu, X, Settings, PlusCircle, BookOpen } from 'lucide-react';
+import { GraduationCap, LayoutDashboard, Upload, Menu, X, Settings, PlusCircle, BookOpen, Pencil, Check } from 'lucide-react';
 
 const LOGO_PATH = '/logo.png';
 
@@ -39,6 +39,8 @@ const getInitialState = (): AppState => {
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(getInitialState);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [editingClassId, setEditingClassId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
 
   const activeClass = state.classes.find((c) => c.id === state.activeClassId);
   const students = activeClass?.students ?? [];
@@ -130,6 +132,24 @@ const App: React.FC = () => {
     setState((prev) => ({ ...prev, riskSettings, view: 'dashboard' }));
   }, []);
 
+  const handleRenameClass = useCallback((classId: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setState((prev) => ({
+      ...prev,
+      classes: prev.classes.map((c) =>
+        c.id === classId ? { ...c, name: trimmed, lastUpdated: new Date() } : c
+      ),
+    }));
+    setEditingClassId(null);
+    setEditingName('');
+  }, []);
+
+  const startEditClass = useCallback((c: ClassGroup) => {
+    setEditingClassId(c.id);
+    setEditingName(c.name);
+  }, []);
+
   const showSidebar = state.classes.length > 0 || state.view === 'upload';
 
   return (
@@ -159,17 +179,59 @@ const App: React.FC = () => {
             </div>
             <nav className="flex-1 overflow-y-auto p-3 space-y-1">
               {state.classes.map((c) => (
-                <button
+                <div
                   key={c.id}
-                  type="button"
-                  onClick={() => handleSelectClass(c.id)}
-                  className={`w-full text-right flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors
+                  className={`group flex items-center gap-2 px-4 py-3 rounded-xl font-medium transition-colors
                     ${state.activeClassId === c.id ? 'bg-primary-50 text-primary-700 border border-primary-100' : 'text-slate-600 hover:bg-slate-50'}`}
                 >
-                  <BookOpen size={18} className="shrink-0" />
-                  <span className="truncate">{c.name}</span>
-                  <span className="text-xs text-slate-400 shrink-0">{c.students.length}</span>
-                </button>
+                  {editingClassId === c.id ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleRenameClass(c.id, editingName);
+                          if (e.key === 'Escape') {
+                            setEditingClassId(null);
+                            setEditingName('');
+                          }
+                        }}
+                        onBlur={() => editingName.trim() && handleRenameClass(c.id, editingName)}
+                        className="flex-1 min-w-0 px-2 py-1 text-sm rounded-lg border border-primary-200 bg-white focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRenameClass(c.id, editingName)}
+                        className="p-1.5 rounded-lg hover:bg-primary-100 text-primary-600 shrink-0"
+                        aria-label="שמור"
+                      >
+                        <Check size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectClass(c.id)}
+                        className="flex-1 min-w-0 text-right flex items-center gap-3"
+                      >
+                        <BookOpen size={18} className="shrink-0" />
+                        <span className="truncate">{c.name}</span>
+                        <span className="text-xs text-slate-400 shrink-0">{c.students.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); startEditClass(c); }}
+                        className={`p-1.5 rounded-lg hover:bg-slate-200/80 text-slate-500 shrink-0 transition-opacity ${state.activeClassId === c.id ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'}`}
+                        aria-label="עריכת שם כיתה"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </>
+                  )}
+                </div>
               ))}
               <button
                 type="button"
