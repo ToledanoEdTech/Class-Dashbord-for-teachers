@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { X } from 'lucide-react';
 import { Student, EventType, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent } from '../types';
 
 const DAY_LABELS_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי']; // Sun=0 .. Fri=5
@@ -41,7 +42,16 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
 
   const [tooltip, setTooltip] = useState<CellData | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const [activeCell, setActiveCell] = useState<CellData | null>(null); // for mobile tap
+  const [isMobile, setIsMobile] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const check = () => setIsMobile(typeof window !== 'undefined' && window.innerWidth < 640);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   const { grid, maxIntensity, minLesson, maxLesson } = useMemo(() => {
     const negEvents = students.flatMap((s) =>
@@ -156,21 +166,24 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
       </div>
 
       {/* Hint text - static, no layout shift */}
-      <p className="text-slate-400 text-sm mb-3">העבר את הסמן על תא כדי לראות פרטים</p>
+      <p className="text-slate-400 text-sm mb-3">
+        <span className="hidden sm:inline">העבר את הסמן על תא כדי לראות פרטים</span>
+        <span className="sm:hidden">לחץ על תא כדי לראות פרטים</span>
+      </p>
 
-      <div ref={containerRef} className="overflow-x-auto relative">
+      <div ref={containerRef} className="overflow-x-auto overflow-y-visible relative -mx-1 px-1">
         <div
-          className="inline-grid gap-0.5 min-w-full"
+          className="inline-grid gap-0.5 sm:gap-1 min-w-full"
           style={{
-            gridTemplateColumns: `auto repeat(6, minmax(2rem, 1fr))`,
-            gridTemplateRows: `auto repeat(${maxLesson - minLesson + 1}, 2rem)`,
+            gridTemplateColumns: `auto repeat(6, minmax(2.25rem, 1fr))`,
+            gridTemplateRows: `auto repeat(${maxLesson - minLesson + 1}, minmax(2.25rem, 2.5rem))`,
           }}
         >
-          <div className="col-start-1 row-start-1 bg-transparent w-12" />
+          <div className="col-start-1 row-start-1 bg-transparent w-10 sm:w-12" />
           {DAY_LABELS_HE.map((label, i) => (
             <div
               key={label}
-              className="text-center text-xs font-semibold text-slate-600 py-1"
+              className="text-center text-[11px] sm:text-xs font-semibold text-slate-600 py-1"
               style={{ gridColumn: i + 2, gridRow: 1 }}
             >
               {label}
@@ -179,45 +192,71 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
           {grid.map((row, rowIdx) => (
             <React.Fragment key={rowIdx}>
               <div
-                className="flex items-center justify-center text-xs font-medium text-slate-500 pr-1"
+                className="flex items-center justify-center text-[11px] sm:text-xs font-medium text-slate-500 pr-1"
                 style={{ gridColumn: 1, gridRow: rowIdx + 2 }}
               >
                 {row[0].lessonNumber}
               </div>
-              {row.map((cell) => (
-                <div
-                  key={`${cell.day}-${cell.lessonNumber}`}
-                  className={`h-8 min-w-[2rem] rounded-md transition-all duration-200 ${getBgColor(cell.count)} ${cell.count > 0 ? 'cursor-pointer ring-1 ring-slate-200/80 hover:ring-2 hover:ring-primary-400 hover:scale-105' : ''}`}
-                  style={{ gridColumn: cell.day + 2, gridRow: rowIdx + 2 }}
-                  onMouseEnter={(e) => {
-                    setTooltip(cell);
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top });
-                  }}
-                  onMouseLeave={() => {
-                    setTooltip(null);
-                    setTooltipPos(null);
-                  }}
-                />
-              ))}
+              {row.map((cell) => {
+                const isActive = activeCell === cell || (tooltip?.day === cell.day && tooltip?.lessonNumber === cell.lessonNumber);
+                return (
+                  <div
+                    key={`${cell.day}-${cell.lessonNumber}`}
+                    className={`min-h-[2.25rem] sm:min-h-[2rem] min-w-[2.25rem] sm:min-w-[2rem] rounded-md transition-all duration-200 touch-manipulation ${getBgColor(cell.count)} ${cell.count > 0 ? 'cursor-pointer ring-1 ring-slate-200/80 hover:ring-2 hover:ring-primary-400 hover:scale-105 active:scale-95' : ''} ${isActive ? 'ring-2 ring-primary-500 ring-offset-2' : ''}`}
+                    style={{ gridColumn: cell.day + 2, gridRow: rowIdx + 2 }}
+                    onMouseEnter={(e) => {
+                      setActiveCell(null);
+                      setTooltip(cell);
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top });
+                    }}
+                    onMouseLeave={() => {
+                      setTooltip(null);
+                      setTooltipPos(null);
+                    }}
+                    onClick={(e) => {
+                      if (cell.count === 0) return;
+                      const next = activeCell === cell ? null : cell;
+                      setActiveCell(next);
+                      setTooltip(next);
+                      if (next) {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top });
+                      } else {
+                        setTooltipPos(null);
+                      }
+                    }}
+                  />
+                );
+              })}
             </React.Fragment>
           ))}
         </div>
       </div>
 
-      {/* Floating tooltip - position:fixed, no layout shift */}
+      {/* Floating tooltip - position:fixed; on mobile fixed at bottom so it stays on screen */}
       {tooltip && tooltipPos && (
         <div
-          className="fixed z-50 pointer-events-none transition-opacity duration-200 opacity-100"
-          style={{
-            left: tooltipPos.x,
-            top: tooltipPos.y - 8,
-            transform: 'translate(-50%, -100%)',
-          }}
+          className="fixed z-50 transition-opacity duration-200 opacity-100 pointer-events-auto"
+          style={
+            isMobile
+              ? { left: '50%', bottom: '1rem', transform: 'translateX(-50%)', maxWidth: 'calc(100vw - 2rem)' }
+              : { left: tooltipPos.x, top: tooltipPos.y - 8, transform: 'translate(-50%, -100%)' }
+          }
         >
-          <div className="bg-white/98 backdrop-blur-md rounded-xl shadow-xl border border-slate-200/90 px-4 py-3 min-w-[220px] max-w-[280px]">
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-r border-b border-slate-200/90 rotate-45" />
-            <p className="font-bold text-slate-800 text-base border-b border-slate-100 pb-2 mb-2">
+          <div className="bg-white/98 backdrop-blur-md rounded-xl shadow-xl border border-slate-200/90 px-4 py-3 min-w-[220px] max-w-[min(280px,calc(100vw-2rem))] relative">
+            {isMobile && (
+              <button
+                type="button"
+                onClick={() => { setTooltip(null); setActiveCell(null); setTooltipPos(null); }}
+                className="absolute end-2 top-2 p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                aria-label="סגור"
+              >
+                <X size={18} />
+              </button>
+            )}
+            {!isMobile && <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-r border-b border-slate-200/90 rotate-45" />}
+            <p className="font-bold text-slate-800 text-base border-b border-slate-100 pb-2 mb-2 pr-6">
               {DAY_LABELS_HE[tooltip.day]} • שיעור {tooltip.lessonNumber}
             </p>
             <p className="text-primary-600 font-semibold text-sm mb-2">
@@ -251,19 +290,19 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
         </div>
       )}
 
-      <div className="flex items-center gap-4 mt-4 text-xs text-slate-500">
-        <span>עוצמה:</span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-4 text-xs text-slate-500">
+        <span className="font-medium">עוצמה:</span>
         <span className="flex items-center gap-1">
-          <span className="w-4 h-4 rounded bg-slate-100" /> 0
+          <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-slate-100 shrink-0" /> 0
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-4 h-4 rounded bg-red-200" /> נמוך
+          <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-red-200 shrink-0" /> נמוך
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-4 h-4 rounded bg-red-500" /> בינוני
+          <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-red-500 shrink-0" /> בינוני
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-4 h-4 rounded bg-red-700" /> גבוה
+          <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-red-700 shrink-0" /> גבוה
         </span>
       </div>
     </div>

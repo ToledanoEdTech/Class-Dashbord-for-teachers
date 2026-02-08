@@ -412,7 +412,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
   };
 
   return (
-    <div className="pb-24 animate-fade-in min-h-screen bg-gradient-to-br from-slate-50 via-white to-primary-50/20">
+    <div className="pb-safe animate-fade-in min-h-screen bg-gradient-to-br from-slate-50 via-white to-primary-50/20">
       {/* Sticky Header */}
       <div className="sticky top-16 z-40 glass border-b border-slate-200/80 shadow-soft">
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-5">

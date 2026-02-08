@@ -53,24 +53,24 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
   }, [students, isAnonymous]);
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto pb-24 md:pb-10 animate-fade-in">
+    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto pb-safe animate-fade-in">
       <div className="mb-6">
         <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">מטריצת מקצועות</h2>
         <p className="text-slate-500 text-sm md:text-base mt-1">צפייה בציונים לפי תלמיד ומקצוע – מפת חום</p>
       </div>
 
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden">
-        <div className="overflow-auto max-h-[70vh] min-h-[200px]">
-          <table className="w-full border-collapse text-right">
+        <div className="overflow-auto overflow-touch max-h-[70vh] min-h-[200px]">
+          <table className="w-full border-collapse text-right min-w-[320px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="sticky top-0 right-0 z-20 bg-slate-100 border-l border-slate-200 px-4 py-3 font-bold text-slate-700 whitespace-nowrap min-w-[120px] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                <th className="sticky top-0 right-0 z-20 bg-slate-100 border-l border-slate-200 px-3 sm:px-4 py-3 font-bold text-slate-700 whitespace-nowrap min-w-[100px] sm:min-w-[120px] text-sm sm:text-base shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
                   שם התלמיד
                 </th>
                 {subjects.map((subj, i) => (
                   <th
                     key={subj}
-                    className="sticky top-0 z-10 bg-slate-100 px-3 py-3 font-semibold text-slate-600 text-sm whitespace-nowrap min-w-[90px] border-l border-slate-200"
+                    className="sticky top-0 z-10 bg-slate-100 px-2 sm:px-3 py-2.5 sm:py-3 font-semibold text-slate-600 text-xs sm:text-sm whitespace-nowrap min-w-[72px] sm:min-w-[90px] border-l border-slate-200"
                   >
                     {subj}
                   </th>
@@ -80,13 +80,13 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
             <tbody>
               {rows.map((row, rowIdx) => (
                 <tr key={row.student.id} className="border-b border-slate-100 hover:bg-slate-50/50">
-                  <td className="sticky right-0 z-10 bg-white border-l border-slate-200 px-4 py-2.5 font-medium text-slate-800 whitespace-nowrap shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                  <td className="sticky right-0 z-10 bg-white border-l border-slate-200 px-3 sm:px-4 py-2 sm:py-2.5 font-medium text-slate-800 whitespace-nowrap text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
                     {row.displayName}
                   </td>
                   {row.cells.map((value, colIdx) => (
                     <td
                       key={colIdx}
-                      className={`px-3 py-2.5 text-center min-w-[80px] border-l border-slate-100 ${getCellClass(value)}`}
+                      className={`px-2 sm:px-3 py-2 sm:py-2.5 text-center min-w-[64px] sm:min-w-[80px] border-l border-slate-100 text-sm ${getCellClass(value)}`}
                     >
                       {value === null ? '—' : value}
                     </td>
@@ -97,7 +97,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
           </table>
         </div>
 
-        <div className="flex flex-wrap gap-4 p-4 border-t border-slate-100 bg-slate-50/50 text-xs text-slate-600">
+        <div className="flex flex-wrap gap-3 sm:gap-4 p-3 sm:p-4 border-t border-slate-100 bg-slate-50/50 text-xs text-slate-600">
           <span className="flex items-center gap-1.5">
             <span className="w-4 h-4 rounded bg-red-100" /> &lt; 55
           </span>

@@ -171,7 +171,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 md:space-y-8 pb-24 md:pb-10">
+    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 md:space-y-8 pb-safe">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -187,30 +187,30 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       {/* Date Range Filter */}
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 md:p-5">
         <h3 className="text-sm font-bold text-slate-600 mb-3">סינון לפי טווח תאריכים</h3>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-slate-600 text-sm font-medium">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
+          <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 text-slate-600 text-sm font-medium flex-1 sm:flex-initial">
             <span>מתאריך:</span>
             <input
               type="date"
               value={format(startDate, 'yyyy-MM-dd')}
               onChange={(e) => setStartDate(new Date(e.target.value))}
-              className="px-3 py-2 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium"
+              className="w-full sm:w-auto px-3 py-2.5 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium min-h-[44px]"
             />
           </label>
-          <label className="flex items-center gap-2 text-slate-600 text-sm font-medium">
+          <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 text-slate-600 text-sm font-medium flex-1 sm:flex-initial">
             <span>עד תאריך:</span>
             <input
               type="date"
               value={format(endDate, 'yyyy-MM-dd')}
               onChange={(e) => setEndDate(new Date(e.target.value))}
-              className="px-3 py-2 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium"
+              className="w-full sm:w-auto px-3 py-2.5 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium min-h-[44px]"
             />
           </label>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 md:gap-5">
+      {/* KPI Cards - 2 cols on mobile, 5 on large */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 md:gap-5">
         <KPICard
           label="סה״כ תלמידים"
           value={totalStudents}
@@ -283,14 +283,14 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             <BarChart2 size={20} className="text-primary-500" />
             התפלגות ציונים
           </h3>
-          <div className="h-56 md:h-64">
+          <div className="h-52 min-h-[200px] sm:h-56 md:h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={gradeDistribution} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+              <BarChart data={gradeDistribution} margin={{ top: 10, right: 8, left: 8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#64748b' }} interval={0} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} interval={0} />
                 <YAxis hide />
                 <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(12, 142, 230, 0.05)' }} />
-                <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={36} />
+                <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={28} maxBarSize={40} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -302,10 +302,10 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             מדד התנהגות
           </h3>
           
-          <div className="flex flex-col md:flex-row items-center justify-center gap-6 min-h-[220px]">
+          <div className="flex flex-col md:flex-row items-center justify-center gap-4 sm:gap-6 min-h-[200px] sm:min-h-[220px]">
             {behaviorTypeDistribution.length > 0 ? (
               <>
-                <div className="w-full md:w-3/5 h-48 md:h-56">
+                <div className="w-full md:w-3/5 h-44 sm:h-48 md:h-56 min-h-[180px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -349,24 +349,24 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
 
       {/* Students List */}
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden">
-        <div className="p-5 md:p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between gap-4 items-stretch md:items-center">
-          <h3 className="text-lg font-bold text-slate-800">רשימת תלמידים</h3>
+        <div className="p-4 sm:p-5 md:p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between gap-4 items-stretch md:items-center">
+          <h3 className="text-base sm:text-lg font-bold text-slate-800">רשימת תלמידים</h3>
           
-          <div className="flex gap-3 flex-1 md:flex-initial md:max-w-md">
-            <div className="relative flex-1">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 flex-1 md:flex-initial md:max-w-md">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
               <input
                 type="text"
                 placeholder="חיפוש תלמיד..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 transition-all text-sm"
+                className="w-full pr-10 pl-4 py-2.5 min-h-[44px] rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 transition-all text-sm"
               />
             </div>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 text-sm font-medium text-slate-700"
+              className="px-4 py-2.5 min-h-[44px] rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-primary-500/20 focus:border-primary-400 text-sm font-medium text-slate-700"
             >
               <option value="risk">לפי סיכון</option>
               <option value="average">לפי ממוצע</option>

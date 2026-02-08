@@ -266,9 +266,9 @@ const App: React.FC = () => {
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Nav */}
-        <nav className="glass border-b border-slate-200/80 sticky top-0 z-30 shadow-soft">
+        <nav className="glass border-b border-slate-200/80 sticky top-0 z-30 shadow-soft pt-[env(safe-area-inset-top)]">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-16 md:h-[4.5rem]">
+            <div className="flex items-center justify-between min-h-[4rem] h-16 md:h-[4.5rem]">
               <div className="flex items-center gap-3">
                 {showSidebar && (
                   <button
@@ -298,38 +298,41 @@ const App: React.FC = () => {
               </div>
 
               {state.view !== 'upload' && state.view !== 'settings' && (
-                <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap justify-end min-h-[44px]">
                   {/* Navigation: Dashboard | Teacher Analytics | Subject Matrix */}
-                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 border border-slate-200/80">
+                  <div className="flex items-center gap-0.5 sm:gap-1 p-0.5 sm:p-1 rounded-xl bg-slate-100/80 border border-slate-200/80">
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${state.view === 'dashboard' || state.view === 'student' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                      className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[40px] sm:min-h-[44px] ${state.view === 'dashboard' || state.view === 'student' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                      aria-label="דשבורד"
                     >
-                      <LayoutDashboard size={16} />
+                      <LayoutDashboard size={18} className="shrink-0" />
                       <span className="hidden sm:inline">דשבורד</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${state.view === 'teachers' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                      className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[40px] sm:min-h-[44px] ${state.view === 'teachers' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                      aria-label="אנליטיקת מורים"
                     >
-                      <BarChart3 size={16} />
+                      <BarChart3 size={18} className="shrink-0" />
                       <span className="hidden sm:inline">אנליטיקת מורים</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${state.view === 'matrix' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                      className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[40px] sm:min-h-[44px] ${state.view === 'matrix' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                      aria-label="מטריצת מקצועות"
                     >
-                      <Grid3X3 size={16} />
+                      <Grid3X3 size={18} className="shrink-0" />
                       <span className="hidden sm:inline">מטריצת מקצועות</span>
                     </button>
                   </div>
                   <button
                     type="button"
                     onClick={() => setState((prev) => ({ ...prev, isAnonymous: !prev.isAnonymous }))}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${state.isAnonymous ? 'bg-primary-100 text-primary-700 border border-primary-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'}`}
+                    className={`flex items-center gap-2 px-2.5 sm:px-3 py-2.5 rounded-xl text-sm font-medium transition-colors min-h-[40px] sm:min-h-[44px] ${state.isAnonymous ? 'bg-primary-100 text-primary-700 border border-primary-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'}`}
                     title={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
                     aria-label={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
                   >
@@ -339,9 +342,10 @@ const App: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setState((prev) => ({ ...prev, view: 'upload' }))}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-500 hover:text-primary-600 hover:bg-primary-50/50 transition-colors text-sm font-medium"
+                    className="flex items-center gap-2 px-2.5 sm:px-3 py-2.5 rounded-lg text-slate-500 hover:text-primary-600 hover:bg-primary-50/50 transition-colors text-sm font-medium min-h-[40px] sm:min-h-[44px]"
+                    aria-label="העלאת קבצים"
                   >
-                    <Upload size={16} />
+                    <Upload size={18} className="shrink-0" />
                     <span className="hidden sm:inline">העלאת קבצים</span>
                   </button>
                 </div>

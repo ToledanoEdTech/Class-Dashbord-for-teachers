@@ -11,3 +11,16 @@ body {
   outline: none;
   box-shadow: 0 0 0 2px white, 0 0 0 4px #0c8ee6;
 }
+
+/* מובייל: גלילה חלקה + ריווח תחתון לאזור בטוח (מחוון בית) */
+.overflow-touch {
+  -webkit-overflow-scrolling: touch;
+}
+.pb-safe {
+  padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 768px) {
+  .pb-safe {
+    padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}

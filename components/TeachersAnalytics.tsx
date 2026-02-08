@@ -91,7 +91,7 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, isAnony
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 md:space-y-8 pb-24 md:pb-10 animate-fade-in">
+    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 md:space-y-8 pb-safe animate-fade-in">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">אנליטיקת מורים</h2>
@@ -106,14 +106,14 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, isAnony
         </h3>
         <p className="text-slate-500 text-sm mb-4">זיהוי מורים "קשיחים" (ממוצע נמוך) לעומת "מפנקים" (ממוצע גבוה)</p>
         {gradeByTeacher.length > 0 ? (
-          <div className="h-72 md:h-80">
+          <div className="h-64 min-h-[240px] sm:h-72 md:h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={gradeByTeacher} layout="vertical" margin={{ top: 5, right: 20, left: 80, bottom: 5 }}>
+              <BarChart data={gradeByTeacher} layout="vertical" margin={{ top: 5, right: 8, left: 8, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12, fill: '#64748b' }} />
-                <YAxis type="category" dataKey="teacher" width={75} tick={{ fontSize: 11, fill: '#64748b' }} />
+                <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: '#64748b' }} />
+                <YAxis type="category" dataKey="teacher" width={90} tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v) => (v && v.length > 12 ? `${v.slice(0, 11)}…` : v)} />
                 <Tooltip content={gradeChartTooltip} cursor={{ fill: 'rgba(12, 142, 230, 0.06)' }} />
-                <Bar dataKey="avgGrade" name="ממוצע ציון" fill="#0c8ee6" radius={[0, 4, 4, 0]} barSize={28} />
+                <Bar dataKey="avgGrade" name="ממוצע ציון" fill="#0c8ee6" radius={[0, 4, 4, 0]} barSize={24} maxBarSize={36} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -129,16 +129,16 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, isAnony
         </h3>
         <p className="text-slate-500 text-sm mb-4">השוואת אירועים שליליים וחיוביים – זיהוי מוקדי משמעת</p>
         {behaviorByTeacher.length > 0 ? (
-          <div className="h-72 md:h-80">
+          <div className="h-64 min-h-[240px] sm:h-72 md:h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={behaviorByTeacher} layout="vertical" margin={{ top: 5, right: 20, left: 80, bottom: 5 }}>
+              <BarChart data={behaviorByTeacher} layout="vertical" margin={{ top: 5, right: 8, left: 8, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                <XAxis type="number" tick={{ fontSize: 12, fill: '#64748b' }} />
-                <YAxis type="category" dataKey="teacher" width={75} tick={{ fontSize: 11, fill: '#64748b' }} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} />
+                <YAxis type="category" dataKey="teacher" width={90} tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={(v) => (v && v.length > 12 ? `${v.slice(0, 11)}…` : v)} />
                 <Tooltip content={behaviorChartTooltip} cursor={{ fill: 'rgba(12, 142, 230, 0.06)' }} />
                 <Legend wrapperStyle={{ direction: 'rtl' }} formatter={(value) => (value === 'negativeCount' ? 'שליליים' : 'חיוביים')} />
-                <Bar dataKey="negativeCount" name="negativeCount" fill="#ef4444" radius={[0, 4, 4, 0]} barSize={20} stackId="a" />
-                <Bar dataKey="positiveCount" name="positiveCount" fill="#22c55e" radius={[0, 4, 4, 0]} barSize={20} stackId="a" />
+                <Bar dataKey="negativeCount" name="negativeCount" fill="#ef4444" radius={[0, 4, 4, 0]} barSize={18} maxBarSize={28} stackId="a" />
+                <Bar dataKey="positiveCount" name="positiveCount" fill="#22c55e" radius={[0, 4, 4, 0]} barSize={18} maxBarSize={28} stackId="a" />
               </BarChart>
             </ResponsiveContainer>
           </div>
