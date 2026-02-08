@@ -18,6 +18,16 @@ export interface BehaviorEvent {
   comment: string;
 }
 
+/** אירוע שלילי שמסווג כחיסור (חיסור ללא הצדקה) */
+export function isAbsenceEvent(e: BehaviorEvent): boolean {
+  return e.category === EventType.NEGATIVE && (e.type || '').trim().includes('חיסור');
+}
+
+/** אירוע שלילי שאינו חיסור */
+export function isOtherNegativeEvent(e: BehaviorEvent): boolean {
+  return e.category === EventType.NEGATIVE && !isAbsenceEvent(e);
+}
+
 export interface Grade {
   studentId: string;
   studentName: string;

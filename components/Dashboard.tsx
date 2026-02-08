@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Student, EventType } from '../types';
+import { Student, EventType, isAbsenceEvent, isOtherNegativeEvent } from '../types';
 import { Users, TrendingUp, AlertTriangle, Search, ChevronRight, BarChart2, PieChart as PieChartIcon, CheckCircle, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import {
   BarChart,
@@ -13,6 +13,9 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import { format, subDays, startOfDay, endOfDay, differenceInDays } from 'date-fns';
+import { computeStudentStatsFromData } from '../utils/processing';
+import ClassHeatmap from './ClassHeatmap';
 
 interface DashboardProps {
   students: Student[];
@@ -20,16 +23,99 @@ interface DashboardProps {
   onSelectStudent: (id: string) => void;
 }
 
+const getDefaultDateRange = (): { start: Date; end: Date } => {
+  const now = new Date();
+  const year = now.getFullYear();
+  let sept1 = new Date(year, 8, 1);
+  if (now < sept1) sept1 = new Date(year - 1, 8, 1);
+  return { start: sept1, end: startOfDay(now) };
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent }) => {
+  const { start: defaultStart, end: defaultEnd } = useMemo(getDefaultDateRange, []);
+  const [startDate, setStartDate] = useState<Date>(defaultStart);
+  const [endDate, setEndDate] = useState<Date>(defaultEnd);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'average' | 'risk'>('risk');
 
-  const totalStudents = students.length;
-  const atRiskCount = students.filter(s => s.riskLevel === 'high').length;
-  const totalNegative = students.reduce((sum, s) => sum + s.negativeCount, 0);
+  const rangeStart = useMemo(() => startOfDay(startDate), [startDate]);
+  const rangeEnd = useMemo(() => endOfDay(endDate), [endDate]);
+
+  const studentsInRange = useMemo(() => {
+    return students.map((s) => {
+      const g = s.grades.filter((gr) => gr.date >= rangeStart && gr.date <= rangeEnd);
+      const e = s.behaviorEvents.filter((ev) => ev.date >= rangeStart && ev.date <= rangeEnd);
+      const stats = computeStudentStatsFromData(g, e);
+      return { ...s, ...stats, grades: g, behaviorEvents: e };
+    });
+  }, [students, rangeStart, rangeEnd]);
+
+  const periodLengthDays = useMemo(
+    () => Math.max(1, differenceInDays(rangeEnd, rangeStart) + 1),
+    [rangeStart, rangeEnd]
+  );
+  const prevPeriodEnd = useMemo(() => subDays(rangeStart, 1), [rangeStart]);
+  const prevPeriodStart = useMemo(() => subDays(prevPeriodEnd, periodLengthDays - 1), [prevPeriodEnd, periodLengthDays]);
+
+  const prevStats = useMemo(() => {
+    const prevStart = startOfDay(prevPeriodStart);
+    const prevEnd = endOfDay(prevPeriodEnd);
+    return students.map((s) => {
+      const g = s.grades.filter((gr) => gr.date >= prevStart && gr.date <= prevEnd);
+      const e = s.behaviorEvents.filter((ev) => ev.date >= prevStart && ev.date <= prevEnd);
+      return computeStudentStatsFromData(g, e);
+    });
+  }, [students, prevPeriodStart, prevPeriodEnd]);
+
+  const totalStudents = studentsInRange.length;
+  const atRiskCount = studentsInRange.filter((s) => s.riskLevel === 'high').length;
+  const totalNegative = studentsInRange.reduce((sum, s) => sum + s.negativeCount, 0);
+
+  const { totalAbsences, totalOtherNegative } = useMemo(() => {
+    let abs = 0;
+    let other = 0;
+    studentsInRange.forEach((s) => {
+      s.behaviorEvents.forEach((e) => {
+        if (isAbsenceEvent(e)) abs++;
+        else if (isOtherNegativeEvent(e)) other++;
+      });
+    });
+    return { totalAbsences: abs, totalOtherNegative: other };
+  }, [studentsInRange]);
+
+  const classAverageInRange =
+    studentsInRange.length > 0
+      ? studentsInRange.reduce((sum, s) => sum + s.averageScore, 0) / studentsInRange.length
+      : 0;
+
+  const prevClassAvg =
+    prevStats.length > 0 ? prevStats.reduce((sum, s) => sum + s.averageScore, 0) / prevStats.length : 0;
+
+  const { prevAbsences, prevOtherNeg } = useMemo(() => {
+    const prevStart = startOfDay(prevPeriodStart);
+    const prevEnd = endOfDay(prevPeriodEnd);
+    let abs = 0;
+    let other = 0;
+    students.forEach((s) => {
+      s.behaviorEvents
+        .filter((e) => e.date >= prevStart && e.date <= prevEnd)
+        .forEach((e) => {
+          if (isAbsenceEvent(e)) abs++;
+          else if (isOtherNegativeEvent(e)) other++;
+        });
+    });
+    return { prevAbsences: abs, prevOtherNeg: other };
+  }, [students, prevPeriodStart, prevPeriodEnd]);
+
+  const avgChangePercent =
+    prevClassAvg > 0 ? ((classAverageInRange - prevClassAvg) / prevClassAvg) * 100 : 0;
+  const absencesChangePercent =
+    prevAbsences > 0 ? ((totalAbsences - prevAbsences) / prevAbsences) * 100 : totalAbsences > 0 ? 100 : 0;
+  const otherNegChangePercent =
+    prevOtherNeg > 0 ? ((totalOtherNegative - prevOtherNeg) / prevOtherNeg) * 100 : totalOtherNegative > 0 ? 100 : 0;
 
   const filteredStudents = useMemo(() => {
-    let result = students.filter(s => s.name.includes(searchTerm) || s.id.includes(searchTerm));
+    let result = studentsInRange.filter((s) => s.name.includes(searchTerm) || s.id.includes(searchTerm));
     return result.sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       if (sortBy === 'average') return b.averageScore - a.averageScore;
@@ -39,23 +125,26 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       }
       return 0;
     });
-  }, [students, searchTerm, sortBy]);
+  }, [studentsInRange, searchTerm, sortBy]);
 
-  const gradeDistribution = [
-    { name: '0-59', count: students.filter(s => s.averageScore < 60).length },
-    { name: '60-69', count: students.filter(s => s.averageScore >= 60 && s.averageScore < 70).length },
-    { name: '70-79', count: students.filter(s => s.averageScore >= 70 && s.averageScore < 80).length },
-    { name: '80-89', count: students.filter(s => s.averageScore >= 80 && s.averageScore < 90).length },
-    { name: '90-100', count: students.filter(s => s.averageScore >= 90).length },
-  ];
+  const gradeDistribution = useMemo(
+    () => [
+      { name: '0-59', count: studentsInRange.filter((s) => s.averageScore < 60).length },
+      { name: '60-69', count: studentsInRange.filter((s) => s.averageScore >= 60 && s.averageScore < 70).length },
+      { name: '70-79', count: studentsInRange.filter((s) => s.averageScore >= 70 && s.averageScore < 80).length },
+      { name: '80-89', count: studentsInRange.filter((s) => s.averageScore >= 80 && s.averageScore < 90).length },
+      { name: '90-100', count: studentsInRange.filter((s) => s.averageScore >= 90).length },
+    ],
+    [studentsInRange]
+  );
 
   const { behaviorTypeDistribution, classBehaviorScore } = useMemo(() => {
     const typeCounts: Record<string, number> = {};
     let totalPos = 0;
     let totalNeg = 0;
 
-    students.forEach(s => {
-      s.behaviorEvents.forEach(e => {
+    studentsInRange.forEach((s) => {
+      s.behaviorEvents.forEach((e) => {
         if (e.category !== EventType.NEUTRAL && e.type) {
           typeCounts[e.type] = (typeCounts[e.type] || 0) + 1;
         }
@@ -73,7 +162,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       .map(([name, value]) => ({ name, value }));
 
     return { behaviorTypeDistribution: topTypes, classBehaviorScore: score };
-  }, [students]);
+  }, [studentsInRange]);
 
   const PIE_COLORS = ['#0c8ee6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6'];
 
@@ -101,8 +190,33 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         </div>
       </div>
 
+      {/* Date Range Filter */}
+      <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 md:p-5">
+        <h3 className="text-sm font-bold text-slate-600 mb-3">סינון לפי טווח תאריכים</h3>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-slate-600 text-sm font-medium">
+            <span>מתאריך:</span>
+            <input
+              type="date"
+              value={format(startDate, 'yyyy-MM-dd')}
+              onChange={(e) => setStartDate(new Date(e.target.value))}
+              className="px-3 py-2 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-slate-600 text-sm font-medium">
+            <span>עד תאריך:</span>
+            <input
+              type="date"
+              value={format(endDate, 'yyyy-MM-dd')}
+              onChange={(e) => setEndDate(new Date(e.target.value))}
+              className="px-3 py-2 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium"
+            />
+          </label>
+        </div>
+      </div>
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 md:gap-5">
         <KPICard
           label="סה״כ תלמידים"
           value={totalStudents}
@@ -112,18 +226,52 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         />
         <KPICard
           label="ממוצע כיתתי"
-          value={classAverage.toFixed(1)}
+          value={classAverageInRange.toFixed(1)}
           icon={BarChart2}
           color="success"
           gradient="from-emerald-500 to-teal-500"
-          highlight={classAverage > 75}
+          highlight={classAverageInRange > 75}
+          comparison={
+            prevClassAvg > 0
+              ? {
+                  percent: avgChangePercent,
+                  isImprovement: avgChangePercent >= 0,
+                  label: 'לעומת התקופה הקודמת',
+                }
+              : undefined
+          }
         />
         <KPICard
-          label="אירועי משמעת"
-          value={totalNegative}
+          label="חיסורים"
+          value={totalAbsences}
           icon={AlertTriangle}
           color="danger"
           gradient="from-red-500 to-rose-500"
+          comparison={
+            prevAbsences > 0 || totalAbsences > 0
+              ? {
+                  percent: absencesChangePercent,
+                  isImprovement: absencesChangePercent <= 0,
+                  label: 'לעומת התקופה הקודמת',
+                }
+              : undefined
+          }
+        />
+        <KPICard
+          label="אירועים שליליים (אחר)"
+          value={totalOtherNegative}
+          icon={AlertTriangle}
+          color="danger"
+          gradient="from-rose-500 to-red-600"
+          comparison={
+            prevOtherNeg > 0 || totalOtherNegative > 0
+              ? {
+                  percent: otherNegChangePercent,
+                  isImprovement: otherNegChangePercent <= 0,
+                  label: 'לעומת התקופה הקודמת',
+                }
+              : undefined
+          }
         />
         <KPICard
           label="תלמידים בסיכון"
@@ -208,6 +356,9 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           </div>
         </div>
       </div>
+
+      {/* Class Heatmap */}
+      <ClassHeatmap students={studentsInRange} />
 
       {/* Students List */}
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden">
@@ -318,7 +469,8 @@ const KPICard: React.FC<{
   color: string;
   gradient: string;
   highlight?: boolean;
-}> = ({ label, value, icon: Icon, gradient, highlight }) => (
+  comparison?: { percent: number; isImprovement: boolean; label: string };
+}> = ({ label, value, icon: Icon, gradient, highlight, comparison }) => (
   <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-all duration-300 group">
     <div className="flex items-start justify-between">
       <div>
@@ -326,6 +478,22 @@ const KPICard: React.FC<{
         <p className={`text-2xl md:text-3xl font-bold ${highlight ? 'text-emerald-600' : 'text-slate-800'}`}>
           {value}
         </p>
+        {comparison != null && (
+          <div
+            className={`mt-1 flex items-center gap-1 text-xs font-medium ${comparison.isImprovement ? 'text-emerald-600' : 'text-red-600'}`}
+            title={comparison.label}
+          >
+            {comparison.isImprovement ? (
+              <ArrowUpRight size={14} strokeWidth={2.5} />
+            ) : (
+              <ArrowDownRight size={14} strokeWidth={2.5} />
+            )}
+            <span>
+              {comparison.percent >= 0 ? '+' : ''}
+              {comparison.percent.toFixed(1)}%
+            </span>
+          </div>
+        )}
       </div>
       <div className={`p-3 rounded-xl bg-gradient-to-br ${gradient} text-white shadow-lg opacity-90 group-hover:opacity-100 transition-opacity`}>
         <Icon size={22} strokeWidth={2} />

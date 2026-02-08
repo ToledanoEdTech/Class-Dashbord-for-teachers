@@ -440,6 +440,105 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
   return Array.from(studentsMap.values());
 };
 
+/** Compute student stats from given grades and behavior events (e.g. date-filtered). Used for period comparison. */
+export interface StudentStatsResult {
+  averageScore: number;
+  negativeCount: number;
+  positiveCount: number;
+  gradeTrend: 'improving' | 'declining' | 'stable';
+  behaviorTrend: 'improving' | 'declining' | 'stable';
+  riskLevel: 'high' | 'medium' | 'low';
+  riskScore: number;
+}
+
+export function computeStudentStatsFromData(
+  grades: Grade[],
+  behaviorEvents: BehaviorEvent[]
+): StudentStatsResult {
+  const sGrades = [...grades].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const sEvents = [...behaviorEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const totalWeight = sGrades.reduce((sum, g) => sum + g.weight, 0);
+  const weightedSum = sGrades.reduce((sum, g) => sum + g.score * g.weight, 0);
+  const average =
+    totalWeight > 0
+      ? weightedSum / totalWeight
+      : sGrades.length > 0
+        ? sGrades.reduce((a, b) => a + b.score, 0) / sGrades.length
+        : 0;
+
+  const negativeCount = sEvents.filter((e) => e.category === EventType.NEGATIVE).length;
+  const positiveCount = sEvents.filter((e) => e.category === EventType.POSITIVE).length;
+
+  let gradeTrend: 'improving' | 'declining' | 'stable' = 'stable';
+  let gradeDelta = 0;
+  if (sGrades.length >= 2) {
+    const recentGrades = sGrades.slice(-6);
+    const mid = Math.floor(recentGrades.length / 2);
+    const prevHalf = recentGrades.slice(0, mid);
+    const currHalf = recentGrades.slice(mid);
+    const avgPrev = prevHalf.length > 0 ? prevHalf.reduce((s, g) => s + g.score, 0) / prevHalf.length : 0;
+    const avgCurr = currHalf.length > 0 ? currHalf.reduce((s, g) => s + g.score, 0) / currHalf.length : 0;
+    gradeDelta = avgCurr - avgPrev;
+    if (gradeDelta > 3) gradeTrend = 'improving';
+    else if (gradeDelta < -3) gradeTrend = 'declining';
+  }
+
+  let behaviorTrend: 'improving' | 'declining' | 'stable' = 'stable';
+  let recentBehaviorScore = 0;
+  if (sEvents.length >= 2) {
+    const recentEvents = sEvents.slice(-12);
+    const mid = Math.floor(recentEvents.length / 2);
+    const prevHalf = recentEvents.slice(0, mid);
+    const currHalf = recentEvents.slice(mid);
+    const getScore = (e: BehaviorEvent) => {
+      if (e.category === EventType.POSITIVE) return 1;
+      if (e.category === EventType.NEGATIVE) return -2;
+      return 0;
+    };
+    const scoreCurr = currHalf.reduce((sum, e) => sum + getScore(e), 0);
+    const scorePrev = prevHalf.reduce((sum, e) => sum + getScore(e), 0);
+    const behaviorDelta = scoreCurr - scorePrev;
+    recentBehaviorScore = scoreCurr;
+    if (scoreCurr <= -6 && behaviorDelta <= 0) behaviorTrend = 'declining';
+    else {
+      if (behaviorDelta >= 2) behaviorTrend = 'improving';
+      else if (behaviorDelta <= -2) behaviorTrend = 'declining';
+    }
+  }
+
+  let score = 10;
+  if (average < 55) score -= 4;
+  else if (average < 65) score -= 2;
+  else if (average < 75) score -= 1;
+  if (gradeTrend === 'declining') {
+    if (gradeDelta <= -10) score -= 2;
+    else score -= 1;
+  }
+  if (recentBehaviorScore <= -12) score -= 4;
+  else if (recentBehaviorScore <= -6) score -= 2;
+  else if (recentBehaviorScore < 0) score -= 1;
+  if (behaviorTrend === 'declining') score -= 1;
+  if (negativeCount > 15) score -= 2;
+  else if (negativeCount > 8) score -= 1;
+  score = Math.max(1, Math.min(10, score));
+
+  let riskLevel: 'high' | 'medium' | 'low';
+  if (score <= 4) riskLevel = 'high';
+  else if (score <= 7) riskLevel = 'medium';
+  else riskLevel = 'low';
+
+  return {
+    averageScore: parseFloat(average.toFixed(1)),
+    negativeCount,
+    positiveCount,
+    gradeTrend,
+    behaviorTrend,
+    riskLevel,
+    riskScore: score,
+  };
+}
+
 export const generateSampleData = () => {
   const behaviorCSV = `
 IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE
