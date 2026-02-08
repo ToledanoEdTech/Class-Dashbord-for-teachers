@@ -3,11 +3,13 @@ import FileUpload from './components/FileUpload';
 import Dashboard from './components/Dashboard';
 import StudentProfile from './components/StudentProfile';
 import SettingsPanel from './components/SettingsPanel';
+import TeachersAnalytics from './components/TeachersAnalytics';
+import SubjectMatrix from './components/SubjectMatrix';
 import { Student, AppState, ClassGroup, RiskSettings } from './types';
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
 import { saveToStorage, loadFromStorage } from './utils/storage';
-import { GraduationCap, LayoutDashboard, Upload, Menu, X, Settings, PlusCircle, BookOpen, Pencil, Check } from 'lucide-react';
+import { GraduationCap, LayoutDashboard, Upload, Menu, X, Settings, PlusCircle, BookOpen, Pencil, Check, Eye, EyeOff, BarChart3, Grid3X3 } from 'lucide-react';
 
 const LOGO_PATH = '/logo.png';
 
@@ -31,6 +33,7 @@ const getInitialState = (): AppState => {
     selectedStudentId: null,
     classes,
     activeClassId,
+    isAnonymous: false,
     riskSettings,
     loading: false,
   };
@@ -49,6 +52,7 @@ const App: React.FC = () => {
       ? students.reduce((sum, s) => sum + s.averageScore, 0) / students.length
       : 0;
   const selectedStudent = students.find((s) => s.id === state.selectedStudentId);
+  const selectedStudentIndex = state.selectedStudentId ? students.findIndex((s) => s.id === state.selectedStudentId) : -1;
 
   useEffect(() => {
     saveToStorage({
@@ -294,11 +298,44 @@ const App: React.FC = () => {
               </div>
 
               {state.view !== 'upload' && state.view !== 'settings' && (
-                <div className="flex items-center gap-3">
-                  <div className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-primary-50/80 border border-primary-100 text-primary-700 font-medium text-sm">
-                    <LayoutDashboard size={18} />
-                    דשבורד כיתתי
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                  {/* Navigation: Dashboard | Teacher Analytics | Subject Matrix */}
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 border border-slate-200/80">
+                    <button
+                      type="button"
+                      onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${state.view === 'dashboard' || state.view === 'student' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                    >
+                      <LayoutDashboard size={16} />
+                      <span className="hidden sm:inline">דשבורד</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${state.view === 'teachers' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                    >
+                      <BarChart3 size={16} />
+                      <span className="hidden sm:inline">אנליטיקת מורים</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${state.view === 'matrix' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                    >
+                      <Grid3X3 size={16} />
+                      <span className="hidden sm:inline">מטריצת מקצועות</span>
+                    </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setState((prev) => ({ ...prev, isAnonymous: !prev.isAnonymous }))}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${state.isAnonymous ? 'bg-primary-100 text-primary-700 border border-primary-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'}`}
+                    title={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
+                    aria-label={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
+                  >
+                    {state.isAnonymous ? <EyeOff size={18} /> : <Eye size={18} />}
+                    <span className="hidden sm:inline">{state.isAnonymous ? 'פרטיות פעילה' : 'פרטיות'}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => setState((prev) => ({ ...prev, view: 'upload' }))}
@@ -324,6 +361,7 @@ const App: React.FC = () => {
               classAverage={classAverage}
               onSelectStudent={handleSelectStudent}
               riskSettings={state.riskSettings}
+              isAnonymous={state.isAnonymous}
             />
           )}
 
@@ -334,7 +372,17 @@ const App: React.FC = () => {
               classAverage={classAverage}
               onUpdateStudent={handleUpdateStudent}
               riskSettings={state.riskSettings}
+              isAnonymous={state.isAnonymous}
+              studentIndex={selectedStudentIndex >= 0 ? selectedStudentIndex : 0}
             />
+          )}
+
+          {state.view === 'teachers' && activeClass && (
+            <TeachersAnalytics students={students} isAnonymous={state.isAnonymous} />
+          )}
+
+          {state.view === 'matrix' && activeClass && (
+            <SubjectMatrix students={students} isAnonymous={state.isAnonymous} />
           )}
 
           {state.view === 'settings' && (

@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { format, subDays, startOfDay, endOfDay, differenceInDays } from 'date-fns';
 import { computeStudentStatsFromData } from '../utils/processing';
+import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
 
 interface DashboardProps {
@@ -22,6 +23,7 @@ interface DashboardProps {
   classAverage: number;
   onSelectStudent: (id: string) => void;
   riskSettings?: RiskSettings;
+  isAnonymous?: boolean;
 }
 
 const getDefaultDateRange = (): { start: Date; end: Date } => {
@@ -32,7 +34,7 @@ const getDefaultDateRange = (): { start: Date; end: Date } => {
   return { start: sept1, end: startOfDay(now) };
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings }) => {
+const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings, isAnonymous = false }) => {
   const { start: defaultStart, end: defaultEnd } = useMemo(getDefaultDateRange, []);
   const [startDate, setStartDate] = useState<Date>(defaultStart);
   const [endDate, setEndDate] = useState<Date>(defaultEnd);
@@ -376,7 +378,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         {/* Mobile Cards */}
         <div className="md:hidden p-4 space-y-3 bg-slate-50/30">
           {filteredStudents.map((student, idx) => (
-            <StudentCard key={student.id} student={student} onClick={() => onSelectStudent(student.id)} index={idx} />
+            <StudentCard key={student.id} student={student} onClick={() => onSelectStudent(student.id)} index={idx} isAnonymous={isAnonymous} />
           ))}
         </div>
 
@@ -395,7 +397,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredStudents.map((student) => (
+              {filteredStudents.map((student, idx) => (
                 <tr
                   key={student.id}
                   onClick={() => onSelectStudent(student.id)}
@@ -408,7 +410,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                         {Math.round(student.averageScore)}
                       </div>
                       <div>
-                        <div className="font-semibold text-slate-800">{student.name}</div>
+                        <div className="font-semibold text-slate-800">{getDisplayName(student.name, idx, isAnonymous)}</div>
                         <div className="text-xs text-slate-400">{student.id}</div>
                       </div>
                     </div>
@@ -521,7 +523,7 @@ const TrendBadge: React.FC<{ trend: 'improving' | 'declining' | 'stable'; type: 
   );
 };
 
-const StudentCard: React.FC<{ student: Student; onClick: () => void; index: number }> = ({ student, onClick }) => (
+const StudentCard: React.FC<{ student: Student; onClick: () => void; index: number; isAnonymous?: boolean }> = ({ student, onClick, index, isAnonymous = false }) => (
   <div
     onClick={onClick}
     className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-card active:border-primary-300 active:shadow-glow transition-all"
@@ -533,7 +535,7 @@ const StudentCard: React.FC<{ student: Student; onClick: () => void; index: numb
           {Math.round(student.averageScore)}
         </div>
         <div>
-          <h4 className="font-bold text-slate-800">{student.name}</h4>
+          <h4 className="font-bold text-slate-800">{getDisplayName(student.name, index, isAnonymous)}</h4>
           <span className="text-xs text-slate-400">{student.id}</span>
         </div>
       </div>

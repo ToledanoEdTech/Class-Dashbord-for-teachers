@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { format, differenceInDays, eachDayOfInterval, eachWeekOfInterval, isSameDay, isSameWeek, endOfWeek } from 'date-fns';
 import * as XLSX from 'xlsx';
+import { getDisplayName } from '../utils/displayName';
 
 interface StudentProfileProps {
   student: Student;
@@ -24,6 +25,8 @@ interface StudentProfileProps {
   classAverage: number;
   onUpdateStudent?: (student: Student) => void;
   riskSettings?: RiskSettings;
+  isAnonymous?: boolean;
+  studentIndex?: number;
 }
 
 // Local helper for startOfWeek to avoid import issues
@@ -139,7 +142,7 @@ const CustomGradeTooltip = ({ active, payload, label }: any) => {
     return null;
 };
 
-const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classAverage, onUpdateStudent, riskSettings }) => {
+const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classAverage, onUpdateStudent, riskSettings, isAnonymous = false, studentIndex = 0 }) => {
   const [activeTab, setActiveTab] = useState<'trends' | 'grades' | 'behavior' | 'insights'>('trends');
   const [showAddGrade, setShowAddGrade] = useState(false);
   const [showAddEvent, setShowAddEvent] = useState(false);
@@ -192,7 +195,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
     XLSX.utils.book_append_sheet(wb, wsBehavior, "התנהגות");
 
     // Save File
-    XLSX.writeFile(wb, `דוח_תלמיד_${student.name}.xlsx`);
+    XLSX.writeFile(wb, `דוח_תלמיד_${getDisplayName(student.name, studentIndex ?? 0, isAnonymous ?? false)}.xlsx`);
   };
 
   // Chart Data: Grades - Aggregated by Week
@@ -430,7 +433,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                 {Math.round(student.averageScore)}
               </div>
               <div>
-                <h1 className="text-xl md:text-2xl font-bold text-slate-800 leading-tight tracking-tight">{student.name}</h1>
+                <h1 className="text-xl md:text-2xl font-bold text-slate-800 leading-tight tracking-tight">{getDisplayName(student.name, studentIndex, isAnonymous)}</h1>
                 <div className="text-slate-500 text-xs md:text-sm flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                   <span>ת.ז: {student.id}</span>
                   <span className="text-slate-300 hidden md:inline">|</span>

@@ -83,12 +83,14 @@ export interface ClassGroup {
 }
 
 export interface AppState {
-  view: 'upload' | 'dashboard' | 'student' | 'settings';
+  view: 'upload' | 'dashboard' | 'student' | 'teachers' | 'matrix' | 'settings';
   selectedStudentId: string | null;
   /** כל הכיתות (במקום רשימת תלמידים שטוחה) */
   classes: ClassGroup[];
   /** מזהה הכיתה הפעילה; null = אין כיתה נבחרת */
   activeClassId: string | null;
+  /** מצב פרטיות: הצגת שמות כ"תלמיד [מס]" או אותיות ראשונות */
+  isAnonymous: boolean;
   /** הגדרות סיכון גלובליות */
   riskSettings: RiskSettings;
   loading: boolean;
