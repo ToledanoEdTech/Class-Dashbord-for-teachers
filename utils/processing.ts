@@ -1,4 +1,5 @@
-import { BehaviorEvent, EventType, Grade, Student, Correlation } from '../types';
+import { BehaviorEvent, EventType, Grade, Student, Correlation, RiskSettings, DEFAULT_RISK_SETTINGS } from '../types';
+import { isAbsenceEvent } from '../types';
 import { differenceInDays } from 'date-fns';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
@@ -175,7 +176,10 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
     teacher: findCol(headerRow, 'שם המורה') >= 0 ? findCol(headerRow, 'שם המורה') : 1,
     subject: findSubjectCol(headerRow) >= 0 ? findSubjectCol(headerRow) : 2,
     date: findCol(headerRow, 'תאריך') >= 0 ? findCol(headerRow, 'תאריך') : 3,
-    lessonNumber: findCol(headerRow, 'מס\' שיעור', 'מספר שיעור', 'מס. שיעור') >= 0 ? findCol(headerRow, 'מס\' שיעור', 'מספר שיעור', 'מס. שיעור') : 4,
+    lessonNumber: (() => {
+      const i = findCol(headerRow, 'מספר שיעור', 'מס\' שיעור', 'מס. שיעור', 'מס שיעור');
+      return i >= 0 ? i : 4;
+    })(),
     studentId: findCol(headerRow, 'ת.ז', 'תעודת זהות') >= 0 ? findCol(headerRow, 'ת.ז', 'תעודת זהות') : 6,
     studentName: findCol(headerRow, 'שם התלמיד') >= 0 ? findCol(headerRow, 'שם התלמיד') : 7,
     type: findCol(headerRow, 'סוג', 'הערה', 'אירוע') >= 0 ? findCol(headerRow, 'סוג', 'הערה', 'אירוע') : 10,
@@ -303,160 +307,30 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
   uniqueStudentIds.forEach(id => {
     const sEvents = events.filter(e => e.studentId === id).sort((a,b) => a.date.getTime() - b.date.getTime());
     const sGrades = grades.filter(g => g.studentId === id).sort((a,b) => a.date.getTime() - b.date.getTime());
-    
-    // Stats
-    const totalWeight = sGrades.reduce((sum, g) => sum + g.weight, 0);
-    const weightedSum = sGrades.reduce((sum, g) => sum + (g.score * g.weight), 0);
-    const average = totalWeight > 0 ? weightedSum / totalWeight : (sGrades.length > 0 ? sGrades.reduce((a,b)=>a+b.score,0)/sGrades.length : 0);
-
-    const negativeCount = sEvents.filter(e => e.category === EventType.NEGATIVE).length;
-    const positiveCount = sEvents.filter(e => e.category === EventType.POSITIVE).length;
-
-    // --- Grade Trend (Last 6 Grades Focus) ---
-    let gradeTrend: 'improving' | 'declining' | 'stable' = 'stable';
-    let gradeDelta = 0;
-
-    if (sGrades.length >= 2) {
-        // Focus on the last 6 grades to detect recent changes
-        const recentGrades = sGrades.slice(-6);
-        const mid = Math.floor(recentGrades.length / 2);
-        const prevHalf = recentGrades.slice(0, mid);
-        const currHalf = recentGrades.slice(mid);
-        
-        const avgPrev = prevHalf.length > 0 ? prevHalf.reduce((s,g)=>s+g.score,0) / prevHalf.length : 0;
-        const avgCurr = currHalf.length > 0 ? currHalf.reduce((s,g)=>s+g.score,0) / currHalf.length : 0;
-        
-        gradeDelta = avgCurr - avgPrev;
-        
-        // Threshold: 3 points difference in average for trend label
-        if (gradeDelta > 3) gradeTrend = 'improving';
-        else if (gradeDelta < -3) gradeTrend = 'declining';
-    }
-
-    // --- Behavior Trend (Recent Weighted Sum Algorithm) ---
-    let behaviorTrend: 'improving' | 'declining' | 'stable' = 'stable';
-    let behaviorDelta = 0;
-    let recentBehaviorScore = 0;
-
-    if (sEvents.length >= 2) {
-        // Take last 12 events.
-        const recentEvents = sEvents.slice(-12);
-        const mid = Math.floor(recentEvents.length / 2);
-        const prevHalf = recentEvents.slice(0, mid);
-        const currHalf = recentEvents.slice(mid);
-
-        const getScore = (e: BehaviorEvent) => {
-            if (e.category === EventType.POSITIVE) return 1;
-            if (e.category === EventType.NEGATIVE) return -2; // Higher weight for negatives
-            return 0;
-        };
-
-        const scorePrev = prevHalf.reduce((sum, e) => sum + getScore(e), 0);
-        const scoreCurr = currHalf.reduce((sum, e) => sum + getScore(e), 0);
-        
-        behaviorDelta = scoreCurr - scorePrev;
-        recentBehaviorScore = scoreCurr;
-
-        // If scoreCurr is very low (many negatives recently), force declining 
-        if (scoreCurr <= -6 && behaviorDelta <= 0) {
-            behaviorTrend = 'declining';
-        } else {
-             if (behaviorDelta >= 2) behaviorTrend = 'improving';
-             else if (behaviorDelta <= -2) behaviorTrend = 'declining';
-        }
-    }
-
-    // --- Risk Calculation (Score 1-10 & Level) ---
-    // Start with max score 10. Deduct points based on issues.
-    let score = 10;
-
-    // 1. Grade Deductions
-    if (average < 55) score -= 4;
-    else if (average < 65) score -= 2;
-    else if (average < 75) score -= 1;
-
-    if (gradeTrend === 'declining') {
-        if (gradeDelta <= -10) score -= 2;
-        else score -= 1;
-    }
-
-    // 2. Behavior Deductions
-    // Recent behavior score (from last 12 events): -6 is roughly 3 negatives.
-    if (recentBehaviorScore <= -12) score -= 4;
-    else if (recentBehaviorScore <= -6) score -= 2;
-    else if (recentBehaviorScore < 0) score -= 1;
-
-    if (behaviorTrend === 'declining') score -= 1;
-    
-    // Total Negatives Count Check
-    if (negativeCount > 15) score -= 2;
-    else if (negativeCount > 8) score -= 1;
-
-    // Clamp score 1-10
-    score = Math.max(1, Math.min(10, score));
-
-    // Determine Risk Level based on Score
-    let riskLevel: 'high' | 'medium' | 'low';
-    
-    if (score <= 4) riskLevel = 'high';
-    else if (score <= 7) riskLevel = 'medium';
-    else riskLevel = 'low';
-
-
-    // Correlations
-    const correlations: Correlation[] = [];
-    sGrades.filter(g => g.score < 70).forEach(grade => {
-      const nearby = sEvents.filter(e => {
-        const diff = Math.abs(differenceInDays(grade.date, e.date));
-        return diff <= 4 && e.category === EventType.NEGATIVE;
-      });
-
-      if (nearby.length > 0) {
-        correlations.push({
-          date: grade.date,
-          grade: grade,
-          nearbyEvents: nearby,
-          description: `נכשל ב${grade.subject} (${grade.score}) בסמיכות ל-${nearby.length} אירועי משמעת.`
-        });
-      }
-    });
-
-    studentsMap.set(id, {
+    const name = sEvents[0]?.studentName || sGrades[0]?.studentName || "תלמיד לא ידוע";
+    const raw: Pick<Student, 'id' | 'name' | 'grades' | 'behaviorEvents'> = {
       id,
-      name: sEvents[0]?.studentName || sGrades[0]?.studentName || "תלמיד לא ידוע",
+      name,
       grades: sGrades,
       behaviorEvents: sEvents,
-      averageScore: parseFloat(average.toFixed(1)),
-      negativeCount,
-      positiveCount,
-      gradeTrend,
-      behaviorTrend,
-      riskLevel,
-      riskScore: score,
-      correlations
-    });
+    };
+    studentsMap.set(id, calculateStudentStats(raw, DEFAULT_RISK_SETTINGS));
   });
 
   return Array.from(studentsMap.values());
 };
 
-/** Compute student stats from given grades and behavior events (e.g. date-filtered). Used for period comparison. */
-export interface StudentStatsResult {
-  averageScore: number;
-  negativeCount: number;
-  positiveCount: number;
-  gradeTrend: 'improving' | 'declining' | 'stable';
-  behaviorTrend: 'improving' | 'declining' | 'stable';
-  riskLevel: 'high' | 'medium' | 'low';
-  riskScore: number;
-}
-
-export function computeStudentStatsFromData(
-  grades: Grade[],
-  behaviorEvents: BehaviorEvent[]
-): StudentStatsResult {
-  const sGrades = [...grades].sort((a, b) => a.date.getTime() - b.date.getTime());
-  const sEvents = [...behaviorEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
+/**
+ * מחשבת מחדש את כל הסטטיסטיקות של תלמיד (ממוצע, מגמות, סיכון, קורלציות)
+ * לפי grades ו-behaviorEvents הנוכחיים והגדרות הסיכון.
+ * פונקציה טהורה – מתאימה לעדכון אחרי עריכה ידנית או שינוי הגדרות.
+ */
+export function calculateStudentStats(
+  student: Pick<Student, 'id' | 'name' | 'grades' | 'behaviorEvents'>,
+  settings: RiskSettings = DEFAULT_RISK_SETTINGS
+): Student {
+  const sGrades = [...student.grades].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const sEvents = [...student.behaviorEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
 
   const totalWeight = sGrades.reduce((sum, g) => sum + g.weight, 0);
   const weightedSum = sGrades.reduce((sum, g) => sum + g.score * g.weight, 0);
@@ -469,6 +343,7 @@ export function computeStudentStatsFromData(
 
   const negativeCount = sEvents.filter((e) => e.category === EventType.NEGATIVE).length;
   const positiveCount = sEvents.filter((e) => e.category === EventType.POSITIVE).length;
+  const absenceCount = sEvents.filter((e) => isAbsenceEvent(e)).length;
 
   let gradeTrend: 'improving' | 'declining' | 'stable' = 'stable';
   let gradeDelta = 0;
@@ -507,28 +382,56 @@ export function computeStudentStatsFromData(
     }
   }
 
+  const minGT = settings.minGradeThreshold;
+  const maxNB = settings.maxNegativeBehaviors;
+  const attThr = settings.attendanceThreshold;
+
   let score = 10;
-  if (average < 55) score -= 4;
-  else if (average < 65) score -= 2;
-  else if (average < 75) score -= 1;
+  if (average < minGT) score -= 4;
+  else if (average < minGT + 10) score -= 2;
+  else if (average < minGT + 20) score -= 1;
   if (gradeTrend === 'declining') {
     if (gradeDelta <= -10) score -= 2;
     else score -= 1;
   }
+  if (gradeTrend === 'improving') score += 0.5;
   if (recentBehaviorScore <= -12) score -= 4;
   else if (recentBehaviorScore <= -6) score -= 2;
   else if (recentBehaviorScore < 0) score -= 1;
   if (behaviorTrend === 'declining') score -= 1;
+  if (behaviorTrend === 'improving') score += 0.3;
   if (negativeCount > 15) score -= 2;
-  else if (negativeCount > 8) score -= 1;
+  else if (negativeCount > maxNB) score -= 1;
+  if (absenceCount >= attThr) score -= 2;
+  else if (absenceCount >= Math.max(1, attThr - 1)) score -= 0.5;
   score = Math.max(1, Math.min(10, score));
+  score = Math.round(score * 10) / 10;
 
   let riskLevel: 'high' | 'medium' | 'low';
   if (score <= 4) riskLevel = 'high';
   else if (score <= 7) riskLevel = 'medium';
   else riskLevel = 'low';
 
+  const correlations: Correlation[] = [];
+  sGrades.filter((g) => g.score < 70).forEach((grade) => {
+    const nearby = sEvents.filter((e) => {
+      const diff = Math.abs(differenceInDays(grade.date, e.date));
+      return diff <= 4 && e.category === EventType.NEGATIVE;
+    });
+    if (nearby.length > 0) {
+      correlations.push({
+        date: grade.date,
+        grade,
+        nearbyEvents: nearby,
+        description: `נכשל ב${grade.subject} (${grade.score}) בסמיכות ל-${nearby.length} אירועי משמעת.`,
+      });
+    }
+  });
+
   return {
+    ...student,
+    grades: sGrades,
+    behaviorEvents: sEvents,
     averageScore: parseFloat(average.toFixed(1)),
     negativeCount,
     positiveCount,
@@ -536,6 +439,41 @@ export function computeStudentStatsFromData(
     behaviorTrend,
     riskLevel,
     riskScore: score,
+    correlations,
+  };
+}
+
+/** Compute student stats from given grades and behavior events (e.g. date-filtered). Used for period comparison. */
+export interface StudentStatsResult {
+  averageScore: number;
+  negativeCount: number;
+  positiveCount: number;
+  gradeTrend: 'improving' | 'declining' | 'stable';
+  behaviorTrend: 'improving' | 'declining' | 'stable';
+  riskLevel: 'high' | 'medium' | 'low';
+  riskScore: number;
+}
+
+export function computeStudentStatsFromData(
+  grades: Grade[],
+  behaviorEvents: BehaviorEvent[],
+  settings: RiskSettings = DEFAULT_RISK_SETTINGS
+): StudentStatsResult {
+  const raw: Pick<Student, 'id' | 'name' | 'grades' | 'behaviorEvents'> = {
+    id: '',
+    name: '',
+    grades,
+    behaviorEvents,
+  };
+  const full = calculateStudentStats(raw, settings);
+  return {
+    averageScore: full.averageScore,
+    negativeCount: full.negativeCount,
+    positiveCount: full.positiveCount,
+    gradeTrend: full.gradeTrend,
+    behaviorTrend: full.behaviorTrend,
+    riskLevel: full.riskLevel,
+    riskScore: full.riskScore,
   };
 }
 

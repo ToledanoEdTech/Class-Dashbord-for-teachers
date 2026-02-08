@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Student, EventType, isAbsenceEvent, isOtherNegativeEvent } from '../types';
-import { Users, TrendingUp, AlertTriangle, Search, ChevronRight, BarChart2, PieChart as PieChartIcon, CheckCircle, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
+import { Student, EventType, isAbsenceEvent, isOtherNegativeEvent, RiskSettings } from '../types';
+import { Users, TrendingUp, AlertTriangle, Search, ChevronRight, BarChart2, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -21,6 +21,7 @@ interface DashboardProps {
   students: Student[];
   classAverage: number;
   onSelectStudent: (id: string) => void;
+  riskSettings?: RiskSettings;
 }
 
 const getDefaultDateRange = (): { start: Date; end: Date } => {
@@ -31,7 +32,7 @@ const getDefaultDateRange = (): { start: Date; end: Date } => {
   return { start: sept1, end: startOfDay(now) };
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent }) => {
+const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings }) => {
   const { start: defaultStart, end: defaultEnd } = useMemo(getDefaultDateRange, []);
   const [startDate, setStartDate] = useState<Date>(defaultStart);
   const [endDate, setEndDate] = useState<Date>(defaultEnd);
@@ -45,10 +46,10 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
     return students.map((s) => {
       const g = s.grades.filter((gr) => gr.date >= rangeStart && gr.date <= rangeEnd);
       const e = s.behaviorEvents.filter((ev) => ev.date >= rangeStart && ev.date <= rangeEnd);
-      const stats = computeStudentStatsFromData(g, e);
+      const stats = computeStudentStatsFromData(g, e, riskSettings);
       return { ...s, ...stats, grades: g, behaviorEvents: e };
     });
-  }, [students, rangeStart, rangeEnd]);
+  }, [students, rangeStart, rangeEnd, riskSettings]);
 
   const periodLengthDays = useMemo(
     () => Math.max(1, differenceInDays(rangeEnd, rangeStart) + 1),
@@ -63,9 +64,9 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
     return students.map((s) => {
       const g = s.grades.filter((gr) => gr.date >= prevStart && gr.date <= prevEnd);
       const e = s.behaviorEvents.filter((ev) => ev.date >= prevStart && ev.date <= prevEnd);
-      return computeStudentStatsFromData(g, e);
+      return computeStudentStatsFromData(g, e, riskSettings);
     });
-  }, [students, prevPeriodStart, prevPeriodEnd]);
+  }, [students, prevPeriodStart, prevPeriodEnd, riskSettings]);
 
   const totalStudents = studentsInRange.length;
   const atRiskCount = studentsInRange.filter((s) => s.riskLevel === 'high').length;
@@ -138,31 +139,25 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
     [studentsInRange]
   );
 
-  const { behaviorTypeDistribution, classBehaviorScore } = useMemo(() => {
-    const typeCounts: Record<string, number> = {};
-    let totalPos = 0;
-    let totalNeg = 0;
-
+  const behaviorTypeDistribution = useMemo(() => {
+    const items: { name: string; value: number }[] = [];
+    if (totalAbsences > 0) items.push({ name: 'חיסורים', value: totalAbsences });
+    if (totalOtherNegative > 0) items.push({ name: 'אירועים שליליים (אחר)', value: totalOtherNegative });
+    const positiveTypes: Record<string, number> = {};
     studentsInRange.forEach((s) => {
       s.behaviorEvents.forEach((e) => {
-        if (e.category !== EventType.NEUTRAL && e.type) {
-          typeCounts[e.type] = (typeCounts[e.type] || 0) + 1;
+        if (e.category === EventType.POSITIVE && e.type) {
+          positiveTypes[e.type] = (positiveTypes[e.type] || 0) + 1;
         }
-        if (e.category === EventType.POSITIVE) totalPos++;
-        if (e.category === EventType.NEGATIVE) totalNeg++;
       });
     });
-
-    const totalEvents = totalPos + totalNeg;
-    const score = totalEvents > 0 ? Math.round((totalPos / totalEvents) * 100) : 50;
-
-    const topTypes = Object.entries(typeCounts)
+    const topPositives = Object.entries(positiveTypes)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
+      .slice(0, 3)
       .map(([name, value]) => ({ name, value }));
-
-    return { behaviorTypeDistribution: topTypes, classBehaviorScore: score };
-  }, [studentsInRange]);
+    items.push(...topPositives);
+    return items;
+  }, [studentsInRange, totalAbsences, totalOtherNegative]);
 
   const PIE_COLORS = ['#0c8ee6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6'];
 
@@ -303,17 +298,10 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         </div>
 
         <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-shadow duration-300">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <PieChartIcon size={20} className="text-primary-500" />
-              מדד התנהגות
-            </h3>
-            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-bold
-              ${classBehaviorScore >= 80 ? 'bg-emerald-50 text-emerald-700' : classBehaviorScore >= 60 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
-              {classBehaviorScore >= 80 ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
-              ציון: {classBehaviorScore}
-            </div>
-          </div>
+          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-5">
+            <PieChartIcon size={20} className="text-primary-500" />
+            מדד התנהגות
+          </h3>
           
           <div className="flex flex-col md:flex-row items-center justify-center gap-6 min-h-[220px]">
             {behaviorTypeDistribution.length > 0 ? (
@@ -447,7 +435,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <RiskBadge level={student.riskLevel} />
+                    <RiskBadge level={student.riskLevel} score={student.riskScore} />
                   </td>
                   <td className="px-6 py-4">
                     <ChevronRight className="text-slate-300 group-hover:text-primary-500 transition-colors" size={20} />
@@ -502,7 +490,7 @@ const KPICard: React.FC<{
   </div>
 );
 
-const RiskBadge: React.FC<{ level: 'high' | 'medium' | 'low' }> = ({ level }) => {
+const RiskBadge: React.FC<{ level: 'high' | 'medium' | 'low'; score?: number }> = ({ level, score }) => {
   const styles = {
     high: 'bg-red-50 text-red-700 border-red-100',
     medium: 'bg-amber-50 text-amber-700 border-amber-100',
@@ -510,8 +498,13 @@ const RiskBadge: React.FC<{ level: 'high' | 'medium' | 'low' }> = ({ level }) =>
   };
   const labels = { high: 'גבוה', medium: 'בינוני', low: 'נמוך' };
   return (
-    <span className={`inline-flex items-center px-3 py-1 rounded-lg text-xs font-semibold border ${styles[level]}`}>
+    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border ${styles[level]}`}>
       {labels[level]}
+      {score != null && (
+        <span className="opacity-80 font-medium" title="ציון סיכון 1–10 (10 = סיכון נמוך)">
+          {score.toFixed(1)}
+        </span>
+      )}
     </span>
   );
 };
@@ -547,7 +540,7 @@ const StudentCard: React.FC<{ student: Student; onClick: () => void; index: numb
           <span className="text-xs text-slate-400">{student.id}</span>
         </div>
       </div>
-      <RiskBadge level={student.riskLevel} />
+      <RiskBadge level={student.riskLevel} score={student.riskScore} />
     </div>
     <div className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
       <div className="text-center">

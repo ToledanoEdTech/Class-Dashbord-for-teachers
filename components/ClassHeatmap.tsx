@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { Student, EventType, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent } from '../types';
 
 const DAY_LABELS_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי']; // Sun=0 .. Fri=5
@@ -13,6 +13,8 @@ interface CellData {
   count: number;
   topIssue: string;
   topSubject: string;
+  types?: Record<string, number>;
+  subjects?: Record<string, number>;
 }
 
 interface ClassHeatmapProps {
@@ -38,6 +40,8 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
   const setMode = onModeChange ?? setInternalMode;
 
   const [tooltip, setTooltip] = useState<CellData | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const { grid, maxIntensity, minLesson, maxLesson } = useMemo(() => {
     const negEvents = students.flatMap((s) =>
@@ -95,7 +99,15 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
             Object.entries(data.subjects).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
         }
         if (count > maxIntensity) maxIntensity = count;
-        row.push({ day, lessonNumber: lesson, count, topIssue, topSubject });
+        row.push({
+          day,
+          lessonNumber: lesson,
+          count,
+          topIssue,
+          topSubject,
+          types: data?.types ?? {},
+          subjects: data?.subjects ?? {},
+        });
       }
       grid.push(row);
     }
@@ -143,29 +155,10 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
         </div>
       </div>
 
-      {/* Tooltip area above grid – smooth fade/slide, no overlap */}
-      <div className="min-h-[72px] mb-2 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 relative flex items-center justify-center overflow-hidden">
-        <div
-          className={`w-full min-h-[52px] flex flex-col justify-center transition-all duration-300 ease-out ${
-            tooltip ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-[-6px]'
-          }`}
-        >
-          {tooltip ? (
-            <>
-              <p className="font-bold text-slate-800">
-                {DAY_LABELS_HE[tooltip.day]} • שיעור {tooltip.lessonNumber}
-              </p>
-              <p className="text-primary-600 font-semibold">סה״כ אירועים שליליים: {tooltip.count}</p>
-              <p className="text-slate-600">נושא עיקרי: {tooltip.topIssue}</p>
-              <p className="text-slate-600">מקצוע עם הכי הרבה אירועים: {tooltip.topSubject}</p>
-            </>
-          ) : (
-            <span className="text-slate-400 text-sm">העבר את הסמן על תא כדי לראות פרטים</span>
-          )}
-        </div>
-      </div>
+      {/* Hint text - static, no layout shift */}
+      <p className="text-slate-400 text-sm mb-3">העבר את הסמן על תא כדי לראות פרטים</p>
 
-      <div className="overflow-x-auto relative">
+      <div ref={containerRef} className="overflow-x-auto relative">
         <div
           className="inline-grid gap-0.5 min-w-full"
           style={{
@@ -194,16 +187,70 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
               {row.map((cell) => (
                 <div
                   key={`${cell.day}-${cell.lessonNumber}`}
-                  className={`h-8 min-w-[2rem] rounded-md transition-all ${getBgColor(cell.count)} ${cell.count > 0 ? 'cursor-pointer ring-1 ring-slate-200/80' : ''}`}
+                  className={`h-8 min-w-[2rem] rounded-md transition-all duration-200 ${getBgColor(cell.count)} ${cell.count > 0 ? 'cursor-pointer ring-1 ring-slate-200/80 hover:ring-2 hover:ring-primary-400 hover:scale-105' : ''}`}
                   style={{ gridColumn: cell.day + 2, gridRow: rowIdx + 2 }}
-                  onMouseEnter={() => setTooltip(cell)}
-                  onMouseLeave={() => setTooltip(null)}
+                  onMouseEnter={(e) => {
+                    setTooltip(cell);
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top });
+                  }}
+                  onMouseLeave={() => {
+                    setTooltip(null);
+                    setTooltipPos(null);
+                  }}
                 />
               ))}
             </React.Fragment>
           ))}
         </div>
       </div>
+
+      {/* Floating tooltip - position:fixed, no layout shift */}
+      {tooltip && tooltipPos && (
+        <div
+          className="fixed z-50 pointer-events-none transition-opacity duration-200 opacity-100"
+          style={{
+            left: tooltipPos.x,
+            top: tooltipPos.y - 8,
+            transform: 'translate(-50%, -100%)',
+          }}
+        >
+          <div className="bg-white/98 backdrop-blur-md rounded-xl shadow-xl border border-slate-200/90 px-4 py-3 min-w-[220px] max-w-[280px]">
+            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-r border-b border-slate-200/90 rotate-45" />
+            <p className="font-bold text-slate-800 text-base border-b border-slate-100 pb-2 mb-2">
+              {DAY_LABELS_HE[tooltip.day]} • שיעור {tooltip.lessonNumber}
+            </p>
+            <p className="text-primary-600 font-semibold text-sm mb-2">
+              סה״כ אירועים: {tooltip.count}
+            </p>
+            <p className="text-slate-600 text-sm">
+              <span className="text-slate-500">נושא עיקרי:</span> {tooltip.topIssue}
+            </p>
+            <p className="text-slate-600 text-sm mt-1">
+              <span className="text-slate-500">מקצוע:</span> {tooltip.topSubject}
+            </p>
+            {tooltip.types && Object.keys(tooltip.types).length > 1 && (
+              <div className="mt-2 pt-2 border-t border-slate-100">
+                <p className="text-xs text-slate-500 mb-1">פירוט לפי סוג:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(tooltip.types)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 4)
+                    .map(([t, n]) => (
+                      <span
+                        key={t}
+                        className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs"
+                      >
+                        {t}: {n}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-4 mt-4 text-xs text-slate-500">
         <span>עוצמה:</span>
         <span className="flex items-center gap-1">

@@ -61,10 +61,35 @@ export interface Student {
   correlations: Correlation[];
 }
 
-export interface AppState {
-  view: 'upload' | 'dashboard' | 'student';
-  selectedStudentId: string | null;
+/** הגדרות סף לסיכון: מה נחשב "בסיכון" */
+export interface RiskSettings {
+  minGradeThreshold: number;      // ציון מינימלי מתחתיו נכשל (ברירת מחדל: 55)
+  maxNegativeBehaviors: number;  // מספר אירועים שליליים מעליו נחשב בסיכון (ברירת מחדל: 5)
+  attendanceThreshold: number;  // מספר חיסורים מעליו נחשב בסיכון (ברירת מחדל: 4)
+}
+
+export const DEFAULT_RISK_SETTINGS: RiskSettings = {
+  minGradeThreshold: 55,
+  maxNegativeBehaviors: 5,
+  attendanceThreshold: 4,
+};
+
+/** כיתה: קבוצת תלמידים עם שם ומזהה */
+export interface ClassGroup {
+  id: string;
+  name: string;
   students: Student[];
-  classAverage: number;
+  lastUpdated: Date;
+}
+
+export interface AppState {
+  view: 'upload' | 'dashboard' | 'student' | 'settings';
+  selectedStudentId: string | null;
+  /** כל הכיתות (במקום רשימת תלמידים שטוחה) */
+  classes: ClassGroup[];
+  /** מזהה הכיתה הפעילה; null = אין כיתה נבחרת */
+  activeClassId: string | null;
+  /** הגדרות סיכון גלובליות */
+  riskSettings: RiskSettings;
   loading: boolean;
 }

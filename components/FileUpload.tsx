@@ -3,23 +3,24 @@ import { Upload, FileText, FileSpreadsheet, AlertCircle, Sparkles, ArrowRight } 
 import { generateSampleData } from '../utils/processing';
 
 interface FileUploadProps {
-  onProcess: (behaviorFile: File | string, gradesFile: File | string) => void;
+  onProcess: (behaviorFile: File | string, gradesFile: File | string, className: string) => void;
   loading: boolean;
 }
 
 const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
   const [behaviorFile, setBehaviorFile] = useState<File | null>(null);
   const [gradesFile, setGradesFile] = useState<File | null>(null);
+  const [className, setClassName] = useState('');
 
   const handleSubmit = () => {
     if (behaviorFile && gradesFile) {
-      onProcess(behaviorFile, gradesFile);
+      onProcess(behaviorFile, gradesFile, className.trim() || 'כיתה חדשה');
     }
   };
 
   const handleSampleLoad = () => {
     const { behaviorCSV, gradesCSV } = generateSampleData();
-    onProcess(behaviorCSV, gradesCSV);
+    onProcess(behaviorCSV, gradesCSV, className.trim() || 'נתוני דוגמה');
   };
 
   const isReady = behaviorFile && gradesFile;
@@ -59,6 +60,18 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
                   <span><strong className="text-slate-700">קובץ ציונים:</strong> מערכת הציונים ← הורד קובץ "ציונים שוטפים - סדין"</span>
                 </li>
               </ul>
+            </div>
+
+            {/* Class Name */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">שם הכיתה</label>
+              <input
+                type="text"
+                value={className}
+                onChange={(e) => setClassName(e.target.value)}
+                placeholder="למשל: כיתה ח׳1"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium placeholder:text-slate-400"
+              />
             </div>
 
             {/* File Drop Zones */}

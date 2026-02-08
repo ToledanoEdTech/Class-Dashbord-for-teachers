@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Student, EventType } from '../types';
-import { ArrowRight, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX } from 'lucide-react';
+import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent } from '../types';
+import { calculateStudentStats } from '../utils/processing';
+import { ArrowRight, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2 } from 'lucide-react';
 import {
   LineChart,
   Line,
@@ -21,6 +22,8 @@ interface StudentProfileProps {
   student: Student;
   onBack: () => void;
   classAverage: number;
+  onUpdateStudent?: (student: Student) => void;
+  riskSettings?: RiskSettings;
 }
 
 // Local helper for startOfWeek to avoid import issues
@@ -82,6 +85,31 @@ const CustomBehaviorTooltip = ({ active, payload, label }: any) => {
     return null;
 };
 
+const CustomAbsenceTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        const count = data.count ?? 0;
+        const bySubject = data.bySubject || [];
+        return (
+            <div className="bg-white/95 backdrop-blur-sm p-4 border border-amber-200/80 rounded-xl shadow-elevated text-right text-sm z-50 min-w-[160px]">
+                <p className="font-bold text-slate-800 border-b border-amber-100 pb-2 mb-2">{label}</p>
+                <p className="text-amber-700 font-semibold text-sm">{count} חיסור{count !== 1 ? 'ים' : ''}</p>
+                {bySubject.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-amber-100 space-y-1">
+                        {bySubject.map(({ subject, count: c }: { subject: string; count: number }, i: number) => (
+                            <div key={i} className="flex justify-between text-xs text-slate-600">
+                                <span>{subject}</span>
+                                <span className="font-medium">{c}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+    return null;
+};
+
 const CustomGradeTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
@@ -111,8 +139,10 @@ const CustomGradeTooltip = ({ active, payload, label }: any) => {
     return null;
 };
 
-const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classAverage }) => {
+const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classAverage, onUpdateStudent, riskSettings }) => {
   const [activeTab, setActiveTab] = useState<'trends' | 'grades' | 'behavior' | 'insights'>('trends');
+  const [showAddGrade, setShowAddGrade] = useState(false);
+  const [showAddEvent, setShowAddEvent] = useState(false);
 
   // Scroll to top on mount
   useEffect(() => {
@@ -195,9 +225,9 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
     }).filter(Boolean); // Remove empty weeks
   }, [student.grades]);
 
-  // Chart Data: Behavior Trends
+  // Chart Data: Behavior Trends (excluding absences – positive + other negative only)
   const { chartData: behaviorChartData, viewMode } = useMemo(() => {
-    const events = student.behaviorEvents;
+    const events = student.behaviorEvents.filter((e) => !isAbsenceEvent(e));
     if (events.length === 0) return { chartData: [], viewMode: 'daily' };
 
     const dates = events.map(e => e.date);
@@ -267,6 +297,54 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
     return { chartData: data, viewMode: isDailyView ? 'daily' : 'weekly' };
   }, [student.behaviorEvents]);
 
+  // Chart Data: Absences only (same time range and daily/weekly logic as behavior)
+  const { chartData: absenceChartData, viewMode: absenceViewMode } = useMemo(() => {
+    const allEvents = student.behaviorEvents;
+    const absenceEvents = allEvents.filter(isAbsenceEvent);
+    if (allEvents.length === 0) return { chartData: [], viewMode: 'daily' as const };
+
+    const dates = allEvents.map((e) => e.date);
+    const timestamps = dates.map((d) => d.getTime());
+    const startDate = new Date(Math.min(...timestamps));
+    const endDate = new Date(Math.max(...timestamps));
+    const daySpan = differenceInDays(endDate, startDate);
+    const isDailyView = daySpan <= 30;
+
+    let timeIntervals: Date[] = [];
+    if (isDailyView) {
+      timeIntervals = eachDayOfInterval({ start: startDate, end: endDate });
+    } else {
+      timeIntervals = eachWeekOfInterval({ start: startDate, end: endDate });
+    }
+
+    const displaySubject = (raw: string) => (/^\d+$/.test(String(raw).trim()) ? 'מקצוע לא צוין' : (raw || 'כללי'));
+
+    const data = timeIntervals.map((datePoint) => {
+      let relevant: typeof absenceEvents = [];
+      let label = '';
+      if (isDailyView) {
+        relevant = absenceEvents.filter((e) => isSameDay(e.date, datePoint));
+        label = format(datePoint, 'dd/MM');
+      } else {
+        relevant = absenceEvents.filter((e) => isSameWeek(e.date, datePoint));
+        const endOfWeekDate = endOfWeek(datePoint);
+        label = `${format(datePoint, 'dd/MM')}-${format(endOfWeekDate, 'dd/MM')}`;
+      }
+      const bySubject: Record<string, number> = {};
+      relevant.forEach((e) => {
+        const subj = displaySubject(e.subject ?? '');
+        bySubject[subj] = (bySubject[subj] || 0) + 1;
+      });
+      return {
+        dateLabel: label,
+        count: relevant.length,
+        bySubject: Object.entries(bySubject).map(([subject, count]) => ({ subject, count })),
+      };
+    });
+
+    return { chartData: data, viewMode: isDailyView ? 'daily' : 'weekly' };
+  }, [student.behaviorEvents]);
+
   // Absence Analysis (subject can be numeric on mobile when column order differs in Excel parsing)
   const displaySubject = (raw: string) => (/^\d+$/.test(String(raw).trim()) ? 'מקצוע לא צוין' : (raw || 'כללי'));
 
@@ -292,6 +370,43 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
     low: 'text-emerald-700 font-bold bg-emerald-50 border-emerald-200',
   };
   const riskLabels = { high: 'סיכון גבוה', medium: 'סיכון בינוני', low: 'סיכון נמוך' };
+
+  const handleAddGrade = (subject: string, score: number, assignment: string, date: Date, weight: number) => {
+    const newGrade: Grade = {
+      studentId: student.id,
+      studentName: student.name,
+      subject: subject || 'כללי',
+      teacher: '',
+      assignment: assignment || 'מטלה',
+      date,
+      score,
+      weight: weight || 1,
+    };
+    const updated: Student = { ...student, grades: [...student.grades, newGrade] };
+    const recalculated = riskSettings ? calculateStudentStats(updated, riskSettings) : updated;
+    onUpdateStudent?.(recalculated);
+    setShowAddGrade(false);
+  };
+
+  const handleAddEvent = (type: string, category: EventType, subject: string, date: Date, comment: string) => {
+    const newEvent: BehaviorEvent = {
+      id: `evt-manual-${Date.now()}`,
+      studentId: student.id,
+      studentName: student.name,
+      date,
+      type: type || 'הערה',
+      category,
+      teacher: '',
+      subject: subject || 'כללי',
+      lessonNumber: 0,
+      justification: '',
+      comment: comment || '',
+    };
+    const updated: Student = { ...student, behaviorEvents: [...student.behaviorEvents, newEvent] };
+    const recalculated = riskSettings ? calculateStudentStats(updated, riskSettings) : updated;
+    onUpdateStudent?.(recalculated);
+    setShowAddEvent(false);
+  };
 
   return (
     <div className="pb-24 animate-fade-in min-h-screen bg-gradient-to-br from-slate-50 via-white to-primary-50/20">
@@ -412,11 +527,14 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                 </div>
             </div>
 
-            {/* Behavior Chart */}
+            {/* Behavior Chart – positive & negative (no absences) */}
             <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 hover:shadow-card-hover transition-shadow">
                 <div className="flex justify-between items-center mb-4 md:mb-6">
-                    <h3 className="text-lg font-bold text-slate-700">מאזן התנהגות</h3>
-                    <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-700">אירועי משמעת – חיזוקים וטעון שיפור</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">ללא חיסורים (מוצגים בגרף נפרד)</p>
+                    </div>
+                    <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
                         {viewMode === 'daily' ? 'תצוגה יומית' : 'תצוגה שבועית'}
                     </span>
                 </div>
@@ -449,7 +567,63 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
-                            <div className="h-full flex items-center justify-center text-slate-400">אין מספיק נתונים להצגת גרף התנהגות</div>
+                            <div className="h-full flex items-center justify-center text-slate-400">אין מספיק נתונים להצגת גרף התנהגות (חיובי/שלילי)</div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Absences Chart – separate chart */}
+            <div className="bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-5 md:p-6 rounded-2xl shadow-card border border-amber-100/80 hover:shadow-card-hover transition-shadow">
+                <div className="flex justify-between items-center mb-4 md:mb-6">
+                    <div className="flex items-center gap-2">
+                        <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                            <CalendarX2 size={22} strokeWidth={2} />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800">חיסורים לאורך זמן</h3>
+                            <p className="text-xs text-amber-700/90 mt-0.5">חיסורים (ללא הצדקה) לפי תאריך</p>
+                        </div>
+                    </div>
+                    <span className="text-xs font-medium text-amber-700 bg-amber-100/80 px-2 py-1 rounded-lg">
+                        {absenceViewMode === 'daily' ? 'תצוגה יומית' : 'תצוגה שבועית'}
+                    </span>
+                </div>
+                <div className="overflow-x-auto">
+                    <div className="h-64 md:h-72 w-full min-w-[500px] md:min-w-0">
+                        {absenceChartData.some((d) => d.count > 0) ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={absenceChartData} margin={{ bottom: 20 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#fde68a" />
+                                    <XAxis
+                                        dataKey="dateLabel"
+                                        height={60}
+                                        tick={{ fontSize: 10, fill: '#92400e' }}
+                                        tickMargin={10}
+                                        angle={-45}
+                                        textAnchor="end"
+                                        minTickGap={5}
+                                        interval={0}
+                                    />
+                                    <YAxis allowDecimals={false} width={30} tick={{ fontSize: 10, fill: '#92400e' }} />
+                                    <Tooltip content={<CustomAbsenceTooltip />} cursor={{ fill: 'rgba(251,191,36,0.15)' }} />
+                                    <Bar dataKey="count" name="חיסורים" radius={[6, 6, 0, 0]} fill="#f59e0b" stroke="#d97706" strokeWidth={1}>
+                                        {absenceChartData.map((entry, index) => (
+                                            <Cell
+                                                key={`absence-cell-${index}`}
+                                                fill={entry.count > 0 ? '#f59e0b' : 'transparent'}
+                                                stroke={entry.count > 0 ? '#d97706' : 'transparent'}
+                                            />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="h-full flex flex-col items-center justify-center text-amber-800/70">
+                                <CalendarX2 size={40} className="opacity-50 mb-2" />
+                                <p className="text-sm font-medium">לא נרשמו חיסורים לתלמיד זה</p>
+                                <p className="text-xs text-amber-700/70 mt-1">חיסורים יופיעו כאן כאשר יוזנו במערכת</p>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -459,6 +633,18 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
 
         {activeTab === 'grades' && (
             <div className="space-y-4">
+                 {onUpdateStudent && (
+                   <div className="flex justify-end">
+                     <button
+                       type="button"
+                       onClick={() => setShowAddGrade(true)}
+                       className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 text-white font-medium hover:bg-primary-600 transition-colors shadow-card"
+                     >
+                       <Plus size={18} />
+                       הוסף ציון
+                     </button>
+                   </div>
+                 )}
                  {/* Mobile Cards View for Grades */}
                  <div className="md:hidden space-y-3">
                     {student.grades.map((grade, idx) => (
@@ -519,6 +705,18 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
 
         {activeTab === 'behavior' && (
              <div className="space-y-3 md:space-y-4">
+                 {onUpdateStudent && (
+                   <div className="flex justify-end">
+                     <button
+                       type="button"
+                       onClick={() => setShowAddEvent(true)}
+                       className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 text-white font-medium hover:bg-primary-600 transition-colors shadow-card"
+                     >
+                       <Plus size={18} />
+                       הוסף אירוע
+                     </button>
+                   </div>
+                 )}
                  {student.behaviorEvents.length === 0 ? (
                      <div className="text-center py-12 text-slate-400 bg-white rounded-2xl shadow-card border border-slate-100">אין אירועי התנהגות רשומים.</div>
                  ) : (
@@ -655,6 +853,144 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                 </div>
             </div>
         )}
+
+        {/* Add Grade Modal */}
+        {showAddGrade && (
+          <AddGradeModal
+            onClose={() => setShowAddGrade(false)}
+            onSubmit={handleAddGrade}
+          />
+        )}
+
+        {/* Add Event Modal */}
+        {showAddEvent && (
+          <AddEventModal
+            onClose={() => setShowAddEvent(false)}
+            onSubmit={handleAddEvent}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* --- Add Grade Modal --- */
+const AddGradeModal: React.FC<{
+  onClose: () => void;
+  onSubmit: (subject: string, score: number, assignment: string, date: Date, weight: number) => void;
+}> = ({ onClose, onSubmit }) => {
+  const [subject, setSubject] = useState('');
+  const [score, setScore] = useState('');
+  const [assignment, setAssignment] = useState('מטלה');
+  const [dateStr, setDateStr] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [weight, setWeight] = useState('1');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const s = parseFloat(score);
+    if (isNaN(s) || s < 0 || s > 100) return;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return;
+    onSubmit(subject, s, assignment, d, parseInt(weight, 10) || 1);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-elevated border border-slate-200 w-full max-w-md p-6 animate-scale-in" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-slate-800">הוסף ציון</h3>
+          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500">
+            <X size={20} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">מקצוע</label>
+            <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="מתמטיקה" className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">ציון (0–100)</label>
+            <input type="number" min={0} max={100} value={score} onChange={(e) => setScore(e.target.value)} required className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">מטלה</label>
+            <input type="text" value={assignment} onChange={(e) => setAssignment(e.target.value)} placeholder="מטלה" className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">תאריך</label>
+            <input type="date" value={dateStr} onChange={(e) => setDateStr(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">משקל (%)</label>
+            <input type="number" min={1} max={100} value={weight} onChange={(e) => setWeight(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium">ביטול</button>
+            <button type="submit" className="flex-1 py-2.5 rounded-xl bg-primary-500 text-white font-medium hover:bg-primary-600">שמור</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+/* --- Add Event Modal --- */
+const AddEventModal: React.FC<{
+  onClose: () => void;
+  onSubmit: (type: string, category: EventType, subject: string, date: Date, comment: string) => void;
+}> = ({ onClose, onSubmit }) => {
+  const [type, setType] = useState('');
+  const [category, setCategory] = useState<EventType>(EventType.NEUTRAL);
+  const [subject, setSubject] = useState('');
+  const [dateStr, setDateStr] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [comment, setComment] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return;
+    onSubmit(type || 'הערה', category, subject, d, comment);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-elevated border border-slate-200 w-full max-w-md p-6 animate-scale-in" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-slate-800">הוסף אירוע</h3>
+          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500">
+            <X size={20} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">סוג האירוע</label>
+            <input type="text" value={type} onChange={(e) => setType(e.target.value)} placeholder="למשל: חיסור, מילה טובה" className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">קטגוריה</label>
+            <select value={category} onChange={(e) => setCategory(e.target.value as EventType)} className="w-full px-3 py-2 rounded-xl border border-slate-200">
+              <option value={EventType.POSITIVE}>חיובי</option>
+              <option value={EventType.NEGATIVE}>שלילי</option>
+              <option value={EventType.NEUTRAL}>ניטרלי</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">מקצוע</label>
+            <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="כללי" className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">תאריך</label>
+            <input type="date" value={dateStr} onChange={(e) => setDateStr(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1">הערה</label>
+            <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} className="w-full px-3 py-2 rounded-xl border border-slate-200 resize-none" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium">ביטול</button>
+            <button type="submit" className="flex-1 py-2.5 rounded-xl bg-primary-500 text-white font-medium hover:bg-primary-600">שמור</button>
+          </div>
+        </form>
       </div>
     </div>
   );
