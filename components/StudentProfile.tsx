@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent } from '../types';
 import { calculateStudentStats } from '../utils/processing';
-import { ArrowRight, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2 } from 'lucide-react';
+import { ArrowRight, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer } from 'lucide-react';
+import HelpTip from './HelpTip';
 import {
   LineChart,
   Line,
@@ -119,20 +120,20 @@ const CustomGradeTooltip = ({ active, payload, label }: any) => {
         const grades = data.grades || [];
 
         return (
-            <div className="bg-white/95 backdrop-blur-sm p-4 border border-slate-200 rounded-xl shadow-elevated text-right text-sm z-50 min-w-[220px]">
-                <p className="font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">{label}</p>
-                <div className="mb-3 flex justify-between text-slate-800 font-bold text-xs">
+            <div className="bg-white/95 backdrop-blur-sm px-2.5 py-2 border border-slate-200 rounded-lg shadow-elevated text-right text-xs z-50 max-w-[200px]">
+                <p className="font-semibold text-slate-800 border-b border-slate-100 pb-1 mb-1.5 text-xs">{label}</p>
+                <div className="flex justify-between text-slate-700 font-medium mb-1.5 text-[11px]">
                     <span>ממוצע שבועי:</span>
                     <span className="text-primary-600">{data.score.toFixed(1)}</span>
                 </div>
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                <div className="space-y-1 max-h-28 overflow-y-auto">
                     {grades.map((g: any, idx: number) => (
-                        <div key={idx} className="flex justify-between items-center text-xs bg-slate-50/80 p-2 rounded-lg">
-                            <div className="flex flex-col">
-                                <span className="font-medium text-slate-700">{g.subject}</span>
-                                <span className="text-[10px] text-slate-400">{g.assignment}</span>
+                        <div key={idx} className="flex justify-between items-center text-[11px] bg-slate-50/80 px-1.5 py-1 rounded">
+                            <div className="flex flex-col min-w-0 truncate">
+                                <span className="font-medium text-slate-700 truncate">{g.subject}</span>
+                                <span className="text-[10px] text-slate-400 truncate">{g.assignment}</span>
                             </div>
-                            <span className={`font-bold ${g.score < 70 ? 'text-red-600' : 'text-slate-700'}`}>{g.score}</span>
+                            <span className={`font-bold shrink-0 mr-1 ${g.score < 70 ? 'text-red-600' : 'text-slate-700'}`}>{g.score}</span>
                         </div>
                     ))}
                 </div>
@@ -449,16 +450,25 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                 <span className={`px-3 py-1 rounded-xl text-xs md:text-sm border ${riskStyles[student.riskLevel]}`}>
                   {riskLabels[student.riskLevel]}
                 </span>
-                <span className="text-[10px] text-slate-400 hidden md:block">ציון סיכון: {student.riskScore}/10</span>
+                <span className="text-[10px] text-slate-400 hidden md:block">ציון סיכון: {student.riskScore}/10 <HelpTip text="ציון סיכון מ-1 עד 10. ציון נמוך = סיכון גבוה. מחושב לפי ממוצע ציונים, מגמות, אירועים שליליים וחיסורים." /></span>
               </div>
-              <button
-                onClick={handleExport}
-                className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl hover:bg-slate-50 hover:border-slate-300 font-medium text-sm flex items-center gap-2 shadow-card transition-all"
-              >
-                <Download size={16} strokeWidth={2} />
-                <span className="hidden md:inline">ייצוא לאקסל</span>
-                <span className="md:hidden">ייצוא</span>
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="no-print bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl hover:bg-slate-50 hover:border-slate-300 font-medium text-sm flex items-center gap-2 shadow-card transition-all"
+                >
+                  <Printer size={16} strokeWidth={2} />
+                  <span className="hidden md:inline">הדפסה</span>
+                </button>
+                <button
+                  onClick={handleExport}
+                  className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl hover:bg-slate-50 hover:border-slate-300 font-medium text-sm flex items-center gap-2 shadow-card transition-all"
+                >
+                  <Download size={16} strokeWidth={2} />
+                  <span className="hidden md:inline">ייצוא לאקסל</span>
+                  <span className="md:hidden">ייצוא</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -840,6 +850,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                     <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                         <AlertCircle className="text-primary-500" size={20} />
                         הצלבות והקשרים
+                        <HelpTip text="קורלציות: ציון נמוך (מתחת ל-70) שנמצא בסמיכות של עד 4 ימים לאירועי משמעת שליליים. מראה קשר אפשרי בין התנהגות לציונים." />
                     </h3>
                     {student.correlations.length > 0 ? (
                         <ul className="space-y-3 md:space-y-4">

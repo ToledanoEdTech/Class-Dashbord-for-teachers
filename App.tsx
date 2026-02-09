@@ -8,8 +8,8 @@ import SubjectMatrix from './components/SubjectMatrix';
 import { Student, AppState, ClassGroup, RiskSettings } from './types';
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
-import { saveToStorage, loadFromStorage } from './utils/storage';
-import { GraduationCap, LayoutDashboard, Upload, Menu, X, Settings, PlusCircle, BookOpen, Pencil, Check, Eye, EyeOff, BarChart3, Grid3X3 } from 'lucide-react';
+import { saveToStorage, loadFromStorage, savePreferences, loadPreferences } from './utils/storage';
+import { GraduationCap, LayoutDashboard, Upload, Menu, X, Settings, PlusCircle, BookOpen, Pencil, Check, Eye, EyeOff, BarChart3, Grid3X3, Trash2, Moon, Sun } from 'lucide-react';
 
 const LOGO_PATH = '/logo.png';
 
@@ -44,6 +44,9 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [deleteConfirmClassId, setDeleteConfirmClassId] = useState<string | null>(null);
+  const [darkMode, setDarkMode] = useState(() => loadPreferences().darkMode);
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => loadPreferences().fontSize);
 
   const activeClass = state.classes.find((c) => c.id === state.activeClassId);
   const students = activeClass?.students ?? [];
@@ -61,6 +64,18 @@ const App: React.FC = () => {
       riskSettings: state.riskSettings,
     });
   }, [state.classes, state.activeClassId, state.riskSettings]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    savePreferences({ darkMode, fontSize, dashboardViewMode: 'table' });
+  }, [darkMode]);
+
+  useEffect(() => {
+    document.documentElement.classList.remove('font-scale-sm', 'font-scale-md', 'font-scale-lg');
+    const cls = fontSize === 'small' ? 'font-scale-sm' : fontSize === 'large' ? 'font-scale-lg' : 'font-scale-md';
+    document.documentElement.classList.add(cls);
+    savePreferences({ darkMode, fontSize, dashboardViewMode: 'table' });
+  }, [fontSize]);
 
   const handleProcess = useCallback(
     async (behaviorFile: File | string, gradesFile: File | string, className: string) => {
@@ -154,6 +169,20 @@ const App: React.FC = () => {
     setEditingName(c.name);
   }, []);
 
+  const handleDeleteClass = useCallback((classId: string) => {
+    setState((prev) => {
+      const nextClasses = prev.classes.filter((c) => c.id !== classId);
+      let nextActiveId = prev.activeClassId;
+      let nextView: AppState['view'] = prev.view;
+      if (prev.activeClassId === classId) {
+        nextActiveId = nextClasses.length > 0 ? nextClasses[0].id : null;
+        nextView = nextClasses.length > 0 ? 'dashboard' : 'upload';
+      }
+      return { ...prev, classes: nextClasses, activeClassId: nextActiveId, view: nextView, selectedStudentId: null };
+    });
+    setDeleteConfirmClassId(null);
+  }, []);
+
   const showSidebar = state.classes.length > 0 || state.view === 'upload';
 
   return (
@@ -233,6 +262,14 @@ const App: React.FC = () => {
                       >
                         <Pencil size={14} />
                       </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirmClassId(c.id); }}
+                        className={`p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 shrink-0 transition-all ${state.activeClassId === c.id ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'}`}
+                        aria-label="מחיקת כיתה"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </>
                   )}
                 </div>
@@ -259,6 +296,21 @@ const App: React.FC = () => {
                 <Settings size={18} className="shrink-0" />
                 הגדרות סיכון
               </button>
+              <div className="px-3 py-3 mt-2 border-t border-slate-100">
+                <span className="text-xs font-bold text-slate-500 block mb-2 px-1">גודל גופן</span>
+                <div className="flex items-center gap-1">
+                  {(['small', 'medium', 'large'] as const).map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => setFontSize(size)}
+                      className={`flex-1 py-2 rounded-lg text-center font-medium transition-colors text-sm ${fontSize === size ? 'bg-primary-100 text-primary-700 border border-primary-200' : 'text-slate-500 hover:bg-slate-100 border border-transparent'}`}
+                    >
+                      {size === 'small' ? 'A-' : size === 'large' ? 'A+' : 'A'}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </nav>
           </aside>
         </>
@@ -297,59 +349,72 @@ const App: React.FC = () => {
                 </button>
               </div>
 
-              {state.view !== 'upload' && state.view !== 'settings' && (
-                <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap justify-end min-h-[44px]">
-                  {/* Navigation: Dashboard | Teacher Analytics | Subject Matrix */}
-                  <div className="flex items-center gap-0.5 sm:gap-1 p-0.5 sm:p-1 rounded-xl bg-slate-100/80 border border-slate-200/80">
-                    <button
-                      type="button"
-                      onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
-                      className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[40px] sm:min-h-[44px] ${state.view === 'dashboard' || state.view === 'student' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
-                      aria-label="דשבורד"
-                    >
-                      <LayoutDashboard size={18} className="shrink-0" />
-                      <span className="hidden sm:inline">דשבורד</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
-                      className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[40px] sm:min-h-[44px] ${state.view === 'teachers' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
-                      aria-label="אנליטיקת מורים"
-                    >
-                      <BarChart3 size={18} className="shrink-0" />
-                      <span className="hidden sm:inline">אנליטיקת מורים</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
-                      className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[40px] sm:min-h-[44px] ${state.view === 'matrix' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
-                      aria-label="מטריצת מקצועות"
-                    >
-                      <Grid3X3 size={18} className="shrink-0" />
-                      <span className="hidden sm:inline">מטריצת מקצועות</span>
-                    </button>
+              <div className="flex items-center gap-2 sm:gap-3">
+                {state.view !== 'upload' && state.view !== 'settings' && (
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 justify-end min-w-0">
+                    {/* Navigation: Dashboard | Teacher Analytics | Subject Matrix - compact row on mobile */}
+                    <div className="flex items-center gap-0.5 sm:gap-1 p-0.5 sm:p-1 rounded-xl bg-slate-100/80 border border-slate-200/80 shrink-0 w-full sm:w-auto justify-end sm:justify-center">
+                      <button
+                        type="button"
+                        onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
+                        className={`flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 px-2 sm:px-3 py-2 sm:py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[38px] sm:min-h-[44px] flex-1 sm:flex-initial ${state.view === 'dashboard' || state.view === 'student' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                        aria-label="דשבורד"
+                      >
+                        <LayoutDashboard size={18} className="shrink-0" />
+                        <span className="hidden sm:inline">דשבורד</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
+                        className={`flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 px-2 sm:px-3 py-2 sm:py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[38px] sm:min-h-[44px] flex-1 sm:flex-initial ${state.view === 'teachers' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                        aria-label="אנליטיקת מורים"
+                      >
+                        <BarChart3 size={18} className="shrink-0" />
+                        <span className="hidden sm:inline">אנליטיקת מורים</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
+                        className={`flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 px-2 sm:px-3 py-2 sm:py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[38px] sm:min-h-[44px] flex-1 sm:flex-initial ${state.view === 'matrix' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-600 hover:text-slate-800'}`}
+                        aria-label="מטריצת מקצועות"
+                      >
+                        <Grid3X3 size={18} className="shrink-0" />
+                        <span className="hidden sm:inline">מטריצת מקצועות</span>
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1.5 sm:gap-2 justify-end shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setState((prev) => ({ ...prev, isAnonymous: !prev.isAnonymous }))}
+                        className={`flex items-center justify-center gap-2 px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl text-sm font-medium transition-colors min-h-[38px] sm:min-h-[44px] ${state.isAnonymous ? 'bg-primary-100 text-primary-700 border border-primary-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'}`}
+                        title={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
+                        aria-label={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
+                      >
+                        {state.isAnonymous ? <EyeOff size={18} /> : <Eye size={18} />}
+                        <span className="hidden sm:inline">{state.isAnonymous ? 'פרטיות פעילה' : 'פרטיות'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setState((prev) => ({ ...prev, view: 'upload' }))}
+                        className="flex items-center justify-center gap-2 px-2 sm:px-3 py-2 sm:py-2.5 rounded-lg text-slate-500 hover:text-primary-600 hover:bg-primary-50/50 transition-colors text-sm font-medium min-h-[38px] sm:min-h-[44px]"
+                        aria-label="העלאת קבצים"
+                      >
+                        <Upload size={18} className="shrink-0" />
+                        <span className="hidden sm:inline">העלאת קבצים</span>
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setState((prev) => ({ ...prev, isAnonymous: !prev.isAnonymous }))}
-                    className={`flex items-center gap-2 px-2.5 sm:px-3 py-2.5 rounded-xl text-sm font-medium transition-colors min-h-[40px] sm:min-h-[44px] ${state.isAnonymous ? 'bg-primary-100 text-primary-700 border border-primary-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'}`}
-                    title={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
-                    aria-label={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
-                  >
-                    {state.isAnonymous ? <EyeOff size={18} /> : <Eye size={18} />}
-                    <span className="hidden sm:inline">{state.isAnonymous ? 'פרטיות פעילה' : 'פרטיות'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setState((prev) => ({ ...prev, view: 'upload' }))}
-                    className="flex items-center gap-2 px-2.5 sm:px-3 py-2.5 rounded-lg text-slate-500 hover:text-primary-600 hover:bg-primary-50/50 transition-colors text-sm font-medium min-h-[40px] sm:min-h-[44px]"
-                    aria-label="העלאת קבצים"
-                  >
-                    <Upload size={18} className="shrink-0" />
-                    <span className="hidden sm:inline">העלאת קבצים</span>
-                  </button>
-                </div>
-              )}
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDarkMode((d) => !d)}
+                  className={`p-2 sm:p-2.5 rounded-xl transition-colors no-print ${darkMode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  aria-label={darkMode ? 'מצב בהיר' : 'מצב כהה'}
+                  title={darkMode ? 'מצב בהיר' : 'מצב כהה'}
+                >
+                  {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+                </button>
+              </div>
             </div>
           </div>
         </nav>
@@ -397,6 +462,32 @@ const App: React.FC = () => {
             />
           )}
         </main>
+
+        {/* Delete Class Confirmation */}
+        {deleteConfirmClassId && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40" onClick={() => setDeleteConfirmClassId(null)}>
+            <div className="bg-white rounded-2xl shadow-elevated border border-slate-200 w-full max-w-sm p-6 animate-scale-in" onClick={(e) => e.stopPropagation()}>
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-2xl bg-red-100 text-red-600 mx-auto flex items-center justify-center mb-4">
+                  <Trash2 size={26} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">מחיקת כיתה</h3>
+                <p className="text-slate-600 text-sm mb-6">
+                  האם אתה בטוח שברצונך למחוק את &quot;<strong>{state.classes.find((c) => c.id === deleteConfirmClassId)?.name}</strong>&quot;?
+                  <br />פעולה זו אינה ניתנת לביטול.
+                </p>
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setDeleteConfirmClassId(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors">
+                    ביטול
+                  </button>
+                  <button type="button" onClick={() => handleDeleteClass(deleteConfirmClassId)} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-medium hover:bg-red-600 transition-colors">
+                    מחק
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

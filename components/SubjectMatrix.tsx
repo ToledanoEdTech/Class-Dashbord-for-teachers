@@ -1,6 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Student } from '../types';
 import { getDisplayName } from '../utils/displayName';
+import { Search, ArrowUp, ArrowDown } from 'lucide-react';
+import HelpTip from './HelpTip';
 
 interface SubjectMatrixProps {
   students: Student[];
@@ -23,7 +25,12 @@ function getCellClass(grade: number | null): string {
 }
 
 const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = false }) => {
-  const { subjects, rows } = useMemo(() => {
+  const [sortCol, setSortCol] = useState<number | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [riskFilter, setRiskFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const { subjects, rows, classAverages } = useMemo(() => {
     const subjectSet = new Set<string>();
     students.forEach((s) => {
       s.grades.forEach((g) => {
@@ -39,8 +46,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       const generalAvg = student.averageScore;
       const cells: (number | null)[] = [generalAvg];
       subjectList.forEach((subj) => {
-        const avg = getSubjectAverage(gradeList, subj);
-        cells.push(avg);
+        cells.push(getSubjectAverage(gradeList, subj));
       });
       return {
         student,
@@ -49,14 +55,79 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       };
     });
 
-    return { subjects: columns, rows };
+    // Compute class averages per subject
+    const classAverages: (number | null)[] = columns.map((_, colIdx) => {
+      const values = rows.map((r) => r.cells[colIdx]).filter((v): v is number => v !== null);
+      if (values.length === 0) return null;
+      return Math.round((values.reduce((s, v) => s + v, 0) / values.length) * 10) / 10;
+    });
+
+    return { subjects: columns, rows, classAverages };
   }, [students, isAnonymous]);
+
+  // Filter and sort rows
+  const displayRows = useMemo(() => {
+    let filtered = rows;
+    if (riskFilter !== 'all') {
+      filtered = filtered.filter((r) => r.student.riskLevel === riskFilter);
+    }
+    if (searchTerm) {
+      filtered = filtered.filter((r) => r.displayName.includes(searchTerm) || r.student.id.includes(searchTerm));
+    }
+    if (sortCol !== null) {
+      filtered = [...filtered].sort((a, b) => {
+        const aVal = a.cells[sortCol] ?? -Infinity;
+        const bVal = b.cells[sortCol] ?? -Infinity;
+        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      });
+    }
+    return filtered;
+  }, [rows, riskFilter, searchTerm, sortCol, sortDir]);
+
+  const handleSort = (colIdx: number) => {
+    if (sortCol === colIdx) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortCol(colIdx);
+      setSortDir('desc');
+    }
+  };
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto pb-safe animate-fade-in">
       <div className="mb-6">
-        <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">מטריצת מקצועות</h2>
-        <p className="text-slate-500 text-sm md:text-base mt-1">צפייה בציונים לפי תלמיד ומקצוע – מפת חום</p>
+        <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">
+          מטריצת מקצועות
+          <HelpTip text="טבלת ציונים לפי תלמיד ומקצוע. לחץ על כותרת עמודה למיון. צבעי הרקע מראים את רמת הציון." />
+        </h2>
+        <p className="text-slate-500 text-sm md:text-base mt-1">צפייה בציונים לפי תלמיד ומקצוע – לחץ על כותרת עמודה למיון</p>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 mb-4">
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          <input
+            type="text"
+            placeholder="חיפוש תלמיד..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-slate-200 text-sm min-h-[40px]"
+          />
+        </div>
+        <select
+          value={riskFilter}
+          onChange={(e) => setRiskFilter(e.target.value as any)}
+          className="px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 min-h-[40px]"
+        >
+          <option value="all">כל רמות הסיכון</option>
+          <option value="high">סיכון גבוה</option>
+          <option value="medium">סיכון בינוני</option>
+          <option value="low">סיכון נמוך</option>
+        </select>
+        <span className="text-xs text-slate-400 self-center">
+          {displayRows.length} מתוך {rows.length} תלמידים
+        </span>
       </div>
 
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden">
@@ -70,18 +141,31 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
                 {subjects.map((subj, i) => (
                   <th
                     key={subj}
-                    className="sticky top-0 z-10 bg-slate-100 px-2 sm:px-3 py-2.5 sm:py-3 font-semibold text-slate-600 text-xs sm:text-sm whitespace-nowrap min-w-[72px] sm:min-w-[90px] border-l border-slate-200"
+                    onClick={() => handleSort(i)}
+                    className="sticky top-0 z-10 bg-slate-100 px-2 sm:px-3 py-2.5 sm:py-3 font-semibold text-slate-600 text-xs sm:text-sm whitespace-nowrap min-w-[72px] sm:min-w-[90px] border-l border-slate-200 cursor-pointer hover:bg-slate-200/80 transition-colors select-none"
                   >
-                    {subj}
+                    <div className="flex items-center justify-center gap-1">
+                      {subj}
+                      {sortCol === i && (
+                        sortDir === 'desc'
+                          ? <ArrowDown size={12} className="text-primary-500" />
+                          : <ArrowUp size={12} className="text-primary-500" />
+                      )}
+                    </div>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, rowIdx) => (
+              {displayRows.map((row) => (
                 <tr key={row.student.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                   <td className="sticky right-0 z-10 bg-white border-l border-slate-200 px-3 sm:px-4 py-2 sm:py-2.5 font-medium text-slate-800 whitespace-nowrap text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
-                    {row.displayName}
+                    <div className="flex items-center gap-2">
+                      <span>{row.displayName}</span>
+                      {row.student.riskLevel === 'high' && (
+                        <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" title="סיכון גבוה" />
+                      )}
+                    </div>
                   </td>
                   {row.cells.map((value, colIdx) => (
                     <td
@@ -93,6 +177,18 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
                   ))}
                 </tr>
               ))}
+
+              {/* Summary Row - Class Averages */}
+              <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold">
+                <td className="sticky right-0 z-10 bg-slate-100 border-l border-slate-200 px-3 sm:px-4 py-2.5 text-slate-700 text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                  ממוצע כיתתי
+                </td>
+                {classAverages.map((avg, colIdx) => (
+                  <td key={colIdx} className={`px-2 sm:px-3 py-2.5 text-center border-l border-slate-200 text-sm ${getCellClass(avg)}`}>
+                    {avg === null ? '—' : avg}
+                  </td>
+                ))}
+              </tr>
             </tbody>
           </table>
         </div>

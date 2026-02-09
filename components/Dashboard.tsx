@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Student, EventType, isAbsenceEvent, isOtherNegativeEvent, RiskSettings } from '../types';
-import { Users, TrendingUp, AlertTriangle, Search, ChevronRight, BarChart2, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
+import { Users, TrendingUp, AlertTriangle, Search, ChevronRight, BarChart2, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, Minus, Filter, ChevronDown, Printer, LayoutGrid, LayoutList } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -17,6 +17,7 @@ import { format, subDays, startOfDay, endOfDay, differenceInDays } from 'date-fn
 import { computeStudentStatsFromData } from '../utils/processing';
 import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
+import HelpTip from './HelpTip';
 
 interface DashboardProps {
   students: Student[];
@@ -34,12 +35,48 @@ const getDefaultDateRange = (): { start: Date; end: Date } => {
   return { start: sept1, end: startOfDay(now) };
 };
 
+/** Extract min/max dates from all students' grades and behavior events. */
+const getDateRangeFromStudents = (students: Student[]): { min: Date; max: Date } | null => {
+  const dates: number[] = [];
+  students.forEach((s) => {
+    s.grades.forEach((g) => dates.push(g.date.getTime()));
+    s.behaviorEvents.forEach((e) => dates.push(e.date.getTime()));
+  });
+  if (dates.length === 0) return null;
+  return {
+    min: startOfDay(new Date(Math.min(...dates))),
+    max: endOfDay(new Date(Math.max(...dates))),
+  };
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings, isAnonymous = false }) => {
   const { start: defaultStart, end: defaultEnd } = useMemo(getDefaultDateRange, []);
+  const dataRange = useMemo(() => getDateRangeFromStudents(students), [students]);
   const [startDate, setStartDate] = useState<Date>(defaultStart);
   const [endDate, setEndDate] = useState<Date>(defaultEnd);
+
+  React.useEffect(() => {
+    if (dataRange) {
+      setStartDate(dataRange.min);
+      setEndDate(dataRange.max);
+    }
+  }, [dataRange?.min?.getTime(), dataRange?.max?.getTime()]);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'average' | 'risk'>('risk');
+  const [riskFilter, setRiskFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
+  const [trendFilter, setTrendFilter] = useState<'all' | 'improving' | 'declining' | 'stable'>('all');
+  const [subjectFilter, setSubjectFilter] = useState('');
+  const [teacherFilter, setTeacherFilter] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>(() => {
+    try { return (localStorage.getItem('toledano-view-mode') as 'table' | 'cards') || 'table'; } catch { return 'table'; }
+  });
+
+  React.useEffect(() => {
+    try { localStorage.setItem('toledano-view-mode', viewMode); } catch {}
+  }, [viewMode]);
+
+  const activeFilterCount = [riskFilter !== 'all', trendFilter !== 'all', !!subjectFilter, !!teacherFilter].filter(Boolean).length;
 
   const rangeStart = useMemo(() => startOfDay(startDate), [startDate]);
   const rangeEnd = useMemo(() => endOfDay(endDate), [endDate]);
@@ -117,15 +154,47 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const otherNegChangePercent =
     prevOtherNeg > 0 ? ((totalOtherNegative - prevOtherNeg) / prevOtherNeg) * 100 : totalOtherNegative > 0 ? 100 : 0;
 
+  const prevAtRiskCount = useMemo(() => prevStats.filter((s) => s.riskLevel === 'high').length, [prevStats]);
+  const riskChange = atRiskCount - prevAtRiskCount;
+
+  const { allSubjects, allTeachers } = useMemo(() => {
+    const subjects = new Set<string>();
+    const teachers = new Set<string>();
+    studentsInRange.forEach((s) => {
+      s.grades.forEach((g) => {
+        if (g.subject?.trim()) subjects.add(g.subject.trim());
+        if (g.teacher?.trim()) teachers.add(g.teacher.trim());
+      });
+      s.behaviorEvents.forEach((e) => {
+        if (e.teacher?.trim()) teachers.add(e.teacher.trim());
+      });
+    });
+    return {
+      allSubjects: Array.from(subjects).sort((a, b) => a.localeCompare(b, 'he')),
+      allTeachers: Array.from(teachers).sort((a, b) => a.localeCompare(b, 'he')),
+    };
+  }, [studentsInRange]);
+
   const filteredStudents = useMemo(() => {
-    let result = studentsInRange.filter((s) => s.name.includes(searchTerm) || s.id.includes(searchTerm));
+    let result = studentsInRange.filter((s) => {
+      if (searchTerm && !s.name.includes(searchTerm) && !s.id.includes(searchTerm)) return false;
+      if (riskFilter !== 'all' && s.riskLevel !== riskFilter) return false;
+      if (trendFilter !== 'all' && s.gradeTrend !== trendFilter) return false;
+      if (subjectFilter && !s.grades.some((g) => (g.subject || '').trim() === subjectFilter)) return false;
+      if (teacherFilter) {
+        const hasGrade = s.grades.some((g) => (g.teacher || '').trim() === teacherFilter);
+        const hasEvent = s.behaviorEvents.some((e) => (e.teacher || '').trim() === teacherFilter);
+        if (!hasGrade && !hasEvent) return false;
+      }
+      return true;
+    });
     return result.sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       if (sortBy === 'average') return b.averageScore - a.averageScore;
       if (sortBy === 'risk') return a.riskScore - b.riskScore;
       return 0;
     });
-  }, [studentsInRange, searchTerm, sortBy]);
+  }, [studentsInRange, searchTerm, sortBy, riskFilter, trendFilter, subjectFilter, teacherFilter]);
 
   const gradeDistribution = useMemo(
     () => [
@@ -178,9 +247,19 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">דשבורד כיתתי</h2>
           <p className="text-slate-500 text-sm md:text-base mt-1">סקירה מלאה של מצב הכיתה והתלמידים</p>
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100/80 text-slate-600 text-sm font-medium">
-          <span className="w-2 h-2 rounded-full bg-accent-success animate-pulse"></span>
-          עודכן: {new Date().toLocaleDateString('he-IL')}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="no-print flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
+          >
+            <Printer size={16} />
+            <span className="hidden sm:inline">הדפסה</span>
+          </button>
+          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100/80 text-slate-600 text-sm font-medium">
+            <span className="w-2 h-2 rounded-full bg-accent-success animate-pulse"></span>
+            עודכן: {new Date().toLocaleDateString('he-IL')}
+          </div>
         </div>
       </div>
 
@@ -207,6 +286,58 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             />
           </label>
         </div>
+      </div>
+
+      {/* Advanced Filters */}
+      <div className="no-print bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 md:p-5">
+        <button
+          type="button"
+          onClick={() => setShowFilters(!showFilters)}
+          className="flex items-center gap-2 text-sm font-bold text-slate-600 w-full"
+        >
+          <Filter size={16} className="text-primary-500" />
+          סינון מתקדם
+          <ChevronDown size={16} className={`transition-transform mr-auto ${showFilters ? 'rotate-180' : ''}`} />
+          {activeFilterCount > 0 && (
+            <span className="bg-primary-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">{activeFilterCount}</span>
+          )}
+        </button>
+        {showFilters && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1.5 block">רמת סיכון <HelpTip text="סנן תלמידים לפי רמת הסיכון שלהם: גבוה, בינוני או נמוך." /></label>
+              <select value={riskFilter} onChange={(e) => setRiskFilter(e.target.value as any)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 min-h-[40px]">
+                <option value="all">הכל</option>
+                <option value="high">גבוה</option>
+                <option value="medium">בינוני</option>
+                <option value="low">נמוך</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1.5 block">מגמת ציונים <HelpTip text="סנן לפי מגמת הציונים: משתפר, מידרדר או יציב." /></label>
+              <select value={trendFilter} onChange={(e) => setTrendFilter(e.target.value as any)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 min-h-[40px]">
+                <option value="all">הכל</option>
+                <option value="improving">משתפר</option>
+                <option value="declining">מידרדר</option>
+                <option value="stable">יציב</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1.5 block">מקצוע</label>
+              <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 min-h-[40px]">
+                <option value="">כל המקצועות</option>
+                {allSubjects.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1.5 block">מורה</label>
+              <select value={teacherFilter} onChange={(e) => setTeacherFilter(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 min-h-[40px]">
+                <option value="">כל המורים</option>
+                {allTeachers.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* KPI Cards - 2 cols on mobile, 5 on large */}
@@ -268,13 +399,49 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           }
         />
         <KPICard
-          label="תלמידים בסיכון"
+          label={<>תלמידים בסיכון <HelpTip text="תלמידים עם ציון סיכון נמוך (1-3 מתוך 10). מחושב לפי ממוצע ציונים, מגמות, אירועים שליליים וחיסורים." /></>}
           value={atRiskCount}
           icon={TrendingUp}
           color="warning"
           gradient="from-amber-500 to-orange-500"
         />
       </div>
+
+      {/* Period Comparison Banner */}
+      {(prevClassAvg > 0 || prevAtRiskCount > 0) && (
+        <div className="bg-gradient-to-r from-primary-50 to-blue-50/50 border border-primary-100 rounded-2xl p-4 md:p-5">
+          <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+            <TrendingUp size={16} className="text-primary-500" />
+            סיכום השוואה לתקופה הקודמת
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div className="flex flex-col">
+              <span className="text-slate-500 text-xs mb-1">שינוי בתלמידים בסיכון</span>
+              <span className={`font-bold text-lg ${riskChange > 0 ? 'text-red-600' : riskChange < 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                {riskChange > 0 ? `+${riskChange}` : riskChange === 0 ? 'ללא שינוי' : riskChange}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-slate-500 text-xs mb-1">שינוי בממוצע כיתתי</span>
+              <span className={`font-bold text-lg ${avgChangePercent > 0 ? 'text-emerald-600' : avgChangePercent < 0 ? 'text-red-600' : 'text-slate-600'}`}>
+                {avgChangePercent > 0 ? '+' : ''}{avgChangePercent.toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-slate-500 text-xs mb-1">שינוי בחיסורים</span>
+              <span className={`font-bold text-lg ${totalAbsences - prevAbsences > 0 ? 'text-red-600' : totalAbsences - prevAbsences < 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                {totalAbsences - prevAbsences > 0 ? '+' : ''}{totalAbsences - prevAbsences}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-slate-500 text-xs mb-1">שינוי באירועים שליליים</span>
+              <span className={`font-bold text-lg ${totalOtherNegative - prevOtherNeg > 0 ? 'text-red-600' : totalOtherNegative - prevOtherNeg < 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                {totalOtherNegative - prevOtherNeg > 0 ? '+' : ''}{totalOtherNegative - prevOtherNeg}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 md:gap-6">
@@ -350,9 +517,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       {/* Students List */}
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden">
         <div className="p-4 sm:p-5 md:p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between gap-4 items-stretch md:items-center">
-          <h3 className="text-base sm:text-lg font-bold text-slate-800">רשימת תלמידים</h3>
+          <h3 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+            רשימת תלמידים
+            <span className="text-xs font-normal text-slate-400">({filteredStudents.length})</span>
+          </h3>
           
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 flex-1 md:flex-initial md:max-w-md">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 flex-1 md:flex-initial md:max-w-lg">
             <div className="relative flex-1 min-w-0">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
               <input
@@ -372,27 +542,45 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
               <option value="average">לפי ממוצע</option>
               <option value="name">לפי שם</option>
             </select>
+            <div className="hidden md:flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`p-2 rounded-lg transition-colors ${viewMode === 'table' ? 'bg-white text-primary-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                aria-label="תצוגת טבלה"
+              >
+                <LayoutList size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('cards')}
+                className={`p-2 rounded-lg transition-colors ${viewMode === 'cards' ? 'bg-white text-primary-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                aria-label="תצוגת כרטיסים"
+              >
+                <LayoutGrid size={16} />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Mobile Cards */}
-        <div className="md:hidden p-4 space-y-3 bg-slate-50/30">
+        {/* Cards View - mobile always, desktop when viewMode is 'cards' */}
+        <div className={`${viewMode === 'cards' ? '' : 'md:hidden'} p-4 space-y-3 bg-slate-50/30`}>
           {filteredStudents.map((student, idx) => (
             <StudentCard key={student.id} student={student} onClick={() => onSelectStudent(student.id)} index={idx} isAnonymous={isAnonymous} />
           ))}
         </div>
 
-        {/* Desktop Table */}
-        <div className="hidden md:block overflow-x-auto">
+        {/* Desktop Table - only when viewMode is 'table' */}
+        <div className={`${viewMode === 'table' ? 'hidden md:block' : 'hidden'} overflow-x-auto`}>
           <table className="w-full text-right">
             <thead>
               <tr className="bg-slate-50/80 text-slate-500 text-sm">
                 <th className="px-6 py-4 font-semibold">שם התלמיד</th>
                 <th className="px-6 py-4 font-semibold">ממוצע</th>
-                <th className="px-6 py-4 font-semibold">מגמת ציונים</th>
-                <th className="px-6 py-4 font-semibold">מגמת התנהגות</th>
+                <th className="px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="השוואה בין ממוצע 3 הציונים האחרונים ל-3 שלפניהם. שיפור = עלייה, ירידה = ירידה." /></th>
+                <th className="px-6 py-4 font-semibold">מגמת התנהגות <HelpTip text="מגמה לפי 12 האירועים האחרונים, עם משקל לאירועים שליליים." /></th>
                 <th className="px-6 py-4 font-semibold">אירועים</th>
-                <th className="px-6 py-4 font-semibold">סיכון</th>
+                <th className="px-6 py-4 font-semibold">סיכון <HelpTip text="ציון סיכון 1-10 (1=סיכון גבוה, 10=סיכון נמוך). מחושב לפי ציונים, מגמות, אירועים שליליים וחיסורים." /></th>
                 <th className="px-6 py-4 w-12"></th>
               </tr>
             </thead>
@@ -450,7 +638,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
 };
 
 const KPICard: React.FC<{
-  label: string;
+  label: React.ReactNode;
   value: string | number;
   icon: React.ElementType;
   color: string;
@@ -523,47 +711,90 @@ const TrendBadge: React.FC<{ trend: 'improving' | 'declining' | 'stable'; type: 
   );
 };
 
-const StudentCard: React.FC<{ student: Student; onClick: () => void; index: number; isAnonymous?: boolean }> = ({ student, onClick, index, isAnonymous = false }) => (
-  <div
-    onClick={onClick}
-    className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-card active:border-primary-300 active:shadow-glow transition-all"
-  >
-    <div className="flex justify-between items-start mb-3">
-      <div className="flex gap-3 items-center">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-base font-bold text-white shadow-md
-          ${student.averageScore < 60 ? 'bg-red-500' : student.averageScore < 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}>
-          {Math.round(student.averageScore)}
+const MiniSparkline: React.FC<{ values: number[]; color: string; min?: number; max?: number }> = ({ values, color, min, max }) => {
+  if (!values || values.length < 2) {
+    return <span className="text-[10px] text-slate-300 block mt-1">אין נתונים</span>;
+  }
+  const width = 74;
+  const height = 26;
+  const pad = 2;
+  const vmin = min ?? Math.min(...values);
+  const vmax = max ?? Math.max(...values);
+  const range = vmax - vmin || 1;
+  const points = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (width - pad * 2);
+    const y = height - pad - ((v - vmin) / range) * (height - pad * 2);
+    return `${x},${y}`;
+  }).join(' ');
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="mx-auto mt-1">
+      <polyline fill="none" stroke={color} strokeWidth="2" points={points} />
+    </svg>
+  );
+};
+
+const StudentCard: React.FC<{ student: Student; onClick: () => void; index: number; isAnonymous?: boolean }> = ({ student, onClick, index, isAnonymous = false }) => {
+  const gradeValues = [...student.grades]
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
+    .slice(-8)
+    .map((g) => g.score);
+
+  const behaviorValues = (() => {
+    const events = [...student.behaviorEvents]
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .slice(-12);
+    let score = 0;
+    return events.map((e) => {
+      if (e.category === EventType.POSITIVE) score += 1;
+      else if (e.category === EventType.NEGATIVE) score -= 1;
+      return score;
+    });
+  })();
+
+  return (
+    <div
+      onClick={onClick}
+      className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-card active:border-primary-300 active:shadow-glow transition-all"
+    >
+      <div className="flex justify-between items-start mb-3">
+        <div className="flex gap-3 items-center">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-base font-bold text-white shadow-md
+            ${student.averageScore < 60 ? 'bg-red-500' : student.averageScore < 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}>
+            {Math.round(student.averageScore)}
+          </div>
+          <div>
+            <h4 className="font-bold text-slate-800">{getDisplayName(student.name, index, isAnonymous)}</h4>
+            <span className="text-xs text-slate-400">{student.id}</span>
+          </div>
         </div>
-        <div>
-          <h4 className="font-bold text-slate-800">{getDisplayName(student.name, index, isAnonymous)}</h4>
-          <span className="text-xs text-slate-400">{student.id}</span>
+        <RiskBadge level={student.riskLevel} score={student.riskScore} />
+      </div>
+      <div className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
+        <div className="text-center">
+          <span className="text-[10px] text-slate-500 block mb-1">משמעת</span>
+          <div className="text-sm font-bold">
+            <span className="text-red-500">{student.negativeCount}</span>
+            <span className="text-slate-300 mx-1">/</span>
+            <span className="text-emerald-500">{student.positiveCount}</span>
+          </div>
+        </div>
+        <div className="text-center border-x border-slate-100">
+          <span className="text-[10px] text-slate-500 block mb-1">מגמת ציונים</span>
+          {student.gradeTrend === 'improving' && <ArrowUpRight size={18} className="text-emerald-500 mx-auto" />}
+          {student.gradeTrend === 'declining' && <ArrowDownRight size={18} className="text-red-500 mx-auto" />}
+          {student.gradeTrend === 'stable' && <Minus size={18} className="text-slate-400 mx-auto" />}
+          <MiniSparkline values={gradeValues} color="#0c8ee6" min={0} max={100} />
+        </div>
+        <div className="text-center">
+          <span className="text-[10px] text-slate-500 block mb-1">מגמת התנהגות</span>
+          {student.behaviorTrend === 'improving' && <ArrowUpRight size={18} className="text-emerald-500 mx-auto" />}
+          {student.behaviorTrend === 'declining' && <ArrowDownRight size={18} className="text-red-500 mx-auto" />}
+          {student.behaviorTrend === 'stable' && <Minus size={18} className="text-slate-400 mx-auto" />}
+          <MiniSparkline values={behaviorValues} color="#f59e0b" />
         </div>
       </div>
-      <RiskBadge level={student.riskLevel} score={student.riskScore} />
     </div>
-    <div className="grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
-      <div className="text-center">
-        <span className="text-[10px] text-slate-500 block mb-1">משמעת</span>
-        <div className="text-sm font-bold">
-          <span className="text-red-500">{student.negativeCount}</span>
-          <span className="text-slate-300 mx-1">/</span>
-          <span className="text-emerald-500">{student.positiveCount}</span>
-        </div>
-      </div>
-      <div className="text-center border-x border-slate-100">
-        <span className="text-[10px] text-slate-500 block mb-1">מגמת ציונים</span>
-        {student.gradeTrend === 'improving' && <ArrowUpRight size={18} className="text-emerald-500 mx-auto" />}
-        {student.gradeTrend === 'declining' && <ArrowDownRight size={18} className="text-red-500 mx-auto" />}
-        {student.gradeTrend === 'stable' && <Minus size={18} className="text-slate-400 mx-auto" />}
-      </div>
-      <div className="text-center">
-        <span className="text-[10px] text-slate-500 block mb-1">מגמת התנהגות</span>
-        {student.behaviorTrend === 'improving' && <ArrowUpRight size={18} className="text-emerald-500 mx-auto" />}
-        {student.behaviorTrend === 'declining' && <ArrowDownRight size={18} className="text-red-500 mx-auto" />}
-        {student.behaviorTrend === 'stable' && <Minus size={18} className="text-slate-400 mx-auto" />}
-      </div>
-    </div>
-  </div>
-);
+  );
+};
 
 export default Dashboard;

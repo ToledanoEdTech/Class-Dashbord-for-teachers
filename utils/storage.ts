@@ -107,3 +107,37 @@ function getDefaultPersistedState() {
     riskSettings: DEFAULT_RISK_SETTINGS,
   };
 }
+
+/* ===== User Preferences ===== */
+
+const PREFS_KEY = 'toledano-edtech-prefs';
+
+export interface UserPreferences {
+  darkMode: boolean;
+  fontSize: 'small' | 'medium' | 'large';
+  dashboardViewMode: 'table' | 'cards';
+}
+
+export const DEFAULT_PREFS: UserPreferences = {
+  darkMode: false,
+  fontSize: 'medium',
+  dashboardViewMode: 'table',
+};
+
+export function savePreferences(prefs: UserPreferences): void {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch (e) {
+    console.warn('Failed to save preferences', e);
+  }
+}
+
+export function loadPreferences(): UserPreferences {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return DEFAULT_PREFS;
+    return { ...DEFAULT_PREFS, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
