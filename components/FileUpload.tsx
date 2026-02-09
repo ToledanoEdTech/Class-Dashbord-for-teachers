@@ -17,8 +17,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
   
   // מצב משוב
   const [misboUrl, setMisboUrl] = useState('');
+  const [misboYear, setMisboYear] = useState('');
+  const [misboSchool, setMisboSchool] = useState('');
   const [misboUsername, setMisboUsername] = useState('');
   const [misboPassword, setMisboPassword] = useState('');
+  const [misboGrade, setMisboGrade] = useState('');
+  const [misboClassName, setMisboClassName] = useState('');
   const [misboLoading, setMisboLoading] = useState(false);
   const [misboError, setMisboError] = useState('');
   const [misboSuccess, setMisboSuccess] = useState(false);
@@ -36,7 +40,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
   };
 
   const handleMisboLogin = async () => {
-    if (!misboUrl || !misboUsername || !misboPassword) {
+    if (!misboUrl || !misboYear || !misboSchool || !misboUsername || !misboPassword || !misboGrade || !misboClassName) {
       setMisboError('אנא מלא את כל השדות');
       return;
     }
@@ -55,6 +59,10 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
           username: misboUsername,
           password: misboPassword,
           misboUrl: misboUrl.trim(),
+          year: misboYear.trim(),
+          schoolName: misboSchool.trim(),
+          grade: misboGrade.trim(),
+          className: misboClassName.trim(),
         }),
       });
 
@@ -237,6 +245,51 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
                   </div>
 
                   <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">שנת לימודים</label>
+                    <input
+                      type="text"
+                      value={misboYear}
+                      onChange={(e) => setMisboYear(e.target.value)}
+                      placeholder="למשל: 2024-2025"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium placeholder:text-slate-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">שם בית ספר</label>
+                    <input
+                      type="text"
+                      value={misboSchool}
+                      onChange={(e) => setMisboSchool(e.target.value)}
+                      placeholder="הזן שם בית ספר"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium placeholder:text-slate-400"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">בחר מהרשימה במשוב</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">שכבה</label>
+                    <input
+                      type="text"
+                      value={misboGrade}
+                      onChange={(e) => setMisboGrade(e.target.value)}
+                      placeholder="למשל: ח' או 8"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium placeholder:text-slate-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">כיתה</label>
+                    <input
+                      type="text"
+                      value={misboClassName}
+                      onChange={(e) => setMisboClassName(e.target.value)}
+                      placeholder="למשל: ח'1 או 8-1"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium placeholder:text-slate-400"
+                    />
+                  </div>
+
+                  <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2">שם משתמש</label>
                     <input
                       type="text"
@@ -260,7 +313,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
 
                   <button
                     onClick={handleMisboLogin}
-                    disabled={misboLoading || !misboUrl || !misboUsername || !misboPassword}
+                    disabled={misboLoading || !misboUrl || !misboYear || !misboSchool || !misboUsername || !misboPassword || !misboGrade || !misboClassName}
                     className={`w-full py-3 rounded-xl font-bold text-base shadow-lg transition-all duration-200 flex items-center justify-center gap-3
                       ${misboLoading || !misboUrl || !misboUsername || !misboPassword
                         ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
@@ -279,6 +332,15 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
                     )}
                   </button>
 
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mt-4">
+                    <p className="text-xs text-blue-800 font-medium mb-2">🔒 בטיחות:</p>
+                    <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                      <li>המערכת רק קוראת ומורידה קבצים</li>
+                      <li>המערכת לא משנה או מוחקת נתונים במשוב</li>
+                      <li>כל פעולה נבדקת לפני ביצוע</li>
+                    </ul>
+                  </div>
+                  
                   <p className="text-xs text-slate-500 text-center mt-2">
                     לאחר ההתחברות, המערכת תנסה להוריד את הקבצים אוטומטית ממשוב
                   </p>

@@ -1,10 +1,11 @@
 import express from 'express';
 import cors from 'cors';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs/promises';
 import crypto from 'crypto';
+import { SafetyLogger, findSafeElement, safeClick, safeDownloadClick, safeSelect } from './safety.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -103,31 +104,91 @@ setInterval(async () => {
  * התחברות למשוב ובדיקת תקינות
  */
 app.post('/api/misbo/login', async (req, res) => {
-  const { username, password, misboUrl } = req.body;
+  const { username, password, misboUrl, year, schoolName, grade, className } = req.body;
 
-  if (!username || !password || !misboUrl) {
-    return res.status(400).json({ error: 'נדרשים שם משתמש, סיסמה וכתובת משוב' });
+  if (!username || !password || !misboUrl || !year || !schoolName || !grade || !className) {
+    return res.status(400).json({ error: 'נדרשים כל השדות: שם משתמש, סיסמה, כתובת משוב, שנת לימודים, בית ספר, שכבה וכיתה' });
   }
 
   let browser = null;
   try {
-    browser = await puppeteer.launch({
+    // ב-Render, נסה להשתמש ב-Chrome שכבר מותקן או להוריד אותו אחרת
+    const launchOptions = {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ],
+    };
+    
+    // נסה למצוא Chrome שכבר מותקן ב-Render
+    const possibleChromePaths = [
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/opt/google/chrome/chrome',
+    ];
+    
+    // בדוק אם יש Chrome מותקן
+    for (const chromePath of possibleChromePaths) {
+      try {
+        await fs.access(chromePath);
+        launchOptions.executablePath = chromePath;
+        console.log(`Using Chrome at: ${chromePath}`);
+        break;
+      } catch (e) {
+        // Continue
+      }
+    }
+    
+    browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
     
     // הגדרת viewport
     await page.setViewport({ width: 1920, height: 1080 });
     
     // מעבר לדף ההתחברות של משוב
+    SafetyLogger.logAction('Navigate to login page', { url: misboUrl });
     await page.goto(misboUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-    
-    // חיפוש שדות התחברות (צריך להתאים לפי המבנה של משוב)
-    // נסה למצוא שדות לפי placeholder או label
     await page.waitForTimeout(2000);
     
-    // חיפוש שדה שם משתמש
+    // שלב 1: בחר שנת לימודים (אם יש)
+    try {
+      const yearSelectors = ['select[name="year"]', '#year', '.year-select', 'select:has(option:contains("' + year + '"))'];
+      const yearSelect = await findSafeElement(page, yearSelectors, 'year select').catch(() => null);
+      if (yearSelect) {
+        SafetyLogger.logAction('Select year', { year });
+        await safeSelect(page, yearSelect, year, 'year');
+      }
+    } catch (error) {
+      console.warn('Year selection not found or failed:', error.message);
+    }
+    
+    // שלב 2: בחר בית ספר (אם יש)
+    try {
+      const schoolSelectors = ['select[name="school"]', '#school', '.school-select'];
+      const schoolSelect = await findSafeElement(page, schoolSelectors, 'school select').catch(() => null);
+      if (schoolSelect) {
+        SafetyLogger.logAction('Select school', { school: schoolName });
+        // נסה לפי label או value
+        try {
+          await safeSelect(page, schoolSelect, { label: schoolName }, 'school');
+        } catch {
+          // אם לא עובד, נסה לפי index או value
+          await safeSelect(page, schoolSelect, schoolName, 'school');
+        }
+      }
+    } catch (error) {
+      console.warn('School selection not found or failed:', error.message);
+    }
+    
+    // שלב 3: חיפוש שדה שם משתמש
     const usernameSelectors = [
       'input[name="username"]',
       'input[name="user"]',
@@ -138,35 +199,13 @@ app.post('/api/misbo/login', async (req, res) => {
       '#user'
     ];
     
-    let usernameField = null;
-    for (const selector of usernameSelectors) {
-      try {
-        usernameField = await page.$(selector);
-        if (usernameField) break;
-      } catch (e) {}
-    }
-    
-    if (!usernameField) {
-      // נסה למצוא את כל שדות ה-input ולבדוק
-      const inputs = await page.$$('input[type="text"], input[type="email"]');
-      if (inputs.length > 0) {
-        usernameField = inputs[0];
-      }
-    }
-    
-    if (!usernameField) {
-      return res.status(400).json({ error: 'לא נמצא שדה שם משתמש. אנא ודא שכתובת משוב נכונה.' });
-    }
-    
-    // הזנת שם משתמש
+    const usernameField = await findSafeElement(page, usernameSelectors, 'username field');
+    SafetyLogger.logAction('Fill username');
     await usernameField.type(username, { delay: 100 });
     
-    // חיפוש שדה סיסמה
-    const passwordField = await page.$('input[type="password"]');
-    if (!passwordField) {
-      return res.status(400).json({ error: 'לא נמצא שדה סיסמה' });
-    }
-    
+    // שלב 4: חיפוש שדה סיסמה
+    const passwordField = await findSafeElement(page, ['input[type="password"]'], 'password field');
+    SafetyLogger.logAction('Fill password');
     await passwordField.type(password, { delay: 100 });
     
     // חיפוש כפתור התחברות
@@ -241,6 +280,10 @@ app.post('/api/misbo/login', async (req, res) => {
     sessions.set(sessionId, {
       cookies: cookies,
       misboUrl: misboUrl,
+      year: year,
+      schoolName: schoolName,
+      grade: grade,
+      className: className,
       createdAt: Date.now(),
       // לא שומרים סיסמה!
     });
@@ -269,7 +312,7 @@ app.post('/api/misbo/login', async (req, res) => {
  * הורדת קבצים ממשוב
  */
 app.post('/api/misbo/download-files', async (req, res) => {
-  const { sessionId, className } = req.body;
+  const { sessionId } = req.body;
 
   if (!sessionId) {
     return res.status(400).json({ error: 'נדרש session ID תקין' });
@@ -281,7 +324,7 @@ app.post('/api/misbo/download-files', async (req, res) => {
     return res.status(401).json({ error: 'Session לא נמצא או פג תוקף. אנא התחבר שוב.' });
   }
 
-  const { cookies, misboUrl } = session;
+  const { cookies, misboUrl, grade, className } = session;
 
   let browser = null;
   const downloadedFiles = {
@@ -290,10 +333,42 @@ app.post('/api/misbo/download-files', async (req, res) => {
   };
 
   try {
-    browser = await puppeteer.launch({
+    // ב-Render, נסה להשתמש ב-Chrome שכבר מותקן או להוריד אותו אחרת
+    const launchOptions = {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ],
+    };
+    
+    // נסה למצוא Chrome שכבר מותקן ב-Render
+    const possibleChromePaths = [
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/opt/google/chrome/chrome',
+    ];
+    
+    // בדוק אם יש Chrome מותקן
+    for (const chromePath of possibleChromePaths) {
+      try {
+        await fs.access(chromePath);
+        launchOptions.executablePath = chromePath;
+        console.log(`Using Chrome at: ${chromePath}`);
+        break;
+      } catch (e) {
+        // Continue
+      }
+    }
+    
+    browser = await puppeteer.launch(launchOptions);
     
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
@@ -311,12 +386,67 @@ app.post('/api/misbo/download-files', async (req, res) => {
     });
     
     // מעבר לדף הראשי של משוב
+    SafetyLogger.logAction('Navigate to misbo', { url: misboUrl });
     await page.goto(misboUrl, { waitUntil: 'networkidle2', timeout: 30000 });
     await page.waitForTimeout(2000);
     
     // ===== הורדת קובץ התנהגות =====
     try {
+      SafetyLogger.logAction('Start downloading behavior file');
       console.log('מחפש קובץ התנהגות...');
+      
+      // שלב 1: מצא "יומן מחנך"
+      const homeroomSelectors = [
+        'a:has-text("יומן מחנך")',
+        'a:has-text("יומן")',
+        'a[href*="homeroom"]',
+        'a[href*="יומן"]'
+      ];
+      
+      const homeroomLink = await findSafeElement(page, homeroomSelectors, 'homeroom link').catch(() => null);
+      if (homeroomLink) {
+        SafetyLogger.logAction('Navigate to homeroom journal');
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {}),
+          safeClick(page, homeroomLink, 'Navigate to homeroom')
+        ]);
+        await page.waitForTimeout(2000);
+      }
+      
+      // שלב 2: בחר שכבה (אם יש)
+      if (grade) {
+        const gradeSelectors = ['select[name="grade"]', 'select[name="שכבה"]', '#grade-select', '.grade-select'];
+        const gradeSelect = await findSafeElement(page, gradeSelectors, 'grade select').catch(() => null);
+        if (gradeSelect) {
+          SafetyLogger.logAction('Select grade', { grade });
+          await safeSelect(page, gradeSelect, grade, 'grade');
+        }
+      }
+      
+      // שלב 3: בחר כיתה (אם יש)
+      if (className) {
+        const classSelectors = ['select[name="class"]', 'select[name="כיתה"]', '#class-select', '.class-select'];
+        const classSelect = await findSafeElement(page, classSelectors, 'class select').catch(() => null);
+        if (classSelect) {
+          SafetyLogger.logAction('Select class', { className });
+          await safeSelect(page, classSelect, className, 'class');
+        }
+      }
+      
+      // שלב 4: בחר "מתחילת השנה" (אם יש)
+      const dateRangeSelectors = [
+        'button:has-text("מתחילת השנה")',
+        'input[value="מתחילת השנה"]',
+        '.date-range-button'
+      ];
+      const dateRangeButton = await findSafeElement(page, dateRangeSelectors, 'date range button').catch(() => null);
+      if (dateRangeButton) {
+        SafetyLogger.logAction('Select date range', { range: 'מתחילת השנה' });
+        await safeClick(page, dateRangeButton, 'Select date range');
+        await page.waitForTimeout(2000);
+      }
+      
+      // שלב 5: מצא "פירוט אירועי משמעת"
       
       // חיפוש קישורים/כפתורים רלוונטיים
       const behaviorLinks = await page.evaluate(() => {

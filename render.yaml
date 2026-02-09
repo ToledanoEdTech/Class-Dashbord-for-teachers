@@ -3,11 +3,15 @@ services:
     name: toledano-edtech-server
     env: node
     plan: free
-    buildCommand: cd server && npm install
+    buildCommand: cd server && npm install --no-optional && npm install
     startCommand: cd server && npm start
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "false"
+      - key: PUPPETEER_CACHE_DIR
+        value: "/tmp/.puppeteer_cache"
     healthCheckPath: /api/health
