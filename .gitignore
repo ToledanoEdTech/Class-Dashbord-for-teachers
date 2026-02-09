@@ -118,3 +118,12 @@ dist
 # Vite
 dist
 *.local
+
+# Server temp files
+server/temp/
+server/*.log
+
+# Environment files
+.env.local
+.env.production.local
+.env.development.local

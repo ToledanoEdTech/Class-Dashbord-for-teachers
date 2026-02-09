@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Student, EventType, isAbsenceEvent, isOtherNegativeEvent, RiskSettings } from '../types';
+import { Student, EventType, Grade, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent, RiskSettings } from '../types';
 import { Users, TrendingUp, AlertTriangle, Search, ChevronRight, BarChart2, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, Minus, Filter, ChevronDown, Printer, LayoutGrid, LayoutList } from 'lucide-react';
 import {
   BarChart,
@@ -13,7 +13,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { format, subDays, startOfDay, endOfDay, differenceInDays } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, differenceInDays, eachWeekOfInterval, endOfWeek, isSameWeek, eachDayOfInterval, isSameDay } from 'date-fns';
 import { computeStudentStatsFromData } from '../utils/processing';
 import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
@@ -711,6 +711,59 @@ const TrendBadge: React.FC<{ trend: 'improving' | 'declining' | 'stable'; type: 
   );
 };
 
+const getStartOfWeek = (date: Date) => {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day;
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const getGradeSparklineValues = (grades: Grade[]): number[] => {
+  if (grades.length === 0) return [];
+  const timestamps = grades.map((g) => g.date.getTime());
+  const minTime = Math.min(...timestamps);
+  const maxTime = Math.max(...timestamps);
+  const startDate = getStartOfWeek(new Date(minTime));
+  const endDate = endOfWeek(new Date(maxTime));
+  const weeks = eachWeekOfInterval({ start: startDate, end: endDate });
+  return weeks
+    .map((weekStart) => {
+      const weeklyGrades = grades.filter((g) => isSameWeek(g.date, weekStart));
+      if (weeklyGrades.length === 0) return null;
+      const avg = weeklyGrades.reduce((sum, g) => sum + g.score, 0) / weeklyGrades.length;
+      return parseFloat(avg.toFixed(1));
+    })
+    .filter((v): v is number => v !== null);
+};
+
+const getBehaviorSparklineValues = (events: BehaviorEvent[]): number[] => {
+  const filtered = events.filter((e) => !isAbsenceEvent(e));
+  if (filtered.length === 0) return [];
+  const dates = filtered.map((e) => e.date);
+  const timestamps = dates.map((d) => d.getTime());
+  const startDate = new Date(Math.min(...timestamps));
+  const endDate = new Date(Math.max(...timestamps));
+  const daySpan = differenceInDays(endDate, startDate);
+  const isDailyView = daySpan <= 30;
+  const intervals = isDailyView
+    ? eachDayOfInterval({ start: startDate, end: endDate })
+    : eachWeekOfInterval({ start: startDate, end: endDate });
+
+  return intervals.map((datePoint) => {
+    const relevant = isDailyView
+      ? filtered.filter((e) => isSameDay(e.date, datePoint))
+      : filtered.filter((e) => isSameWeek(e.date, datePoint));
+    let score = 0;
+    relevant.forEach((e) => {
+      if (e.category === EventType.POSITIVE) score += 1;
+      else if (e.category === EventType.NEGATIVE) score -= 1;
+    });
+    return score;
+  });
+};
+
 const MiniSparkline: React.FC<{ values: number[]; color: string; min?: number; max?: number }> = ({ values, color, min, max }) => {
   if (!values || values.length < 2) {
     return <span className="text-[10px] text-slate-300 block mt-1">אין נתונים</span>;
@@ -734,22 +787,10 @@ const MiniSparkline: React.FC<{ values: number[]; color: string; min?: number; m
 };
 
 const StudentCard: React.FC<{ student: Student; onClick: () => void; index: number; isAnonymous?: boolean }> = ({ student, onClick, index, isAnonymous = false }) => {
-  const gradeValues = [...student.grades]
-    .sort((a, b) => a.date.getTime() - b.date.getTime())
-    .slice(-8)
-    .map((g) => g.score);
-
-  const behaviorValues = (() => {
-    const events = [...student.behaviorEvents]
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .slice(-12);
-    let score = 0;
-    return events.map((e) => {
-      if (e.category === EventType.POSITIVE) score += 1;
-      else if (e.category === EventType.NEGATIVE) score -= 1;
-      return score;
-    });
-  })();
+  const gradeValues = getGradeSparklineValues(student.grades);
+  const behaviorValues = getBehaviorSparklineValues(student.behaviorEvents);
+  const behaviorMin = Math.min(0, ...behaviorValues);
+  const behaviorMax = Math.max(0, ...behaviorValues);
 
   return (
     <div
@@ -790,7 +831,7 @@ const StudentCard: React.FC<{ student: Student; onClick: () => void; index: numb
           {student.behaviorTrend === 'improving' && <ArrowUpRight size={18} className="text-emerald-500 mx-auto" />}
           {student.behaviorTrend === 'declining' && <ArrowDownRight size={18} className="text-red-500 mx-auto" />}
           {student.behaviorTrend === 'stable' && <Minus size={18} className="text-slate-400 mx-auto" />}
-          <MiniSparkline values={behaviorValues} color="#f59e0b" />
+          <MiniSparkline values={behaviorValues} color="#f59e0b" min={behaviorMin} max={behaviorMax} />
         </div>
       </div>
     </div>
