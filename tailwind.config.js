@@ -34,6 +34,18 @@ export default {
           danger: '#ef4444',
           info: '#3b82f6',
         },
+        /* סמנטיקה: ציונים – ירוק/כתום/אדום */
+        grade: {
+          success: '#059669',
+          warning: '#d97706',
+          danger: '#dc2626',
+        },
+        /* סמנטיקה: סיכון – אדום/כתום/ירוק */
+        risk: {
+          high: '#dc2626',
+          medium: '#d97706',
+          low: '#059669',
+        },
       },
       boxShadow: {
         'soft': '0 2px 15px -3px rgb(0 0 0 / 0.07), 0 10px 20px -2px rgb(0 0 0 / 0.04)',

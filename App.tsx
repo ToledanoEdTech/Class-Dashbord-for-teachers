@@ -9,7 +9,8 @@ import { Student, AppState, ClassGroup, RiskSettings } from './types';
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
 import { saveToStorage, loadFromStorage, savePreferences, loadPreferences } from './utils/storage';
-import { GraduationCap, LayoutDashboard, Upload, Menu, X, Settings, PlusCircle, BookOpen, Pencil, Check, Eye, EyeOff, BarChart3, Grid3X3, Trash2, Moon, Sun } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
+import { NavIcons, FileIcons } from './constants/icons';
 
 const LOGO_PATH = '/logo.png';
 
@@ -25,6 +26,9 @@ const Logo: React.FC<{ fallback: React.ReactNode }> = ({ fallback }) => {
     />
   );
 };
+
+const BRAND_NAME = 'ToledanoEdTech';
+const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
 
 const getInitialState = (): AppState => {
   const { classes, activeClassId, riskSettings } = loadFromStorage();
@@ -240,7 +244,7 @@ const App: React.FC = () => {
                         className="p-1.5 rounded-lg hover:bg-primary-100 text-primary-600 shrink-0"
                         aria-label="שמור"
                       >
-                        <Check size={16} />
+                        <NavIcons.Check size={16} />
                       </button>
                     </>
                   ) : (
@@ -250,7 +254,7 @@ const App: React.FC = () => {
                         onClick={() => handleSelectClass(c.id)}
                         className="flex-1 min-w-0 text-right flex items-center gap-3"
                       >
-                        <BookOpen size={18} className="shrink-0" />
+                        <NavIcons.Class size={18} className="shrink-0" />
                         <span className="truncate">{c.name}</span>
                         <span className="text-xs text-slate-400 shrink-0">{c.students.length}</span>
                       </button>
@@ -260,7 +264,7 @@ const App: React.FC = () => {
                         className={`p-1.5 rounded-lg hover:bg-slate-200/80 text-slate-500 shrink-0 transition-opacity ${state.activeClassId === c.id ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'}`}
                         aria-label="עריכת שם כיתה"
                       >
-                        <Pencil size={14} />
+                        <NavIcons.Edit size={14} />
                       </button>
                       <button
                         type="button"
@@ -268,7 +272,7 @@ const App: React.FC = () => {
                         className={`p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 shrink-0 transition-all ${state.activeClassId === c.id ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'}`}
                         aria-label="מחיקת כיתה"
                       >
-                        <Trash2 size={14} />
+                        <NavIcons.Delete size={14} />
                       </button>
                     </>
                   )}
@@ -282,7 +286,7 @@ const App: React.FC = () => {
                 }}
                 className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-xl text-primary-600 hover:bg-primary-50 font-medium transition-colors border border-dashed border-primary-200"
               >
-                <PlusCircle size={18} className="shrink-0" />
+                <NavIcons.AddClass size={18} className="shrink-0" />
                 הוסף כיתה
               </button>
               <button
@@ -293,7 +297,7 @@ const App: React.FC = () => {
                 }}
                 className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 hover:bg-slate-50 font-medium transition-colors mt-2"
               >
-                <Settings size={18} className="shrink-0" />
+                <NavIcons.Settings size={18} className="shrink-0" />
                 הגדרות סיכון
               </button>
               <div className="px-3 py-3 mt-2 border-t border-slate-100">
@@ -310,6 +314,21 @@ const App: React.FC = () => {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="px-3 py-3 mt-auto border-t border-slate-100">
+                <a
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); setState((prev) => ({ ...prev, view: 'upload' })); setSidebarOpen(false); }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-primary-50/50 transition-colors group"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center shrink-0">
+                    <Logo fallback={<FileIcons.LogoFallback size={16} className="text-primary-600" />} />
+                  </div>
+                  <div className="text-right min-w-0">
+                    <span className="font-display font-bold text-sm text-slate-700 group-hover:text-primary-600 block truncate">{BRAND_NAME}</span>
+                    <span className="text-[10px] text-slate-500 block">{BRAND_TAGLINE}</span>
+                  </div>
+                </a>
               </div>
             </nav>
           </aside>
@@ -341,12 +360,13 @@ const App: React.FC = () => {
                     className="flex items-center gap-2.5 group transition-all duration-200 flex-1 min-w-0"
                   >
                     <div className="flex items-center justify-center w-16 h-16 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all shrink-0">
-                      <Logo fallback={<GraduationCap size={28} strokeWidth={2.5} className="text-primary-600" />} />
+                      <Logo fallback={<FileIcons.LogoFallback size={28} strokeWidth={2.5} className="text-primary-600" />} />
                     </div>
                     <div className="text-right min-w-0">
-                      <span className="font-bold text-base text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block truncate">
-                        ToledanoEdTech
+                      <span className="font-display font-bold text-base text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block truncate">
+                        {BRAND_NAME}
                       </span>
+                      <span className="text-[10px] text-slate-500 block">{BRAND_TAGLINE}</span>
                     </div>
                   </button>
                 </div>
@@ -358,7 +378,7 @@ const App: React.FC = () => {
                     aria-label={darkMode ? 'מצב בהיר' : 'מצב כהה'}
                     title={darkMode ? 'מצב בהיר' : 'מצב כהה'}
                   >
-                    {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+                    {darkMode ? <NavIcons.Light size={18} /> : <NavIcons.Dark size={18} />}
                   </button>
                 </div>
               </div>
@@ -378,7 +398,7 @@ const App: React.FC = () => {
                       }`}
                       aria-label="דשבורד"
                     >
-                      <LayoutDashboard size={18} className="shrink-0" />
+                      <NavIcons.Dashboard size={18} className="shrink-0" />
                       <span className="text-xs sm:text-sm">דשבורד</span>
                     </button>
                     <button
@@ -391,7 +411,7 @@ const App: React.FC = () => {
                       }`}
                       aria-label="אנליטיקת מורים"
                     >
-                      <BarChart3 size={18} className="shrink-0" />
+                      <NavIcons.TeachersAnalytics size={18} className="shrink-0" />
                       <span className="text-xs sm:text-sm">אנליטיקה</span>
                     </button>
                     <button
@@ -404,7 +424,7 @@ const App: React.FC = () => {
                       }`}
                       aria-label="מטריצת מקצועות"
                     >
-                      <Grid3X3 size={18} className="shrink-0" />
+                      <NavIcons.SubjectMatrix size={18} className="shrink-0" />
                       <span className="text-xs sm:text-sm">מטריצה</span>
                     </button>
                   </div>
@@ -422,7 +442,7 @@ const App: React.FC = () => {
                       title={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
                       aria-label={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
                     >
-                      {state.isAnonymous ? <EyeOff size={18} /> : <Eye size={18} />}
+                      {state.isAnonymous ? <NavIcons.PrivacyOff size={18} /> : <NavIcons.Privacy size={18} />}
                       <span className="text-xs sm:text-sm">{state.isAnonymous ? 'פרטיות' : 'פרטיות'}</span>
                     </button>
                     <button
@@ -431,7 +451,7 @@ const App: React.FC = () => {
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-slate-600 hover:text-primary-600 hover:bg-primary-50/60 active:bg-primary-100 border border-slate-200 transition-all text-sm font-medium min-h-[40px]"
                       aria-label="העלאת קבצים"
                     >
-                      <Upload size={18} className="shrink-0" />
+                      <NavIcons.Upload size={18} className="shrink-0" />
                       <span className="text-xs sm:text-sm">העלה</span>
                     </button>
                   </div>
@@ -458,13 +478,13 @@ const App: React.FC = () => {
                   className="flex items-center gap-3 group transition-all duration-200"
                 >
                   <div className="flex items-center justify-center w-20 h-20 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all">
-                    <Logo fallback={<GraduationCap size={32} strokeWidth={2.5} className="text-primary-600" />} />
+                    <Logo fallback={<FileIcons.LogoFallback size={32} strokeWidth={2.5} className="text-primary-600" />} />
                   </div>
                   <div className="text-right">
-                    <span className="font-bold text-lg md:text-xl text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block">
-                      ToledanoEdTech
+                    <span className="font-display font-bold text-lg md:text-xl text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block">
+                      {BRAND_NAME}
                     </span>
-                    <span className="text-xs text-slate-500 font-medium hidden sm:block">מערכת מעקב פדגוגית</span>
+                    <span className="text-xs text-slate-500 font-medium hidden sm:block">{BRAND_TAGLINE}</span>
                   </div>
                 </button>
               </div>
@@ -484,7 +504,7 @@ const App: React.FC = () => {
                         }`}
                         aria-label="דשבורד"
                       >
-                        <LayoutDashboard size={18} className="shrink-0" />
+                        <NavIcons.Dashboard size={18} className="shrink-0" />
                         <span>דשבורד</span>
                       </button>
                       <button
@@ -497,7 +517,7 @@ const App: React.FC = () => {
                         }`}
                         aria-label="אנליטיקת מורים"
                       >
-                        <BarChart3 size={18} className="shrink-0" />
+                        <NavIcons.TeachersAnalytics size={18} className="shrink-0" />
                         <span>אנליטיקת מורים</span>
                       </button>
                       <button
@@ -510,7 +530,7 @@ const App: React.FC = () => {
                         }`}
                         aria-label="מטריצת מקצועות"
                       >
-                        <Grid3X3 size={18} className="shrink-0" />
+                        <NavIcons.SubjectMatrix size={18} className="shrink-0" />
                         <span>מטריצת מקצועות</span>
                       </button>
                     </div>
@@ -526,7 +546,7 @@ const App: React.FC = () => {
                         title={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
                         aria-label={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
                       >
-                        {state.isAnonymous ? <EyeOff size={18} /> : <Eye size={18} />}
+                        {state.isAnonymous ? <NavIcons.PrivacyOff size={18} /> : <NavIcons.Privacy size={18} />}
                         <span>{state.isAnonymous ? 'פרטיות פעילה' : 'פרטיות'}</span>
                       </button>
                       <button
@@ -535,7 +555,7 @@ const App: React.FC = () => {
                         className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-slate-500 hover:text-primary-600 hover:bg-primary-50/50 transition-colors text-sm font-medium min-h-[44px]"
                         aria-label="העלאת קבצים"
                       >
-                        <Upload size={18} className="shrink-0" />
+                        <NavIcons.Upload size={18} className="shrink-0" />
                         <span>העלאת קבצים</span>
                       </button>
                     </div>
@@ -548,7 +568,7 @@ const App: React.FC = () => {
                   aria-label={darkMode ? 'מצב בהיר' : 'מצב כהה'}
                   title={darkMode ? 'מצב בהיר' : 'מצב כהה'}
                 >
-                  {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+                  {darkMode ? <NavIcons.Light size={18} /> : <NavIcons.Dark size={18} />}
                 </button>
               </div>
             </div>
@@ -608,7 +628,7 @@ const App: React.FC = () => {
             <div className="bg-white rounded-2xl shadow-elevated border border-slate-200 w-full max-w-sm p-6 animate-scale-in" onClick={(e) => e.stopPropagation()}>
               <div className="text-center">
                 <div className="w-14 h-14 rounded-2xl bg-red-100 text-red-600 mx-auto flex items-center justify-center mb-4">
-                  <Trash2 size={26} />
+                  <NavIcons.Delete size={26} />
                 </div>
                 <h3 className="text-lg font-bold text-slate-800 mb-2">מחיקת כיתה</h3>
                 <p className="text-slate-600 text-sm mb-6">

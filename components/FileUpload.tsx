@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
-import { Upload, FileText, FileSpreadsheet, AlertCircle, GraduationCap, ArrowRight } from 'lucide-react';
+import { AlertCircle, ArrowRight } from 'lucide-react';
+import { FileIcons } from '../constants/icons';
 import { generateSampleData } from '../utils/processing';
+
+const BRAND_NAME = 'ToledanoEdTech';
+const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
 
 interface FileUploadProps {
   onProcess: (behaviorFile: File | string, gradesFile: File | string, className: string) => void;
@@ -12,12 +16,12 @@ const LOGO_PATH = '/logo.png';
 const UploadHeaderLogo: React.FC = () => {
   const [failed, setFailed] = useState(false);
   if (failed) {
-    return <GraduationCap className="w-8 h-8 md:w-10 md:h-10 text-primary-500 dark:text-primary-400" strokeWidth={2.5} />;
+    return <FileIcons.LogoFallback className="w-8 h-8 md:w-10 md:h-10 text-primary-500 dark:text-primary-400" strokeWidth={2.5} />;
   }
   return (
     <img
       src={LOGO_PATH}
-      alt="לוגו ToledanoEdTech"
+      alt={`לוגו ${BRAND_NAME}`}
       className="w-full h-full object-contain p-1"
       onError={() => setFailed(true)}
     />
@@ -45,16 +49,19 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
   return (
     <div className="flex flex-col items-center justify-start min-h-[calc(100vh-4rem)] px-3 py-1 md:px-6 md:py-2">
       <div className="w-full max-w-2xl">
-        {/* Hero: Logo + Welcome - compact */}
+        {/* Hero: Logo + Branding */}
         <div className="text-center mb-2 md:mb-3 animate-slide-up flex flex-col items-center">
-          <div className="w-32 h-32 md:w-40 md:h-40 rounded-xl bg-white/80 border border-slate-200/80 shadow-card overflow-hidden shrink-0 mb-1.5">
+          <div className="w-32 h-32 md:w-40 md:h-40 rounded-2xl bg-white shadow-elevated border border-slate-200/80 overflow-hidden shrink-0 mb-3 ring-2 ring-primary-100/80">
             <UploadHeaderLogo />
           </div>
-          <h1 className="text-lg md:text-xl font-bold text-slate-800 tracking-tight">
-            ברוכים הבאים ל-ToledanoEdTech
+          <h1 className="font-display font-bold text-xl md:text-2xl text-slate-800 tracking-tight">
+            {BRAND_NAME}
           </h1>
-          <p className="text-slate-600 text-xs md:text-sm max-w-md mt-0.5">
-            העלה את קבצי הנתונים כדי להתחיל בניתוח מקצועי של הכיתה
+          <p className="text-primary-600 font-semibold text-sm md:text-base mt-0.5">
+            {BRAND_TAGLINE}
+          </p>
+          <p className="text-slate-600 text-xs md:text-sm max-w-md mt-1">
+            ברוכים הבאים • העלה את קבצי הנתונים כדי להתחיל בניתוח מקצועי של הכיתה
           </p>
         </div>
 
@@ -96,14 +103,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
               <FileDropZone
                 file={behaviorFile}
                 onFileChange={setBehaviorFile}
-                icon={FileText}
+                icon={FileIcons.Behavior}
                 label="קובץ התנהגות"
                 placeholder="יומן מחנך (פירוט אירועים)"
               />
               <FileDropZone
                 file={gradesFile}
                 onFileChange={setGradesFile}
-                icon={FileSpreadsheet}
+                icon={FileIcons.Grades}
                 label="קובץ ציונים"
                 placeholder="ציונים שוטפים - סדין"
               />
@@ -126,7 +133,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
                   </>
                 ) : (
                   <>
-                    <Upload size={22} strokeWidth={2.5} />
+                    <FileIcons.Upload size={22} strokeWidth={2.5} />
                     נתח נתונים
                     <ArrowRight size={18} className="opacity-80" />
                   </>

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Student, EventType, Grade, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent, RiskSettings } from '../types';
-import { Users, TrendingUp, AlertTriangle, Search, ChevronRight, BarChart2, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, Minus, Filter, ChevronDown, Printer, LayoutGrid, LayoutList } from 'lucide-react';
+import { Search, ChevronRight, PieChart as PieChartIcon, Filter, ChevronDown, Printer, LayoutGrid, LayoutList } from 'lucide-react';
+import { MetricIcons } from '../constants/icons';
 import {
   BarChart,
   Bar,
@@ -345,14 +346,14 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         <KPICard
           label="סה״כ תלמידים"
           value={totalStudents}
-          icon={Users}
+          icon={MetricIcons.Students}
           color="primary"
           gradient="from-primary-500 to-primary-600"
         />
         <KPICard
           label="ממוצע כיתתי"
           value={classAverageInRange.toFixed(1)}
-          icon={BarChart2}
+          icon={MetricIcons.ClassAverage}
           color="success"
           gradient="from-emerald-500 to-teal-500"
           highlight={classAverageInRange > 75}
@@ -369,7 +370,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         <KPICard
           label="חיסורים"
           value={totalAbsences}
-          icon={AlertTriangle}
+          icon={MetricIcons.Absences}
           color="danger"
           gradient="from-red-500 to-rose-500"
           comparison={
@@ -385,7 +386,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         <KPICard
           label="אירועים שליליים (אחר)"
           value={totalOtherNegative}
-          icon={AlertTriangle}
+          icon={MetricIcons.NegativeEvents}
           color="danger"
           gradient="from-rose-500 to-red-600"
           comparison={
@@ -401,9 +402,9 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         <KPICard
           label={<>תלמידים בסיכון <HelpTip text="תלמידים עם ציון סיכון נמוך (1-3 מתוך 10). מחושב לפי ממוצע ציונים, מגמות, אירועים שליליים וחיסורים." /></>}
           value={atRiskCount}
-          icon={TrendingUp}
-          color="warning"
-          gradient="from-amber-500 to-orange-500"
+          icon={MetricIcons.Risk}
+          color="danger"
+          gradient="from-red-500 to-rose-500"
         />
       </div>
 
@@ -411,31 +412,31 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       {(prevClassAvg > 0 || prevAtRiskCount > 0) && (
         <div className="bg-gradient-to-r from-primary-50 to-blue-50/50 border border-primary-100 rounded-2xl p-4 md:p-5">
           <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-            <TrendingUp size={16} className="text-primary-500" />
+            <MetricIcons.TrendUp size={16} className="text-primary-500" />
             סיכום השוואה לתקופה הקודמת
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div className="flex flex-col">
               <span className="text-slate-500 text-xs mb-1">שינוי בתלמידים בסיכון</span>
-              <span className={`font-bold text-lg ${riskChange > 0 ? 'text-red-600' : riskChange < 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+              <span className={`font-bold text-lg ${riskChange > 0 ? 'text-risk-high' : riskChange < 0 ? 'text-grade-success' : 'text-slate-600'}`}>
                 {riskChange > 0 ? `+${riskChange}` : riskChange === 0 ? 'ללא שינוי' : riskChange}
               </span>
             </div>
             <div className="flex flex-col">
               <span className="text-slate-500 text-xs mb-1">שינוי בממוצע כיתתי</span>
-              <span className={`font-bold text-lg ${avgChangePercent > 0 ? 'text-emerald-600' : avgChangePercent < 0 ? 'text-red-600' : 'text-slate-600'}`}>
+              <span className={`font-bold text-lg ${avgChangePercent > 0 ? 'text-grade-success' : avgChangePercent < 0 ? 'text-grade-danger' : 'text-slate-600'}`}>
                 {avgChangePercent > 0 ? '+' : ''}{avgChangePercent.toFixed(1)}%
               </span>
             </div>
             <div className="flex flex-col">
               <span className="text-slate-500 text-xs mb-1">שינוי בחיסורים</span>
-              <span className={`font-bold text-lg ${totalAbsences - prevAbsences > 0 ? 'text-red-600' : totalAbsences - prevAbsences < 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+              <span className={`font-bold text-lg ${totalAbsences - prevAbsences > 0 ? 'text-grade-danger' : totalAbsences - prevAbsences < 0 ? 'text-grade-success' : 'text-slate-600'}`}>
                 {totalAbsences - prevAbsences > 0 ? '+' : ''}{totalAbsences - prevAbsences}
               </span>
             </div>
             <div className="flex flex-col">
               <span className="text-slate-500 text-xs mb-1">שינוי באירועים שליליים</span>
-              <span className={`font-bold text-lg ${totalOtherNegative - prevOtherNeg > 0 ? 'text-red-600' : totalOtherNegative - prevOtherNeg < 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+              <span className={`font-bold text-lg ${totalOtherNegative - prevOtherNeg > 0 ? 'text-grade-danger' : totalOtherNegative - prevOtherNeg < 0 ? 'text-grade-success' : 'text-slate-600'}`}>
                 {totalOtherNegative - prevOtherNeg > 0 ? '+' : ''}{totalOtherNegative - prevOtherNeg}
               </span>
             </div>
@@ -447,7 +448,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 md:gap-6">
         <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-shadow duration-300">
           <h3 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2">
-            <BarChart2 size={20} className="text-primary-500" />
+            <MetricIcons.ClassAverage size={20} className="text-primary-500" />
             התפלגות ציונים
           </h3>
           <div className="h-52 min-h-[200px] sm:h-56 md:h-64">
@@ -650,18 +651,18 @@ const KPICard: React.FC<{
     <div className="flex items-start justify-between">
       <div>
         <p className="text-slate-500 text-xs md:text-sm font-medium mb-1">{label}</p>
-        <p className={`text-2xl md:text-3xl font-bold ${highlight ? 'text-emerald-600' : 'text-slate-800'}`}>
+        <p className={`text-2xl md:text-3xl font-bold ${highlight ? 'text-grade-success' : 'text-slate-800'}`}>
           {value}
         </p>
         {comparison != null && (
           <div
-            className={`mt-1 flex items-center gap-1 text-xs font-medium ${comparison.isImprovement ? 'text-emerald-600' : 'text-red-600'}`}
+            className={`mt-1 flex items-center gap-1 text-xs font-medium ${comparison.isImprovement ? 'text-grade-success' : 'text-grade-danger'}`}
             title={comparison.label}
           >
             {comparison.isImprovement ? (
-              <ArrowUpRight size={14} strokeWidth={2.5} />
+              <MetricIcons.TrendUp size={14} strokeWidth={2.5} />
             ) : (
-              <ArrowDownRight size={14} strokeWidth={2.5} />
+              <MetricIcons.TrendDown size={14} strokeWidth={2.5} />
             )}
             <span>
               {comparison.percent >= 0 ? '+' : ''}
@@ -679,9 +680,9 @@ const KPICard: React.FC<{
 
 const RiskBadge: React.FC<{ level: 'high' | 'medium' | 'low'; score?: number }> = ({ level, score }) => {
   const styles = {
-    high: 'bg-red-50 text-red-700 border-red-100',
-    medium: 'bg-amber-50 text-amber-700 border-amber-100',
-    low: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    high: 'bg-red-50 text-risk-high border-red-100',
+    medium: 'bg-amber-50 text-risk-medium border-amber-100',
+    low: 'bg-emerald-50 text-risk-low border-emerald-100',
   };
   const labels = { high: 'גבוה', medium: 'בינוני', low: 'נמוך' };
   return (
@@ -698,9 +699,9 @@ const RiskBadge: React.FC<{ level: 'high' | 'medium' | 'low'; score?: number }> 
 
 const TrendBadge: React.FC<{ trend: 'improving' | 'declining' | 'stable'; type: 'grade' | 'behavior' }> = ({ trend, type }) => {
   const config = {
-    improving: { icon: ArrowUpRight, text: type === 'grade' ? 'שיפור' : 'משתפר', class: 'bg-emerald-50 text-emerald-700' },
-    declining: { icon: ArrowDownRight, text: type === 'grade' ? 'ירידה' : 'מידרדר', class: 'bg-red-50 text-red-700' },
-    stable: { icon: Minus, text: 'יציב', class: 'bg-slate-100 text-slate-600' },
+    improving: { icon: MetricIcons.TrendUp, text: type === 'grade' ? 'שיפור' : 'משתפר', class: 'bg-emerald-50 text-grade-success' },
+    declining: { icon: MetricIcons.TrendDown, text: type === 'grade' ? 'ירידה' : 'מידרדר', class: 'bg-red-50 text-grade-danger' },
+    stable: { icon: MetricIcons.TrendStable, text: 'יציב', class: 'bg-slate-100 text-slate-600' },
   };
   const { icon: Icon, text, class: cls } = config[trend];
   return (
@@ -821,16 +822,16 @@ const StudentCard: React.FC<{ student: Student; onClick: () => void; index: numb
         </div>
         <div className="text-center border-x border-slate-100">
           <span className="text-[10px] text-slate-500 block mb-1">מגמת ציונים</span>
-          {student.gradeTrend === 'improving' && <ArrowUpRight size={18} className="text-emerald-500 mx-auto" />}
-          {student.gradeTrend === 'declining' && <ArrowDownRight size={18} className="text-red-500 mx-auto" />}
-          {student.gradeTrend === 'stable' && <Minus size={18} className="text-slate-400 mx-auto" />}
+          {student.gradeTrend === 'improving' && <MetricIcons.TrendUp size={18} className="text-grade-success mx-auto" />}
+          {student.gradeTrend === 'declining' && <MetricIcons.TrendDown size={18} className="text-grade-danger mx-auto" />}
+          {student.gradeTrend === 'stable' && <MetricIcons.TrendStable size={18} className="text-slate-400 mx-auto" />}
           <MiniSparkline values={gradeValues} color="#0c8ee6" min={0} max={100} />
         </div>
         <div className="text-center">
           <span className="text-[10px] text-slate-500 block mb-1">מגמת התנהגות</span>
-          {student.behaviorTrend === 'improving' && <ArrowUpRight size={18} className="text-emerald-500 mx-auto" />}
-          {student.behaviorTrend === 'declining' && <ArrowDownRight size={18} className="text-red-500 mx-auto" />}
-          {student.behaviorTrend === 'stable' && <Minus size={18} className="text-slate-400 mx-auto" />}
+          {student.behaviorTrend === 'improving' && <MetricIcons.TrendUp size={18} className="text-grade-success mx-auto" />}
+          {student.behaviorTrend === 'declining' && <MetricIcons.TrendDown size={18} className="text-grade-danger mx-auto" />}
+          {student.behaviorTrend === 'stable' && <MetricIcons.TrendStable size={18} className="text-slate-400 mx-auto" />}
           <MiniSparkline values={behaviorValues} color="#f59e0b" min={behaviorMin} max={behaviorMax} />
         </div>
       </div>

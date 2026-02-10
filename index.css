@@ -135,6 +135,14 @@ html.dark .border-amber-100 { border-color: rgba(245, 158, 11, 0.35); }
 html.dark .border-amber-200 { border-color: rgba(245, 158, 11, 0.45); }
 html.dark .border-amber-100\/80 { border-color: rgba(245, 158, 11, 0.3); }
 
+/* Semantic grade/risk colors in dark mode */
+html.dark .text-grade-success { color: #34d399; }
+html.dark .text-grade-warning { color: #fcd34d; }
+html.dark .text-grade-danger { color: #f87171; }
+html.dark .text-risk-high { color: #f87171; }
+html.dark .text-risk-medium { color: #fcd34d; }
+html.dark .text-risk-low { color: #34d399; }
+
 /* Text contrast in dark - ensure colored text is visible */
 html.dark .text-primary-600 { color: #38bdf8; }
 html.dark .text-primary-500 { color: #7dd3fc; }
