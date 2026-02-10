@@ -244,33 +244,33 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
               : { left: tooltipPos.x, top: tooltipPos.y - 8, transform: 'translate(-50%, -100%)' }
           }
         >
-          <div className="bg-white/98 backdrop-blur-md rounded-xl shadow-xl border border-slate-200/90 px-4 py-3 min-w-[220px] max-w-[min(280px,calc(100vw-2rem))] relative">
+          <div className="bg-white rounded-xl shadow-2xl border-2 border-slate-300 px-4 py-3 min-w-[220px] max-w-[min(280px,calc(100vw-2rem))] relative">
             {isMobile && (
               <button
                 type="button"
                 onClick={() => { setTooltip(null); setActiveCell(null); setTooltipPos(null); }}
-                className="absolute end-2 top-2 p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                className="absolute end-2 top-2 p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 min-h-[44px] min-w-[44px] flex items-center justify-center"
                 aria-label="סגור"
               >
                 <X size={18} />
               </button>
             )}
-            {!isMobile && <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-r border-b border-slate-200/90 rotate-45" />}
-            <p className="font-bold text-slate-800 text-base border-b border-slate-100 pb-2 mb-2 pr-6">
+            {!isMobile && <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-white border-r-2 border-b-2 border-slate-300 rotate-45" />}
+            <p className="font-bold text-slate-900 text-base border-b border-slate-200 pb-2 mb-2 pr-6">
               {DAY_LABELS_HE[tooltip.day]} • שיעור {tooltip.lessonNumber}
             </p>
-            <p className="text-primary-600 font-semibold text-sm mb-2">
+            <p className="text-primary-700 font-semibold text-sm mb-2">
               סה״כ אירועים: {tooltip.count}
             </p>
-            <p className="text-slate-600 text-sm">
-              <span className="text-slate-500">נושא עיקרי:</span> {tooltip.topIssue}
+            <p className="text-slate-700 text-sm">
+              <span className="text-slate-600 font-medium">נושא עיקרי:</span> <span className="text-slate-900">{tooltip.topIssue}</span>
             </p>
-            <p className="text-slate-600 text-sm mt-1">
-              <span className="text-slate-500">מקצוע:</span> {tooltip.topSubject}
+            <p className="text-slate-700 text-sm mt-1">
+              <span className="text-slate-600 font-medium">מקצוע:</span> <span className="text-slate-900">{tooltip.topSubject}</span>
             </p>
             {tooltip.types && Object.keys(tooltip.types).length > 1 && (
-              <div className="mt-2 pt-2 border-t border-slate-100">
-                <p className="text-xs text-slate-500 mb-1">פירוט לפי סוג:</p>
+              <div className="mt-2 pt-2 border-t border-slate-200">
+                <p className="text-xs text-slate-600 font-medium mb-1">פירוט לפי סוג:</p>
                 <div className="flex flex-wrap gap-1.5">
                   {Object.entries(tooltip.types)
                     .sort((a, b) => b[1] - a[1])
@@ -278,7 +278,7 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
                     .map(([t, n]) => (
                       <span
                         key={t}
-                        className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs"
+                        className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-200 text-slate-900 text-xs font-medium"
                       >
                         {t}: {n}
                       </span>

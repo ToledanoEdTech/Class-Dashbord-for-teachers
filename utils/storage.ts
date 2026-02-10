@@ -1,5 +1,7 @@
-import type { ClassGroup, RiskSettings, Student, Grade, BehaviorEvent } from '../types';
-import { DEFAULT_RISK_SETTINGS } from '../types';
+import type { ClassGroup, RiskSettings, Student, Grade, BehaviorEvent, PerClassRiskSettings, PeriodDefinition } from '../types';
+import { DEFAULT_RISK_SETTINGS, normalizeRiskSettings } from '../types';
+import type { DashboardWidgetsState } from '../constants/dashboardWidgets';
+import { normalizeDashboardWidgets } from '../constants/dashboardWidgets';
 
 const STORAGE_KEY = 'toledano-edtech-state';
 
@@ -7,6 +9,8 @@ interface PersistedState {
   classes: PersistedClassGroup[];
   activeClassId: string | null;
   riskSettings: RiskSettings;
+  perClassRiskSettings?: PerClassRiskSettings;
+  periodDefinitions?: PeriodDefinition[];
 }
 
 interface PersistedClassGroup {
@@ -67,11 +71,15 @@ export function saveToStorage(payload: {
   classes: ClassGroup[];
   activeClassId: string | null;
   riskSettings: RiskSettings;
+  perClassRiskSettings?: PerClassRiskSettings;
+  periodDefinitions?: PeriodDefinition[];
 }): void {
   const persisted: PersistedState = {
     classes: payload.classes.map(toPersistedClass),
     activeClassId: payload.activeClassId,
     riskSettings: payload.riskSettings,
+    perClassRiskSettings: payload.perClassRiskSettings ?? {},
+    periodDefinitions: payload.periodDefinitions ?? [],
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
@@ -84,15 +92,24 @@ export function loadFromStorage(): {
   classes: ClassGroup[];
   activeClassId: string | null;
   riskSettings: RiskSettings;
+  perClassRiskSettings: PerClassRiskSettings;
+  periodDefinitions: PeriodDefinition[];
 } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return getDefaultPersistedState();
     const parsed: PersistedState = JSON.parse(raw);
+    const perClass = parsed.perClassRiskSettings ?? {};
+    const normalizedPerClass: PerClassRiskSettings = {};
+    Object.keys(perClass).forEach((classId) => {
+      normalizedPerClass[classId] = normalizeRiskSettings(perClass[classId]);
+    });
     return {
       classes: (parsed.classes || []).map(fromPersistedClass),
       activeClassId: parsed.activeClassId ?? null,
-      riskSettings: parsed.riskSettings ?? DEFAULT_RISK_SETTINGS,
+      riskSettings: normalizeRiskSettings(parsed.riskSettings),
+      perClassRiskSettings: normalizedPerClass,
+      periodDefinitions: Array.isArray(parsed.periodDefinitions) ? parsed.periodDefinitions : [],
     };
   } catch (e) {
     console.warn('Failed to load state from localStorage', e);
@@ -105,6 +122,8 @@ function getDefaultPersistedState() {
     classes: [] as ClassGroup[],
     activeClassId: null as string | null,
     riskSettings: DEFAULT_RISK_SETTINGS,
+    perClassRiskSettings: {} as PerClassRiskSettings,
+    periodDefinitions: [] as PeriodDefinition[],
   };
 }
 
@@ -116,6 +135,7 @@ export interface UserPreferences {
   darkMode: boolean;
   fontSize: 'small' | 'medium' | 'large';
   dashboardViewMode: 'table' | 'cards';
+  dashboardWidgets?: Partial<DashboardWidgetsState>;
 }
 
 export const DEFAULT_PREFS: UserPreferences = {
@@ -140,4 +160,10 @@ export function loadPreferences(): UserPreferences {
   } catch {
     return DEFAULT_PREFS;
   }
+}
+
+/** טוען רכיבי דשבורד ממונורפים (מנורמלים) */
+export function loadDashboardWidgets(): DashboardWidgetsState {
+  const prefs = loadPreferences();
+  return normalizeDashboardWidgets(prefs.dashboardWidgets);
 }

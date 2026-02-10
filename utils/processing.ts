@@ -1,4 +1,4 @@
-import { BehaviorEvent, EventType, Grade, Student, Correlation, RiskSettings, DEFAULT_RISK_SETTINGS } from '../types';
+import { BehaviorEvent, EventType, Grade, Student, Correlation, RiskSettings, DEFAULT_RISK_SETTINGS, DEFAULT_RISK_WEIGHTS } from '../types';
 import { isAbsenceEvent } from '../types';
 import { differenceInDays } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -385,44 +385,51 @@ export function calculateStudentStats(
   const minGT = settings.minGradeThreshold;
   const maxNB = settings.maxNegativeBehaviors;
   const attThr = settings.attendanceThreshold;
+  const weights = settings.weights ?? DEFAULT_RISK_WEIGHTS;
+  const kG = Math.max(0.2, Math.min(2, (weights.grades ?? 3) / 3));
+  const kA = Math.max(0.2, Math.min(2, (weights.absences ?? 3) / 3));
+  const kNE = Math.max(0.2, Math.min(2, (weights.negativeEvents ?? 3) / 3));
 
-  /**
-   * אלגוריתם ציון סיכון (1–10, 10 = סיכון נמוך):
-   * מתחיל מ-10 ומוריד לפי גורמים:
-   *
-   * ציונים: ממוצע מתחת ל-55 (-4), 55-65 (-2), 65-75 (-1)
-   * מגמת ציונים: ירידה חזקה (דלתא≤-10) (-2), ירידה (-1), שיפור (+0.5)
-   * התנהגות אחרונה: ציון≤-12 (-4), ≤-6 (-2), <0 (-1)
-   * מגמת התנהגות: מידרדר (-1), משתפר (+0.3)
-   * סך אירועים שליליים: >15 (-2), >סף (-1)
-   * חיסורים: ≥סף (-2), קרוב לסף (-0.5)
-   * מאזן חיובי: כשחיוביים>שליליים (+0.2) – נותן קרדיט לחיזוקים
-   */
-  let score = 10;
-  if (average < minGT) score -= 4;
-  else if (average < minGT + 10) score -= 2;
-  else if (average < minGT + 20) score -= 1;
+  /** חלק הציונים: ממוצע + מגמת ציונים */
+  let gradePart = 0;
+  if (average < minGT) gradePart += 4;
+  else if (average < minGT + 10) gradePart += 2;
+  else if (average < minGT + 20) gradePart += 1;
   if (gradeTrend === 'declining') {
-    if (gradeDelta <= -10) score -= 2;
-    else score -= 1;
+    if (gradeDelta <= -10) gradePart += 2;
+    else gradePart += 1;
   }
-  if (gradeTrend === 'improving') score += 0.5;
-  if (recentBehaviorScore <= -12) score -= 4;
-  else if (recentBehaviorScore <= -6) score -= 2;
-  else if (recentBehaviorScore < 0) score -= 1;
-  if (behaviorTrend === 'declining') score -= 1;
-  if (behaviorTrend === 'improving') score += 0.3;
-  if (negativeCount > 15) score -= 2;
-  else if (negativeCount > maxNB) score -= 1;
-  if (absenceCount >= attThr) score -= 2;
-  else if (absenceCount >= Math.max(1, attThr - 1)) score -= 0.5;
-  if (positiveCount > negativeCount && negativeCount > 0) score += 0.2;
+  if (gradeTrend === 'improving') gradePart -= 0.5;
+
+  /** חלק החיסורים */
+  let absencePart = 0;
+  if (settings.penaltyPerAbsenceAboveThreshold != null && settings.penaltyPerAbsenceAboveThreshold > 0 && absenceCount >= attThr) {
+    absencePart = 2 + (absenceCount - attThr) * settings.penaltyPerAbsenceAboveThreshold;
+  } else {
+    if (absenceCount >= attThr) absencePart += 2;
+    else if (absenceCount >= Math.max(1, attThr - 1)) absencePart += 0.5;
+  }
+
+  /** חלק אירועים שליליים + מגמת התנהגות */
+  let negPart = 0;
+  if (recentBehaviorScore <= -12) negPart += 4;
+  else if (recentBehaviorScore <= -6) negPart += 2;
+  else if (recentBehaviorScore < 0) negPart += 1;
+  if (behaviorTrend === 'declining') negPart += 1;
+  if (behaviorTrend === 'improving') negPart -= 0.3;
+  if (negativeCount > 15) negPart += 2;
+  else if (negativeCount > maxNB) negPart += 1;
+  if (positiveCount > negativeCount && negativeCount > 0) negPart -= 0.2;
+
+  let score = 10 - gradePart * kG - absencePart * kA - negPart * kNE;
   score = Math.max(1, Math.min(10, score));
   score = Math.round(score * 10) / 10;
 
+  const highThr = settings.riskScoreHighThreshold ?? 4;
+  const medThr = settings.riskScoreMediumThreshold ?? 7;
   let riskLevel: 'high' | 'medium' | 'low';
-  if (score <= 4) riskLevel = 'high';
-  else if (score <= 7) riskLevel = 'medium';
+  if (score <= highThr) riskLevel = 'high';
+  else if (score <= medThr) riskLevel = 'medium';
   else riskLevel = 'low';
 
   const correlations: Correlation[] = [];

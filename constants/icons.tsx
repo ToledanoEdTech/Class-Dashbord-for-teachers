@@ -57,6 +57,7 @@ export const MetricIcons = {
   Risk: AlertTriangle,
   Absences: AlertTriangle,
   NegativeEvents: AlertTriangle,
+  PositiveEvents: Check,
   TrendUp: ArrowUpRight,
   TrendDown: ArrowDownRight,
   TrendStable: Minus,

@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import LandingPage from './components/LandingPage';
 import FileUpload from './components/FileUpload';
 import Dashboard from './components/Dashboard';
 import StudentProfile from './components/StudentProfile';
 import SettingsPanel from './components/SettingsPanel';
 import TeachersAnalytics from './components/TeachersAnalytics';
 import SubjectMatrix from './components/SubjectMatrix';
-import { Student, AppState, ClassGroup, RiskSettings } from './types';
+import { Student, AppState, ClassGroup, RiskSettings, PerClassRiskSettings, PeriodDefinition } from './types';
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
-import { saveToStorage, loadFromStorage, savePreferences, loadPreferences } from './utils/storage';
+import { saveToStorage, loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets } from './utils/storage';
 import { Menu, X } from 'lucide-react';
 import { NavIcons, FileIcons } from './constants/icons';
 
@@ -31,17 +32,28 @@ const BRAND_NAME = 'ToledanoEdTech';
 const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
 
 const getInitialState = (): AppState => {
-  const { classes, activeClassId, riskSettings } = loadFromStorage();
+  const { classes, activeClassId, riskSettings, perClassRiskSettings, periodDefinitions } = loadFromStorage();
   return {
-    view: classes.length === 0 ? 'upload' : activeClassId ? 'dashboard' : 'upload',
+    view: classes.length === 0 ? 'landing' : activeClassId ? 'dashboard' : 'upload',
     selectedStudentId: null,
     classes,
     activeClassId,
     isAnonymous: false,
     riskSettings,
+    perClassRiskSettings: perClassRiskSettings ?? {},
+    periodDefinitions: periodDefinitions ?? [],
     loading: false,
   };
 };
+
+function getEffectiveRiskSettings(
+  activeClassId: string | null,
+  globalSettings: RiskSettings,
+  perClass: PerClassRiskSettings
+): RiskSettings {
+  if (!activeClassId || !perClass[activeClassId]) return globalSettings;
+  return perClass[activeClassId];
+}
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(getInitialState);
@@ -51,8 +63,10 @@ const App: React.FC = () => {
   const [deleteConfirmClassId, setDeleteConfirmClassId] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(() => loadPreferences().darkMode);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => loadPreferences().fontSize);
+  const [dashboardWidgets, setDashboardWidgets] = useState(() => loadDashboardWidgets());
 
   const activeClass = state.classes.find((c) => c.id === state.activeClassId);
+  const effectiveRiskSettings = getEffectiveRiskSettings(state.activeClassId, state.riskSettings, state.perClassRiskSettings);
   const students = activeClass?.students ?? [];
   const classAverage =
     students.length > 0
@@ -66,8 +80,10 @@ const App: React.FC = () => {
       classes: state.classes,
       activeClassId: state.activeClassId,
       riskSettings: state.riskSettings,
+      perClassRiskSettings: state.perClassRiskSettings,
+      periodDefinitions: state.periodDefinitions,
     });
-  }, [state.classes, state.activeClassId, state.riskSettings]);
+  }, [state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -132,7 +148,7 @@ const App: React.FC = () => {
   const handleUpdateStudent = useCallback(
     (updatedStudent: Student) => {
       if (!state.activeClassId) return;
-      const recalculated = calculateStudentStats(updatedStudent, state.riskSettings);
+      const recalculated = calculateStudentStats(updatedStudent, effectiveRiskSettings);
       setState((prev) => {
         const nextClasses = prev.classes.map((c) =>
           c.id === prev.activeClassId
@@ -148,11 +164,26 @@ const App: React.FC = () => {
         return { ...prev, classes: nextClasses };
       });
     },
-    [state.activeClassId, state.riskSettings]
+    [state.activeClassId, effectiveRiskSettings]
   );
 
-  const handleSaveRiskSettings = useCallback((riskSettings: RiskSettings) => {
-    setState((prev) => ({ ...prev, riskSettings, view: 'dashboard' }));
+  const handleSaveRiskSettings = useCallback(
+    (riskSettings: RiskSettings, forCurrentClassOnly?: boolean) => {
+      setState((prev) => {
+        if (forCurrentClassOnly && prev.activeClassId) {
+          const nextPerClass = { ...prev.perClassRiskSettings, [prev.activeClassId]: riskSettings };
+          return { ...prev, perClassRiskSettings: nextPerClass, view: 'dashboard' };
+        }
+        const nextPerClass = { ...prev.perClassRiskSettings };
+        if (prev.activeClassId) delete nextPerClass[prev.activeClassId];
+        return { ...prev, riskSettings, perClassRiskSettings: nextPerClass, view: 'dashboard' };
+      });
+    },
+    []
+  );
+
+  const handleSavePeriodDefinitions = useCallback((periodDefinitions: PeriodDefinition[]) => {
+    setState((prev) => ({ ...prev, periodDefinitions }));
   }, []);
 
   const handleRenameClass = useCallback((classId: string, newName: string) => {
@@ -298,7 +329,7 @@ const App: React.FC = () => {
                 className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 hover:bg-slate-50 font-medium transition-colors mt-2"
               >
                 <NavIcons.Settings size={18} className="shrink-0" />
-                הגדרות סיכון
+                הגדרות
               </button>
               <div className="px-3 py-3 mt-2 border-t border-slate-100">
                 <span className="text-xs font-bold text-slate-500 block mb-2 px-1">גודל גופן</span>
@@ -384,7 +415,7 @@ const App: React.FC = () => {
               </div>
 
               {/* Second Row: Navigation Buttons (only when not in upload/settings) */}
-              {state.view !== 'upload' && state.view !== 'settings' && (
+              {state.view !== 'upload' && state.view !== 'settings' && state.view !== 'landing' && (
                 <div className="pb-2.5 space-y-2">
                   {/* Main Navigation Tabs */}
                   <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/90 border border-slate-200/80">
@@ -490,7 +521,7 @@ const App: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-3">
-                {state.view !== 'upload' && state.view !== 'settings' && (
+                {state.view !== 'upload' && state.view !== 'settings' && state.view !== 'landing' && (
                   <>
                     {/* Navigation: Dashboard | Teacher Analytics | Subject Matrix */}
                     <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 border border-slate-200/80">
@@ -576,6 +607,10 @@ const App: React.FC = () => {
         </nav>
 
         <main className="animate-fade-in flex-1">
+          {state.view === 'landing' && (
+            <LandingPage onStart={() => setState((prev) => ({ ...prev, view: 'upload' }))} />
+          )}
+
           {state.view === 'upload' && (
             <FileUpload onProcess={handleProcess} loading={state.loading} />
           )}
@@ -585,8 +620,12 @@ const App: React.FC = () => {
               students={students}
               classAverage={classAverage}
               onSelectStudent={handleSelectStudent}
-              riskSettings={state.riskSettings}
+              riskSettings={effectiveRiskSettings}
               isAnonymous={state.isAnonymous}
+              className={activeClass.name}
+              classGroup={activeClass}
+              periodDefinitions={state.periodDefinitions}
+              visibleWidgets={dashboardWidgets}
             />
           )}
 
@@ -599,7 +638,7 @@ const App: React.FC = () => {
               onBack={handleBack}
               classAverage={classAverage}
               onUpdateStudent={handleUpdateStudent}
-              riskSettings={state.riskSettings}
+              riskSettings={effectiveRiskSettings}
               isAnonymous={state.isAnonymous}
               studentIndex={selectedStudentIndex >= 0 ? selectedStudentIndex : 0}
             />
@@ -615,9 +654,21 @@ const App: React.FC = () => {
 
           {state.view === 'settings' && (
             <SettingsPanel
-              riskSettings={state.riskSettings}
+              riskSettings={effectiveRiskSettings}
+              globalRiskSettings={state.riskSettings}
+              perClassRiskSettings={state.perClassRiskSettings}
+              activeClassId={state.activeClassId}
+              classes={state.classes}
+              students={activeClass?.students ?? []}
               onSave={handleSaveRiskSettings}
+              onSavePeriodDefinitions={handleSavePeriodDefinitions}
+              periodDefinitions={state.periodDefinitions}
               onBack={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
+              dashboardWidgets={dashboardWidgets}
+              onSaveDashboardWidgets={(widgets) => {
+                setDashboardWidgets(widgets);
+                savePreferences({ ...loadPreferences(), dashboardWidgets: widgets });
+              }}
             />
           )}
         </main>

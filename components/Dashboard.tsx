@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Student, EventType, Grade, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent, RiskSettings } from '../types';
-import { Search, ChevronRight, PieChart as PieChartIcon, Filter, ChevronDown, Printer, LayoutGrid, LayoutList } from 'lucide-react';
+import { Student, EventType, Grade, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent, RiskSettings, ClassGroup, PeriodDefinition } from '../types';
+import { Search, ChevronRight, PieChart as PieChartIcon, Filter, ChevronDown, Printer, LayoutGrid, LayoutList, Download, FileSpreadsheet, FileText, AlertCircle, TrendingUp } from 'lucide-react';
 import { MetricIcons } from '../constants/icons';
+import { exportStudentsAtRiskToExcel, exportClassSummaryToExcel, exportClassSummaryToPDF } from '../utils/export';
 import {
   BarChart,
   Bar,
@@ -13,12 +14,17 @@ import {
   PieChart,
   Pie,
   Cell,
+  LineChart,
+  Line,
+  Legend,
 } from 'recharts';
-import { format, subDays, startOfDay, endOfDay, differenceInDays, eachWeekOfInterval, endOfWeek, isSameWeek, eachDayOfInterval, isSameDay } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, differenceInDays, eachWeekOfInterval, endOfWeek, isSameWeek, eachDayOfInterval, isSameDay, addMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { computeStudentStatsFromData } from '../utils/processing';
 import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
 import HelpTip from './HelpTip';
+import type { DashboardWidgetsState } from '../constants/dashboardWidgets';
+import { getDefaultDashboardWidgets } from '../constants/dashboardWidgets';
 
 interface DashboardProps {
   students: Student[];
@@ -26,6 +32,10 @@ interface DashboardProps {
   onSelectStudent: (id: string) => void;
   riskSettings?: RiskSettings;
   isAnonymous?: boolean;
+  className?: string;
+  classGroup?: ClassGroup;
+  periodDefinitions?: PeriodDefinition[];
+  visibleWidgets?: DashboardWidgetsState;
 }
 
 const getDefaultDateRange = (): { start: Date; end: Date } => {
@@ -50,7 +60,8 @@ const getDateRangeFromStudents = (students: Student[]): { min: Date; max: Date }
   };
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings, isAnonymous = false }) => {
+const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings, isAnonymous = false, className = 'כיתה', classGroup, periodDefinitions = [], visibleWidgets: visibleWidgetsProp }) => {
+  const visibleWidgets = visibleWidgetsProp ?? getDefaultDashboardWidgets();
   const { start: defaultStart, end: defaultEnd } = useMemo(getDefaultDateRange, []);
   const dataRange = useMemo(() => getDateRangeFromStudents(students), [students]);
   const [startDate, setStartDate] = useState<Date>(defaultStart);
@@ -72,24 +83,57 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const [viewMode, setViewMode] = useState<'table' | 'cards'>(() => {
     try { return (localStorage.getItem('toledano-view-mode') as 'table' | 'cards') || 'table'; } catch { return 'table'; }
   });
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   React.useEffect(() => {
     try { localStorage.setItem('toledano-view-mode', viewMode); } catch {}
   }, [viewMode]);
+
+  // סגירת תפריט ייצוא בלחיצה מחוץ לתפריט
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (exportMenuOpen && !target.closest('.export-menu-container')) {
+        setExportMenuOpen(false);
+      }
+    };
+    if (exportMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [exportMenuOpen]);
 
   const activeFilterCount = [riskFilter !== 'all', trendFilter !== 'all', !!subjectFilter, !!teacherFilter].filter(Boolean).length;
 
   const rangeStart = useMemo(() => startOfDay(startDate), [startDate]);
   const rangeEnd = useMemo(() => endOfDay(endDate), [endDate]);
 
+  /** סינון מקצוע/מורה משפיע על כל הדשבורד: רק ציונים ואירועים שמתאימים */
+  const studentsFilteredBySubjectTeacher = useMemo(() => {
+    if (!subjectFilter && !teacherFilter) return students;
+    return students.map((s) => ({
+      ...s,
+      grades: s.grades.filter(
+        (gr) =>
+          (!subjectFilter || (gr.subject || '').trim() === subjectFilter) &&
+          (!teacherFilter || (gr.teacher || '').trim() === teacherFilter)
+      ),
+      behaviorEvents: s.behaviorEvents.filter(
+        (ev) =>
+          (!subjectFilter || (ev.subject || '').trim() === subjectFilter) &&
+          (!teacherFilter || (ev.teacher || '').trim() === teacherFilter)
+      ),
+    }));
+  }, [students, subjectFilter, teacherFilter]);
+
   const studentsInRange = useMemo(() => {
-    return students.map((s) => {
+    return studentsFilteredBySubjectTeacher.map((s) => {
       const g = s.grades.filter((gr) => gr.date >= rangeStart && gr.date <= rangeEnd);
       const e = s.behaviorEvents.filter((ev) => ev.date >= rangeStart && ev.date <= rangeEnd);
       const stats = computeStudentStatsFromData(g, e, riskSettings);
       return { ...s, ...stats, grades: g, behaviorEvents: e };
     });
-  }, [students, rangeStart, rangeEnd, riskSettings]);
+  }, [studentsFilteredBySubjectTeacher, rangeStart, rangeEnd, riskSettings]);
 
   const periodLengthDays = useMemo(
     () => Math.max(1, differenceInDays(rangeEnd, rangeStart) + 1),
@@ -101,12 +145,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const prevStats = useMemo(() => {
     const prevStart = startOfDay(prevPeriodStart);
     const prevEnd = endOfDay(prevPeriodEnd);
-    return students.map((s) => {
+    return studentsFilteredBySubjectTeacher.map((s) => {
       const g = s.grades.filter((gr) => gr.date >= prevStart && gr.date <= prevEnd);
       const e = s.behaviorEvents.filter((ev) => ev.date >= prevStart && ev.date <= prevEnd);
       return computeStudentStatsFromData(g, e, riskSettings);
     });
-  }, [students, prevPeriodStart, prevPeriodEnd, riskSettings]);
+  }, [studentsFilteredBySubjectTeacher, prevPeriodStart, prevPeriodEnd, riskSettings]);
 
   const totalStudents = studentsInRange.length;
   const atRiskCount = studentsInRange.filter((s) => s.riskLevel === 'high').length;
@@ -132,36 +176,18 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const prevClassAvg =
     prevStats.length > 0 ? prevStats.reduce((sum, s) => sum + s.averageScore, 0) / prevStats.length : 0;
 
-  const { prevAbsences, prevOtherNeg } = useMemo(() => {
-    const prevStart = startOfDay(prevPeriodStart);
-    const prevEnd = endOfDay(prevPeriodEnd);
-    let abs = 0;
-    let other = 0;
-    students.forEach((s) => {
-      s.behaviorEvents
-        .filter((e) => e.date >= prevStart && e.date <= prevEnd)
-        .forEach((e) => {
-          if (isAbsenceEvent(e)) abs++;
-          else if (isOtherNegativeEvent(e)) other++;
-        });
-    });
-    return { prevAbsences: abs, prevOtherNeg: other };
-  }, [students, prevPeriodStart, prevPeriodEnd]);
+  const totalPositive = useMemo(
+    () => studentsInRange.reduce((sum, s) => sum + s.positiveCount, 0),
+    [studentsInRange]
+  );
 
   const avgChangePercent =
     prevClassAvg > 0 ? ((classAverageInRange - prevClassAvg) / prevClassAvg) * 100 : 0;
-  const absencesChangePercent =
-    prevAbsences > 0 ? ((totalAbsences - prevAbsences) / prevAbsences) * 100 : totalAbsences > 0 ? 100 : 0;
-  const otherNegChangePercent =
-    prevOtherNeg > 0 ? ((totalOtherNegative - prevOtherNeg) / prevOtherNeg) * 100 : totalOtherNegative > 0 ? 100 : 0;
-
-  const prevAtRiskCount = useMemo(() => prevStats.filter((s) => s.riskLevel === 'high').length, [prevStats]);
-  const riskChange = atRiskCount - prevAtRiskCount;
 
   const { allSubjects, allTeachers } = useMemo(() => {
     const subjects = new Set<string>();
     const teachers = new Set<string>();
-    studentsInRange.forEach((s) => {
+    students.forEach((s) => {
       s.grades.forEach((g) => {
         if (g.subject?.trim()) subjects.add(g.subject.trim());
         if (g.teacher?.trim()) teachers.add(g.teacher.trim());
@@ -174,18 +200,15 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       allSubjects: Array.from(subjects).sort((a, b) => a.localeCompare(b, 'he')),
       allTeachers: Array.from(teachers).sort((a, b) => a.localeCompare(b, 'he')),
     };
-  }, [studentsInRange]);
+  }, [students]);
 
   const filteredStudents = useMemo(() => {
     let result = studentsInRange.filter((s) => {
       if (searchTerm && !s.name.includes(searchTerm) && !s.id.includes(searchTerm)) return false;
       if (riskFilter !== 'all' && s.riskLevel !== riskFilter) return false;
       if (trendFilter !== 'all' && s.gradeTrend !== trendFilter) return false;
-      if (subjectFilter && !s.grades.some((g) => (g.subject || '').trim() === subjectFilter)) return false;
-      if (teacherFilter) {
-        const hasGrade = s.grades.some((g) => (g.teacher || '').trim() === teacherFilter);
-        const hasEvent = s.behaviorEvents.some((e) => (e.teacher || '').trim() === teacherFilter);
-        if (!hasGrade && !hasEvent) return false;
+      if (subjectFilter || teacherFilter) {
+        if (s.grades.length === 0 && s.behaviorEvents.length === 0) return false;
       }
       return true;
     });
@@ -196,6 +219,137 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       return 0;
     });
   }, [studentsInRange, searchTerm, sortBy, riskFilter, trendFilter, subjectFilter, teacherFilter]);
+
+  /** תלמידים שדורשים תשומת לב מיידית: סיכון גבוה + (מגמה מידרדרת או חיסורים גבוהים) */
+  const immediateAttentionList = useMemo(() => {
+    const attThr = riskSettings?.attendanceThreshold ?? 4;
+    return studentsInRange
+      .filter(
+        (s) =>
+          s.riskLevel === 'high' &&
+          (s.gradeTrend === 'declining' ||
+            s.behaviorTrend === 'declining' ||
+            s.behaviorEvents.filter((e) => isAbsenceEvent(e)).length >= attThr)
+      )
+      .sort((a, b) => a.riskScore - b.riskScore)
+      .slice(0, 5);
+  }, [studentsInRange, riskSettings?.attendanceThreshold]);
+
+  const improvingCount = useMemo(
+    () => studentsInRange.filter((s) => s.gradeTrend === 'improving' || s.behaviorTrend === 'improving').length,
+    [studentsInRange]
+  );
+
+  /** מגמה כיתתית לאורך זמן: שבועות או חודשים (מושפע ממקצוע/מורה) */
+  const timelineData = useMemo(() => {
+    const days = differenceInDays(rangeEnd, rangeStart) + 1;
+    const useMonths = days > 90;
+    const points: { period: string; ממוצע: number; חיסורים: number; שליליים: number; חיוביים: number; fullDate: Date }[] = [];
+    const src = studentsFilteredBySubjectTeacher;
+    if (useMonths) {
+      let d = startOfMonth(rangeStart);
+      while (d <= rangeEnd) {
+        const periodEnd = endOfMonth(d);
+        const periodStart = startOfDay(d);
+        const periodEndClamped = periodEnd > rangeEnd ? rangeEnd : periodEnd;
+        const inRange = (date: Date) => date >= periodStart && date <= periodEndClamped;
+        const stInPeriod = src.map((s) => {
+          const g = s.grades.filter((gr) => inRange(gr.date));
+          const e = s.behaviorEvents.filter((ev) => inRange(ev.date));
+          return computeStudentStatsFromData(g, e, riskSettings);
+        });
+        const withData = stInPeriod.filter((_, i) => {
+          const orig = src[i];
+          return orig.grades.some((gr) => inRange(gr.date)) || orig.behaviorEvents.some((ev) => inRange(ev.date));
+        });
+        const avgVal = withData.length > 0 ? withData.reduce((s, x) => s + x.averageScore, 0) / withData.length : 0;
+        let abs = 0;
+        let neg = 0;
+        let pos = 0;
+        src.forEach((s) => {
+          s.behaviorEvents.forEach((ev) => {
+            if (!inRange(ev.date)) return;
+            if (isAbsenceEvent(ev)) abs++;
+            else if (ev.category === EventType.NEGATIVE) neg++;
+            else if (ev.category === EventType.POSITIVE) pos++;
+          });
+        });
+        points.push({
+          period: format(d, 'MMM yyyy'),
+          ממוצע: Math.round(avgVal * 10) / 10,
+          חיסורים: abs,
+          שליליים: neg,
+          חיוביים: pos,
+          fullDate: new Date(d),
+        });
+        d = addMonths(d, 1);
+      }
+    } else {
+      const weeks = eachWeekOfInterval({ start: rangeStart, end: rangeEnd }, { weekStartsOn: 0 });
+      weeks.forEach((weekStart) => {
+        const weekEnd = endOfWeek(weekStart, { weekStartsOn: 0 });
+        const periodEnd = weekEnd > rangeEnd ? rangeEnd : weekEnd;
+        const periodStart = weekStart < rangeStart ? rangeStart : weekStart;
+        const inRange = (date: Date) => date >= periodStart && date <= periodEnd;
+        const stInPeriod = src.map((s) => {
+          const g = s.grades.filter((gr) => inRange(gr.date));
+          const e = s.behaviorEvents.filter((ev) => inRange(ev.date));
+          return computeStudentStatsFromData(g, e, riskSettings);
+        });
+        const withData = stInPeriod.filter((_, i) => {
+          const orig = src[i];
+          return orig.grades.some((gr) => inRange(gr.date)) || orig.behaviorEvents.some((ev) => inRange(ev.date));
+        });
+        const avgVal = withData.length > 0 ? withData.reduce((s, x) => s + x.averageScore, 0) / withData.length : 0;
+        let abs = 0;
+        let neg = 0;
+        let pos = 0;
+        src.forEach((s) => {
+          s.behaviorEvents.forEach((ev) => {
+            if (!inRange(ev.date)) return;
+            if (isAbsenceEvent(ev)) abs++;
+            else if (ev.category === EventType.NEGATIVE) neg++;
+            else if (ev.category === EventType.POSITIVE) pos++;
+          });
+        });
+        points.push({
+          period: format(weekStart, 'd/M'),
+          ממוצע: Math.round(avgVal * 10) / 10,
+          חיסורים: abs,
+          שליליים: neg,
+          חיוביים: pos,
+          fullDate: new Date(weekStart),
+        });
+      });
+    }
+    return points;
+  }, [studentsFilteredBySubjectTeacher, rangeStart, rangeEnd, riskSettings]);
+
+  /** סטטיסטיקות לפי תקופות מוגדרות (מושפע ממקצוע/מורה) */
+  const periodStats = useMemo(() => {
+    if (!periodDefinitions?.length) return [];
+    const src = studentsFilteredBySubjectTeacher;
+    return periodDefinitions.map((p) => {
+      const pStart = startOfDay(new Date(p.startDate));
+      const pEnd = endOfDay(new Date(p.endDate));
+      const inRange = (date: Date) => date >= pStart && date <= pEnd;
+      const stInPeriod = src.map((s) => {
+        const g = s.grades.filter((gr) => inRange(gr.date));
+        const e = s.behaviorEvents.filter((ev) => inRange(ev.date));
+        return computeStudentStatsFromData(g, e, riskSettings);
+      });
+      const withGrades = stInPeriod.filter((_, i) => src[i].grades.some((gr) => inRange(gr.date)));
+      const avg = withGrades.length > 0 ? withGrades.reduce((s, x) => s + x.averageScore, 0) / withGrades.length : 0;
+      const atRisk = stInPeriod.filter((x) => x.riskLevel === 'high').length;
+      let abs = 0;
+      src.forEach((s) => {
+        s.behaviorEvents.forEach((ev) => {
+          if (inRange(ev.date) && isAbsenceEvent(ev)) abs++;
+        });
+      });
+      return { name: p.name, ממוצע: Math.round(avg * 10) / 10, בסיכון: atRisk, חיסורים: abs };
+    });
+  }, [studentsFilteredBySubjectTeacher, periodDefinitions, riskSettings]);
 
   const gradeDistribution = useMemo(
     () => [
@@ -211,7 +365,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const behaviorTypeDistribution = useMemo(() => {
     const items: { name: string; value: number }[] = [];
     if (totalAbsences > 0) items.push({ name: 'חיסורים', value: totalAbsences });
-    if (totalOtherNegative > 0) items.push({ name: 'אירועים שליליים (אחר)', value: totalOtherNegative });
+    if (totalOtherNegative > 0) items.push({ name: 'אירועים שליליים', value: totalOtherNegative });
     const positiveTypes: Record<string, number> = {};
     studentsInRange.forEach((s) => {
       s.behaviorEvents.forEach((e) => {
@@ -248,7 +402,96 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">דשבורד כיתתי</h2>
           <p className="text-slate-500 text-sm md:text-base mt-1">סקירה מלאה של מצב הכיתה והתלמידים</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          {/* Export Dropdown */}
+          <div className="relative export-menu-container">
+            <button
+              type="button"
+              onClick={() => setExportMenuOpen(!exportMenuOpen)}
+              className="no-print flex items-center gap-2 px-3 py-2 rounded-xl bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800 text-sm font-medium transition-colors"
+              aria-label="ייצוא נתונים"
+              aria-expanded={exportMenuOpen}
+            >
+              <Download size={16} />
+              <span className="hidden sm:inline">ייצוא</span>
+            </button>
+            {(exportMenuOpen || false) && (
+              <div className="absolute left-0 top-full mt-2 w-56 bg-white rounded-xl shadow-elevated border border-slate-200 z-50">
+                <div className="p-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const atRiskStudents = studentsInRange.filter((s) => s.riskLevel === 'high');
+                    if (atRiskStudents.length === 0) {
+                      alert('אין תלמידים בסיכון לייצוא');
+                      return;
+                    }
+                    try {
+                      await exportStudentsAtRiskToExcel(atRiskStudents, className, riskSettings);
+                      setExportMenuOpen(false);
+                    } catch (error) {
+                      console.error('Error exporting:', error);
+                      alert('שגיאה בייצוא הקובץ');
+                    }
+                  }}
+                  className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-50 active:bg-primary-100 text-slate-700 hover:text-primary-700 transition-colors"
+                >
+                  <FileSpreadsheet size={18} className="text-primary-600 shrink-0" />
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">ייצוא תלמידים בסיכון</div>
+                    <div className="text-xs text-slate-500">Excel</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!classGroup) {
+                      alert('חסרים נתוני כיתה לייצוא');
+                      return;
+                    }
+                    try {
+                      await exportClassSummaryToExcel(classGroup, classAverageInRange, riskSettings);
+                      setExportMenuOpen(false);
+                    } catch (error) {
+                      console.error('Error exporting:', error);
+                      alert('שגיאה בייצוא הקובץ');
+                    }
+                  }}
+                  className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-50 active:bg-primary-100 text-slate-700 hover:text-primary-700 transition-colors"
+                >
+                  <FileSpreadsheet size={18} className="text-primary-600 shrink-0" />
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">ייצוא סיכום כיתתי</div>
+                    <div className="text-xs text-slate-500">Excel</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!classGroup) {
+                      alert('חסרים נתוני כיתה לייצוא');
+                      return;
+                    }
+                    try {
+                      exportClassSummaryToPDF(classGroup, classAverageInRange, riskSettings);
+                      setExportMenuOpen(false);
+                    } catch (error) {
+                      console.error('Error exporting:', error);
+                      alert('שגיאה בייצוא הקובץ');
+                    }
+                  }}
+                  className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-primary-50 active:bg-primary-100 text-slate-700 hover:text-primary-700 transition-colors"
+                >
+                  <FileText size={18} className="text-primary-600 shrink-0" />
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">ייצוא סיכום כיתתי</div>
+                    <div className="text-xs text-slate-500">PDF</div>
+                  </div>
+                </button>
+                </div>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => window.print()}
@@ -264,7 +507,87 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         </div>
       </div>
 
+      {/* Executive Summary + Immediate Attention - קומפקטי */}
+      {visibleWidgets.summary && (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="lg:col-span-2 bg-gradient-to-br from-primary-50/80 to-white rounded-xl shadow-card border border-primary-100/80 p-3.5 md:p-4">
+          <h3 className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-1.5">
+            <TrendingUp size={14} className="text-primary-500" />
+            סיכום מהיר
+          </h3>
+          <div className="text-slate-700 text-sm leading-snug space-y-2">
+            <p>
+              {totalStudents > 0 ? (
+                <>בכיתה <strong>{totalStudents}</strong> תלמידים. <strong className="text-red-600">{atRiskCount}</strong> תלמידים בסיכון גבוה, <strong className="text-emerald-600">{improvingCount}</strong> במגמת שיפור (ציונים או התנהגות).
+                  {immediateAttentionList.length > 0 ? (
+                    <> <strong className="text-amber-700">{immediateAttentionList.length}</strong> דורשים תשומת לב מיידית.</>
+                  ) : (
+                    <> אין תלמידים שדורשים תשומת לב מיידית כרגע.</>
+                  )}
+                </>
+              ) : (
+                <>אין עדיין נתונים בטווח התאריכים שנבחר.</>
+              )}
+            </p>
+            {totalStudents > 0 && (
+              <p className="text-slate-600">
+                {atRiskCount === 0 && improvingCount > totalStudents / 2 && (
+                  <>הכיתה במצב טוב: רוב התלמידים במגמת שיפור. כדאי להמשיך בחיזוקים חיוביים.</>
+                )}
+                {atRiskCount === 0 && improvingCount <= totalStudents / 2 && (
+                  <>מומלץ לחזק תלמידים שמגמתם יציבה כדי להניע שיפור.</>
+                )}
+                {atRiskCount > 0 && improvingCount > atRiskCount && (
+                  <>מומלץ להתמקד במי שבדירוג הסיכון הגבוה ולשמור על החיזוקים לאחרים.</>
+                )}
+                {atRiskCount > 0 && improvingCount <= atRiskCount && atRiskCount <= 3 && (
+                  <>התמקדות בתלמידים בסיכון ובמגמת הציונים וההתנהגות עשויה לשפר את המצב.</>
+                )}
+                {atRiskCount > 3 && (
+                  <>מומלץ לבדוק מקצועות ומועדים בעייתיים ולתכנן התערבות כיתתית וממוקדת.</>
+                )}
+              </p>
+            )}
+            {totalStudents > 0 && (atRiskCount > 0 || immediateAttentionList.length > 0) && (
+              <p className="text-slate-500 text-xs">
+                {immediateAttentionList.length > 0 ? (
+                  <>לחיצה על שם ברשימת &quot;תשומת לב מיידית&quot; מציגה את פרופיל התלמיד לפעולה ממוקדת.</>
+                ) : (
+                  <>לחיצה על תלמיד ברשימה למטה פותחת את פרופילו עם פירוט ציונים והתנהגות.</>
+                )}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="bg-white rounded-xl shadow-card border border-slate-100/80 p-3.5 md:p-4">
+          <h3 className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-1.5">
+            <AlertCircle size={14} className="text-amber-500" />
+            תשומת לב מיידית
+          </h3>
+          {immediateAttentionList.length === 0 ? (
+            <p className="text-slate-400 text-xs">אין ברשימה זו</p>
+          ) : (
+            <ul className="space-y-1">
+              {immediateAttentionList.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectStudent(s.id)}
+                    className="w-full text-right flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50/80 border border-amber-100 hover:bg-amber-100/80 transition-colors text-sm"
+                  >
+                    <span className="font-medium text-slate-800 truncate">{getDisplayName(s.name, studentsInRange.findIndex((x) => x.id === s.id), isAnonymous)}</span>
+                    <ChevronRight size={14} className="text-slate-400 shrink-0" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+      )}
+
       {/* Date Range Filter */}
+      {visibleWidgets.dateFilter && (
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 md:p-5">
         <h3 className="text-sm font-bold text-slate-600 mb-3">סינון לפי טווח תאריכים</h3>
         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
@@ -288,8 +611,10 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           </label>
         </div>
       </div>
+      )}
 
       {/* Advanced Filters */}
+      {visibleWidgets.advancedFilters && (
       <div className="no-print bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 md:p-5">
         <button
           type="button"
@@ -340,9 +665,11 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           </div>
         )}
       </div>
+      )}
 
-      {/* KPI Cards - 2 cols on mobile, 5 on large */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 md:gap-5">
+      {/* KPI Cards - 2 cols on mobile, 6 on large */}
+      {visibleWidgets.kpiCards && (
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4 md:gap-5">
         <KPICard
           label="סה״כ תלמידים"
           value={totalStudents}
@@ -373,31 +700,20 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           icon={MetricIcons.Absences}
           color="danger"
           gradient="from-red-500 to-rose-500"
-          comparison={
-            prevAbsences > 0 || totalAbsences > 0
-              ? {
-                  percent: absencesChangePercent,
-                  isImprovement: absencesChangePercent <= 0,
-                  label: 'לעומת התקופה הקודמת',
-                }
-              : undefined
-          }
         />
         <KPICard
-          label="אירועים שליליים (אחר)"
+          label="אירועים שליליים"
           value={totalOtherNegative}
           icon={MetricIcons.NegativeEvents}
           color="danger"
           gradient="from-rose-500 to-red-600"
-          comparison={
-            prevOtherNeg > 0 || totalOtherNegative > 0
-              ? {
-                  percent: otherNegChangePercent,
-                  isImprovement: otherNegChangePercent <= 0,
-                  label: 'לעומת התקופה הקודמת',
-                }
-              : undefined
-          }
+        />
+        <KPICard
+          label="אירועים חיוביים"
+          value={totalPositive}
+          icon={MetricIcons.PositiveEvents}
+          color="success"
+          gradient="from-emerald-500 to-teal-500"
         />
         <KPICard
           label={<>תלמידים בסיכון <HelpTip text="תלמידים עם ציון סיכון נמוך (1-3 מתוך 10). מחושב לפי ממוצע ציונים, מגמות, אירועים שליליים וחיסורים." /></>}
@@ -407,45 +723,75 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           gradient="from-red-500 to-rose-500"
         />
       </div>
+      )}
 
-      {/* Period Comparison Banner */}
-      {(prevClassAvg > 0 || prevAtRiskCount > 0) && (
-        <div className="bg-gradient-to-r from-primary-50 to-blue-50/50 border border-primary-100 rounded-2xl p-4 md:p-5">
-          <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-            <MetricIcons.TrendUp size={16} className="text-primary-500" />
-            סיכום השוואה לתקופה הקודמת
+      {/* Timeline - מגמה כיתתית */}
+      {visibleWidgets.timeline && timelineData.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
+          <h3 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2">
+            <TrendingUp size={20} className="text-primary-500" />
+            מגמה כיתתית לאורך זמן
           </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div className="flex flex-col">
-              <span className="text-slate-500 text-xs mb-1">שינוי בתלמידים בסיכון</span>
-              <span className={`font-bold text-lg ${riskChange > 0 ? 'text-risk-high' : riskChange < 0 ? 'text-grade-success' : 'text-slate-600'}`}>
-                {riskChange > 0 ? `+${riskChange}` : riskChange === 0 ? 'ללא שינוי' : riskChange}
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-slate-500 text-xs mb-1">שינוי בממוצע כיתתי</span>
-              <span className={`font-bold text-lg ${avgChangePercent > 0 ? 'text-grade-success' : avgChangePercent < 0 ? 'text-grade-danger' : 'text-slate-600'}`}>
-                {avgChangePercent > 0 ? '+' : ''}{avgChangePercent.toFixed(1)}%
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-slate-500 text-xs mb-1">שינוי בחיסורים</span>
-              <span className={`font-bold text-lg ${totalAbsences - prevAbsences > 0 ? 'text-grade-danger' : totalAbsences - prevAbsences < 0 ? 'text-grade-success' : 'text-slate-600'}`}>
-                {totalAbsences - prevAbsences > 0 ? '+' : ''}{totalAbsences - prevAbsences}
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-slate-500 text-xs mb-1">שינוי באירועים שליליים</span>
-              <span className={`font-bold text-lg ${totalOtherNegative - prevOtherNeg > 0 ? 'text-grade-danger' : totalOtherNegative - prevOtherNeg < 0 ? 'text-grade-success' : 'text-slate-600'}`}>
-                {totalOtherNegative - prevOtherNeg > 0 ? '+' : ''}{totalOtherNegative - prevOtherNeg}
-              </span>
-            </div>
+          <div className="h-64 min-h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={timelineData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="period" tick={{ fontSize: 11, fill: '#64748b' }} />
+                <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#64748b' }} />
+                <Tooltip
+                  contentStyle={{ direction: 'rtl', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                  formatter={(value: number) => [value, '']}
+                  labelFormatter={(label) => `תקופה: ${label}`}
+                />
+                <Legend />
+                <Line yAxisId="left" type="monotone" dataKey="ממוצע" stroke="#0c8ee6" strokeWidth={2} dot={{ r: 4 }} name="ממוצע כיתתי" />
+                <Line yAxisId="left" type="monotone" dataKey="חיסורים" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} name="חיסורים" />
+                <Line yAxisId="left" type="monotone" dataKey="שליליים" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} name="אירועים שליליים" />
+                <Line yAxisId="left" type="monotone" dataKey="חיוביים" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} name="אירועים חיוביים" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* השוואה בין תקופות (כשמוגדרות בהגדרות) */}
+      {visibleWidgets.periodComparison && periodStats.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
+          <h3 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2">
+            <MetricIcons.ClassAverage size={20} className="text-primary-500" />
+            השוואה בין תקופות
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-right border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className="py-3 px-4 font-bold text-slate-600">תקופה</th>
+                  <th className="py-3 px-4 font-bold text-slate-600">ממוצע כיתתי</th>
+                  <th className="py-3 px-4 font-bold text-slate-600">תלמידים בסיכון</th>
+                  <th className="py-3 px-4 font-bold text-slate-600">חיסורים</th>
+                </tr>
+              </thead>
+              <tbody>
+                {periodStats.map((row) => (
+                  <tr key={row.name} className="border-b border-slate-100 hover:bg-slate-50/50">
+                    <td className="py-3 px-4 font-medium text-slate-800">{row.name}</td>
+                    <td className="py-3 px-4">{row.ממוצע}</td>
+                    <td className="py-3 px-4">
+                      <span className={row.בסיכון > 0 ? 'text-red-600 font-medium' : 'text-slate-600'}>{row.בסיכון}</span>
+                    </td>
+                    <td className="py-3 px-4">{row.חיסורים}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
       {/* Charts */}
+      {(visibleWidgets.gradeDistribution || visibleWidgets.behaviorChart) && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 md:gap-6">
+        {visibleWidgets.gradeDistribution && (
         <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-shadow duration-300">
           <h3 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2">
             <MetricIcons.ClassAverage size={20} className="text-primary-500" />
@@ -463,7 +809,8 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             </ResponsiveContainer>
           </div>
         </div>
-
+        )}
+        {visibleWidgets.behaviorChart && (
         <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-shadow duration-300">
           <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-5">
             <PieChartIcon size={20} className="text-primary-500" />
@@ -510,12 +857,17 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             )}
           </div>
         </div>
+        )}
       </div>
+      )}
 
       {/* Class Heatmap */}
+      {visibleWidgets.heatmap && (
       <ClassHeatmap students={studentsInRange} />
+      )}
 
       {/* Students List */}
+      {visibleWidgets.studentsList && (
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden">
         <div className="p-4 sm:p-5 md:p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between gap-4 items-stretch md:items-center">
           <h3 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -634,6 +986,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 };
@@ -645,7 +998,12 @@ const KPICard: React.FC<{
   color: string;
   gradient: string;
   highlight?: boolean;
-  comparison?: { percent: number; isImprovement: boolean; label: string };
+  comparison?: {
+    percent?: number;
+    absoluteDelta?: number;
+    isImprovement: boolean;
+    label: string;
+  };
 }> = ({ label, value, icon: Icon, gradient, highlight, comparison }) => (
   <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-all duration-300 group">
     <div className="flex items-start justify-between">
@@ -665,8 +1023,9 @@ const KPICard: React.FC<{
               <MetricIcons.TrendDown size={14} strokeWidth={2.5} />
             )}
             <span>
-              {comparison.percent >= 0 ? '+' : ''}
-              {comparison.percent.toFixed(1)}%
+              {comparison.absoluteDelta !== undefined
+                ? `${comparison.absoluteDelta >= 0 ? '+' : ''}${comparison.absoluteDelta}`
+                : `${(comparison.percent ?? 0) >= 0 ? '+' : ''}${(comparison.percent ?? 0).toFixed(1)}%`}
             </span>
           </div>
         )}

@@ -17,8 +17,8 @@ import {
   Cell
 } from 'recharts';
 import { format, differenceInDays, eachDayOfInterval, eachWeekOfInterval, isSameDay, isSameWeek, endOfWeek } from 'date-fns';
-import * as XLSX from 'xlsx';
 import { getDisplayName } from '../utils/displayName';
+import { exportStudentProfileToExcel } from '../utils/exportStudent';
 
 interface StudentProfileProps {
   student: Student;
@@ -192,49 +192,13 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
   }, []);
 
   // Handle Export to Excel
-  const handleExport = () => {
-    const wb = XLSX.utils.book_new();
-
-    // 1. Summary Sheet
-    const summaryData = [
-        ["שם התלמיד", student.name],
-        ["ת.ז", student.id],
-        ["ממוצע ציונים", student.averageScore],
-        ["ממוצע כיתתי", classAverage],
-        ["אירועים שליליים", student.negativeCount],
-        ["אירועים חיוביים", student.positiveCount],
-        ["רמת סיכון", student.riskLevel],
-        ["ציון סיכון", student.riskScore]
-    ];
-    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-    XLSX.utils.book_append_sheet(wb, wsSummary, "סיכום");
-
-    // 2. Grades Sheet
-    const gradesData = student.grades.map(g => ({
-        "מקצוע": g.subject,
-        "מורה": g.teacher,
-        "מטלה": g.assignment,
-        "תאריך": format(g.date, 'dd/MM/yyyy'),
-        "משקל": g.weight,
-        "ציון": g.score
-    }));
-    const wsGrades = XLSX.utils.json_to_sheet(gradesData);
-    XLSX.utils.book_append_sheet(wb, wsGrades, "ציונים");
-
-    // 3. Behavior Sheet
-    const behaviorData = student.behaviorEvents.map(e => ({
-        "תאריך": format(e.date, 'dd/MM/yyyy'),
-        "סוג": e.type,
-        "קטגוריה": e.category === EventType.POSITIVE ? 'חיובי' : e.category === EventType.NEGATIVE ? 'שלילי' : 'ניטרלי',
-        "מקצוע": e.subject,
-        "מורה": e.teacher,
-        "הערה": e.comment
-    }));
-    const wsBehavior = XLSX.utils.json_to_sheet(behaviorData);
-    XLSX.utils.book_append_sheet(wb, wsBehavior, "התנהגות");
-
-    // Save File
-    XLSX.writeFile(wb, `דוח_תלמיד_${getDisplayName(student.name, studentIndex ?? 0, isAnonymous ?? false)}.xlsx`);
+  const handleExport = async () => {
+    try {
+      await exportStudentProfileToExcel(student, classAverage, riskSettings);
+    } catch (error) {
+      console.error('Error exporting student profile:', error);
+      alert('שגיאה בייצוא הקובץ');
+    }
   };
 
   // Chart Data: Grades - Aggregated by Week (optional filter by subject)
