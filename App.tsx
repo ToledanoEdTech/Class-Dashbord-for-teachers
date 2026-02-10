@@ -340,8 +340,8 @@ const App: React.FC = () => {
                     onClick={() => setState((prev) => ({ ...prev, view: 'upload', activeClassId: prev.activeClassId }))}
                     className="flex items-center gap-2.5 group transition-all duration-200 flex-1 min-w-0"
                   >
-                    <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all shrink-0">
-                      <Logo fallback={<GraduationCap size={20} strokeWidth={2.5} className="text-primary-600" />} />
+                    <div className="flex items-center justify-center w-16 h-16 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all shrink-0">
+                      <Logo fallback={<GraduationCap size={28} strokeWidth={2.5} className="text-primary-600" />} />
                     </div>
                     <div className="text-right min-w-0">
                       <span className="font-bold text-base text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block truncate">
@@ -457,8 +457,8 @@ const App: React.FC = () => {
                   onClick={() => setState((prev) => ({ ...prev, view: 'upload', activeClassId: prev.activeClassId }))}
                   className="flex items-center gap-3 group transition-all duration-200"
                 >
-                  <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all">
-                    <Logo fallback={<GraduationCap size={22} strokeWidth={2.5} className="text-primary-600" />} />
+                  <div className="flex items-center justify-center w-20 h-20 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all">
+                    <Logo fallback={<GraduationCap size={32} strokeWidth={2.5} className="text-primary-600" />} />
                   </div>
                   <div className="text-right">
                     <span className="font-bold text-lg md:text-xl text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block">
