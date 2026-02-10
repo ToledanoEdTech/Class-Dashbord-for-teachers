@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent } from '../types';
 import { calculateStudentStats } from '../utils/processing';
-import { ArrowRight, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer, TrendingUp, TrendingDown, BarChart3, Target, Users, Zap, Star, MessageSquare, ThumbsUp } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer, TrendingUp, TrendingDown, BarChart3, Target, Users, Zap, Star, MessageSquare, ThumbsUp, Lightbulb, ChevronRight, ChevronLeft } from 'lucide-react';
 import HelpTip from './HelpTip';
 import {
   LineChart,
@@ -22,6 +22,9 @@ import { getDisplayName } from '../utils/displayName';
 
 interface StudentProfileProps {
   student: Student;
+  students?: Student[];
+  currentIndex?: number;
+  onSelectStudent?: (id: string) => void;
   onBack: () => void;
   classAverage: number;
   onUpdateStudent?: (student: Student) => void;
@@ -143,11 +146,35 @@ const CustomGradeTooltip = ({ active, payload, label }: any) => {
     return null;
 };
 
-const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classAverage, onUpdateStudent, riskSettings, isAnonymous = false, studentIndex = 0 }) => {
+const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [], currentIndex = 0, onSelectStudent, onBack, classAverage, onUpdateStudent, riskSettings, isAnonymous = false, studentIndex = 0 }) => {
   const [activeTab, setActiveTab] = useState<'trends' | 'grades' | 'behavior' | 'insights'>('trends');
   const [showAddGrade, setShowAddGrade] = useState(false);
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState<string>('');
+
+  const hasPrevStudent = students.length > 0 && currentIndex > 0;
+  const hasNextStudent = students.length > 0 && currentIndex < students.length - 1;
+  const prevStudent = hasPrevStudent ? students[currentIndex - 1] : null;
+  const nextStudent = hasNextStudent ? students[currentIndex + 1] : null;
+
+  // Keyboard shortcuts: ArrowLeft = previous, ArrowRight = next, Escape = back
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'ArrowRight' && hasNextStudent && nextStudent) {
+        e.preventDefault();
+        onSelectStudent?.(nextStudent.id);
+      } else if (e.key === 'ArrowLeft' && hasPrevStudent && prevStudent) {
+        e.preventDefault();
+        onSelectStudent?.(prevStudent.id);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        onBack();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [hasPrevStudent, hasNextStudent, prevStudent, nextStudent, onSelectStudent, onBack]);
 
   // Unique subjects from grades and behavior (for filter dropdown)
   const subjectOptions = useMemo(() => {
@@ -633,6 +660,57 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
     };
   }, [student.averageScore, classAverage, subjectAnalysis]);
 
+  // תובנות מומלצות – צעדים מומלצים לשיחה ומעקב
+  const recommendedInsights = useMemo(() => {
+    const insights: { icon: React.ElementType; text: string; priority: number }[] = [];
+    const riskSettingsUsed = riskSettings ?? { minGradeThreshold: 55, maxNegativeBehaviors: 5, attendanceThreshold: 4 };
+
+    if (student.riskLevel === 'high') {
+      insights.push({ icon: AlertTriangle, text: 'תלמיד בסיכון גבוה – כדאי לקבע פגישת שיחה קרובה ולהגדיר יעדים ברורים', priority: 1 });
+    }
+    if (student.averageScore < riskSettingsUsed.minGradeThreshold) {
+      insights.push({ icon: BookOpen, text: 'ממוצע מתחת לסף – להציע שיעורי עזר או תגבור במקצועות החלשים', priority: 2 });
+    }
+    if (student.gradeTrend === 'declining') {
+      insights.push({ icon: TrendingDown, text: 'מגמת ציונים יורדת – לבחון מה השתנה ולדבר עם התלמיד על חסמים', priority: 3 });
+    }
+    if (student.behaviorTrend === 'declining') {
+      insights.push({ icon: AlertCircle, text: 'מגמת התנהגות מידרדרת – להזכיר חוקים ולהעמיק בשיחה על מקור האירועים', priority: 4 });
+    }
+    const absencesCount = student.behaviorEvents.filter(isAbsenceEvent).length;
+    if (absencesCount >= riskSettingsUsed.attendanceThreshold) {
+      insights.push({ icon: CalendarX2, text: `${absencesCount} חיסורים – לברר סיבה ולשקול שיחה עם הורים`, priority: 5 });
+    }
+    if (student.negativeCount > riskSettingsUsed.maxNegativeBehaviors) {
+      insights.push({ icon: MessageSquare, text: 'מספר אירועים שליליים גבוה – לשוחח על דפוסים ולבנות תוכנית שיפור', priority: 6 });
+    }
+    if (student.averageScore < classAverage - 10 && student.averageScore >= 60) {
+      insights.push({ icon: Target, text: 'מתחת לממוצע הכיתתי – להציע יעד ריאלי לעלייה ולהגדיר צעדים', priority: 7 });
+    }
+    if (subjectAnalysis.weakest.length > 0) {
+      const weakestNames = subjectAnalysis.weakest.slice(0, 2).map(([s]) => s).join(', ');
+      insights.push({ icon: BookOpen, text: `מקצועות לחיזוק: ${weakestNames} – לשקול תגבור או משאבים נוספים`, priority: 8 });
+    }
+    if (behaviorAnalysis.problematicSubjects.length > 0) {
+      const subj = behaviorAnalysis.problematicSubjects[0][0];
+      insights.push({ icon: Users, text: `התנהגות במקצוע ${subj} דורשת תשומת לב – לשוחח עם המורה ולבדוק דפוסים`, priority: 9 });
+    }
+    if (temporalAnalysis.problemDays.length > 0) {
+      const dayNames = temporalAnalysis.problemDays.slice(0, 2).map((d) => d.dayName).join(', ');
+      insights.push({ icon: Calendar, text: `יותר אירועים בימים: ${dayNames} – לחפש דפוס (שיעורים מסוימים, עייפות וכו')`, priority: 10 });
+    }
+    if (student.gradeTrend === 'improving' && student.riskLevel !== 'low') {
+      insights.push({ icon: ThumbsUp, text: 'מגמת ציונים משתפרת – לחזק ולתמוך בהמשך', priority: 11 });
+    }
+    if (student.positiveCount > student.negativeCount * 2 && student.negativeCount > 0) {
+      insights.push({ icon: Star, text: 'יותר חיזוקים מאירועים שליליים – לשמר ולהמשיך לחזק התנהגות חיובית', priority: 12 });
+    }
+    if (insights.length === 0) {
+      insights.push({ icon: Zap, text: 'המצב הכללי טוב – להמשיך במעקב שוטף ולחזק הישגים', priority: 0 });
+    }
+    return insights.sort((a, b) => a.priority - b.priority).slice(0, 5);
+  }, [student, classAverage, subjectAnalysis, behaviorAnalysis, temporalAnalysis, riskSettings]);
+
   const riskStyles = {
     high: 'text-red-700 font-bold bg-red-50 border-red-200',
     medium: 'text-amber-700 font-bold bg-amber-50 border-amber-200',
@@ -713,7 +791,27 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                 <span className={`px-2 py-0.5 rounded-lg text-[10px] border ${riskStyles[student.riskLevel]}`}>
                   {riskLabels[student.riskLevel]}
                 </span>
-                <div className="flex gap-1">
+                <div className="flex items-center gap-1">
+                  {hasPrevStudent && prevStudent && (
+                    <button
+                      onClick={() => onSelectStudent?.(prevStudent.id)}
+                      className="bg-white border border-slate-200 text-slate-600 p-1.5 rounded-lg hover:bg-primary-50 hover:border-primary-200 hover:text-primary-600 transition-all"
+                      title="תלמיד קודם (←)"
+                      aria-label="תלמיד קודם"
+                    >
+                      <ChevronRight size={14} strokeWidth={2} />
+                    </button>
+                  )}
+                  {hasNextStudent && nextStudent && (
+                    <button
+                      onClick={() => onSelectStudent?.(nextStudent.id)}
+                      className="bg-white border border-slate-200 text-slate-600 p-1.5 rounded-lg hover:bg-primary-50 hover:border-primary-200 hover:text-primary-600 transition-all"
+                      title="תלמיד הבא (→)"
+                      aria-label="תלמיד הבא"
+                    >
+                      <ChevronLeft size={14} strokeWidth={2} />
+                    </button>
+                  )}
                   <button
                     onClick={() => window.print()}
                     className="no-print bg-white border border-slate-200 text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all"
@@ -791,7 +889,29 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                   </span>
                   <span className="text-[10px] text-slate-400 hidden md:block">ציון סיכון: {student.riskScore}/10 <HelpTip text="ציון סיכון מ-1 עד 10. ציון נמוך = סיכון גבוה. מחושב לפי ממוצע ציונים, מגמות, אירועים שליליים וחיסורים." /></span>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  {hasPrevStudent && prevStudent && (
+                    <button
+                      onClick={() => onSelectStudent?.(prevStudent.id)}
+                      className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl hover:bg-primary-50 hover:border-primary-200 hover:text-primary-600 font-medium text-sm flex items-center gap-2 shadow-card transition-all"
+                      title="תלמיד קודם (חץ שמאל)"
+                      aria-label="תלמיד קודם"
+                    >
+                      <ChevronRight size={18} strokeWidth={2} />
+                      <span className="hidden lg:inline">קודם</span>
+                    </button>
+                  )}
+                  {hasNextStudent && nextStudent && (
+                    <button
+                      onClick={() => onSelectStudent?.(nextStudent.id)}
+                      className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl hover:bg-primary-50 hover:border-primary-200 hover:text-primary-600 font-medium text-sm flex items-center gap-2 shadow-card transition-all"
+                      title="תלמיד הבא (חץ ימין)"
+                      aria-label="תלמיד הבא"
+                    >
+                      <ChevronLeft size={18} strokeWidth={2} />
+                      <span className="hidden lg:inline">הבא</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => window.print()}
                     className="no-print bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl hover:bg-slate-50 hover:border-slate-300 font-medium text-sm flex items-center gap-2 shadow-card transition-all"
@@ -1007,6 +1127,33 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                         )}
                     </div>
                 </div>
+            </div>
+
+            {/* תובנות מומלצות – צעדים לשיחה ומעקב */}
+            <div className="no-print">
+              <div className="bg-gradient-to-br from-primary-50 to-blue-50/50 border border-primary-100 rounded-2xl p-4 md:p-5 shadow-card">
+                <h3 className="text-base md:text-lg font-bold text-slate-800 flex items-center gap-2 mb-3">
+                  <Lightbulb size={20} className="text-primary-500 shrink-0" />
+                  תובנות מומלצות לשיחה ומעקב
+                </h3>
+                <ul className="space-y-2">
+                  {recommendedInsights.map((item, idx) => {
+                    const Icon = item.icon;
+                    return (
+                      <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-700">
+                        <span className="mt-0.5 p-1 rounded-lg bg-primary-100 text-primary-600 shrink-0">
+                          <Icon size={14} strokeWidth={2} />
+                        </span>
+                        <span>{item.text}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="text-xs text-slate-500 mt-3 flex items-center gap-1">
+                  <Info size={12} />
+                  קיצורי מקלדת: ← תלמיד קודם | → תלמיד הבא | Esc חזרה
+                </p>
+              </div>
             </div>
           </div>
         )}

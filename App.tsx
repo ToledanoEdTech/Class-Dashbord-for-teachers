@@ -573,6 +573,9 @@ const App: React.FC = () => {
           {state.view === 'student' && selectedStudent && activeClass && (
             <StudentProfile
               student={selectedStudent}
+              students={students}
+              currentIndex={selectedStudentIndex >= 0 ? selectedStudentIndex : 0}
+              onSelectStudent={handleSelectStudent}
               onBack={handleBack}
               classAverage={classAverage}
               onUpdateStudent={handleUpdateStudent}
