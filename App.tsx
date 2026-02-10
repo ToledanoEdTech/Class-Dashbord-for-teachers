@@ -34,7 +34,7 @@ const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
 const getInitialState = (): AppState => {
   const { classes, activeClassId, riskSettings, perClassRiskSettings, periodDefinitions } = loadFromStorage();
   return {
-    view: classes.length === 0 ? 'landing' : activeClassId ? 'dashboard' : 'upload',
+    view: 'landing',
     selectedStudentId: null,
     classes,
     activeClassId,
@@ -211,14 +211,14 @@ const App: React.FC = () => {
       let nextView: AppState['view'] = prev.view;
       if (prev.activeClassId === classId) {
         nextActiveId = nextClasses.length > 0 ? nextClasses[0].id : null;
-        nextView = nextClasses.length > 0 ? 'dashboard' : 'upload';
+        nextView = nextClasses.length > 0 ? 'dashboard' : 'landing';
       }
       return { ...prev, classes: nextClasses, activeClassId: nextActiveId, view: nextView, selectedStudentId: null };
     });
     setDeleteConfirmClassId(null);
   }, []);
 
-  const showSidebar = state.classes.length > 0 || state.view === 'upload';
+  const showSidebar = (state.classes.length > 0 || state.view === 'upload') && state.view !== 'landing';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-primary-50/30 font-sans text-slate-900 flex">
@@ -349,7 +349,7 @@ const App: React.FC = () => {
               <div className="px-3 py-3 mt-auto border-t border-slate-100">
                 <a
                   href="#"
-                  onClick={(e) => { e.preventDefault(); setState((prev) => ({ ...prev, view: 'upload' })); setSidebarOpen(false); }}
+                  onClick={(e) => { e.preventDefault(); setState((prev) => ({ ...prev, view: 'landing' })); setSidebarOpen(false); }}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-primary-50/50 transition-colors group"
                 >
                   <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center shrink-0">
@@ -387,7 +387,7 @@ const App: React.FC = () => {
                   )}
                   <button
                     type="button"
-                    onClick={() => setState((prev) => ({ ...prev, view: 'upload', activeClassId: prev.activeClassId }))}
+                    onClick={() => setState((prev) => ({ ...prev, view: 'landing', activeClassId: prev.activeClassId }))}
                     className="flex items-center gap-2.5 group transition-all duration-200 flex-1 min-w-0"
                   >
                     <div className="flex items-center justify-center w-16 h-16 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all shrink-0">
@@ -505,7 +505,7 @@ const App: React.FC = () => {
                 )}
                 <button
                   type="button"
-                  onClick={() => setState((prev) => ({ ...prev, view: 'upload', activeClassId: prev.activeClassId }))}
+                  onClick={() => setState((prev) => ({ ...prev, view: 'landing', activeClassId: prev.activeClassId }))}
                   className="flex items-center gap-3 group transition-all duration-200"
                 >
                   <div className="flex items-center justify-center w-20 h-20 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all">
@@ -608,7 +608,20 @@ const App: React.FC = () => {
 
         <main className="animate-fade-in flex-1">
           {state.view === 'landing' && (
-            <LandingPage onStart={() => setState((prev) => ({ ...prev, view: 'upload' }))} />
+            <LandingPage
+              onStart={() => {
+                setState((prev) => {
+                  if (prev.classes.length > 0) {
+                    const nextActiveId =
+                      prev.activeClassId && prev.classes.some((c) => c.id === prev.activeClassId)
+                        ? prev.activeClassId
+                        : prev.classes[0].id;
+                    return { ...prev, view: 'dashboard', activeClassId: nextActiveId };
+                  }
+                  return { ...prev, view: 'upload' };
+                });
+              }}
+            />
           )}
 
           {state.view === 'upload' && (
