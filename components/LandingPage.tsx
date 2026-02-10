@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { BarChart2, FileText, FileSpreadsheet, LayoutDashboard, Users, TrendingUp, ArrowLeft } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { BarChart2, FileText, FileSpreadsheet, TrendingUp, ArrowLeft, ChevronRight, ChevronLeft } from 'lucide-react';
 import { FileIcons } from '../constants/icons';
 
 const BRAND_NAME = 'ToledanoEdTech';
@@ -26,10 +26,83 @@ const LandingLogo: React.FC = () => {
   );
 };
 
+interface PreviewImage {
+  src: string;
+  label: string;
+}
+
+const PreviewCarousel: React.FC<{ images: PreviewImage[] }> = ({ images }) => {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveIndex((i) => (i + 1) % images.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [images.length]);
+
+  const goNext = () => setActiveIndex((i) => (i + 1) % images.length);
+  const goPrev = () => setActiveIndex((i) => (i - 1 + images.length) % images.length);
+
+  return (
+    <div className="relative rounded-2xl overflow-hidden border border-slate-200/80 shadow-elevated bg-slate-50 ring-1 ring-slate-100">
+      <div className="aspect-video max-h-[320px] md:max-h-[420px] bg-white relative">
+        {images.map((img, i) => (
+          <div
+            key={img.src}
+            className={`absolute inset-0 transition-opacity duration-500 ease-in-out ${
+              i === activeIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
+            }`}
+          >
+            <img
+              src={img.src}
+              alt={img.label}
+              className="w-full h-full object-contain object-center"
+            />
+          </div>
+        ))}
+        {/* כפתורי ניווט */}
+        <button
+          type="button"
+          onClick={goPrev}
+          aria-label="הקודם"
+          className="absolute top-1/2 right-2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/90 hover:bg-white shadow-lg border border-slate-200/80 flex items-center justify-center text-slate-600 hover:text-primary-600 transition-colors"
+        >
+          <ChevronRight size={22} />
+        </button>
+        <button
+          type="button"
+          onClick={goNext}
+          aria-label="הבא"
+          className="absolute top-1/2 left-2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/90 hover:bg-white shadow-lg border border-slate-200/80 flex items-center justify-center text-slate-600 hover:text-primary-600 transition-colors"
+        >
+          <ChevronLeft size={22} />
+        </button>
+      </div>
+      <div className="flex items-center justify-center gap-2 py-3 px-4 bg-white border-t border-slate-100">
+        {images.map((img, i) => (
+          <button
+            key={img.src}
+            type="button"
+            onClick={() => setActiveIndex(i)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              i === activeIndex
+                ? 'bg-primary-100 text-primary-700'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            {img.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
   return (
     <div className="min-h-[calc(100vh-4rem)] flex flex-col items-center px-4 py-6 md:py-10">
-      <div className="w-full max-w-3xl">
+      <div className="w-full max-w-4xl">
         {/* Hero */}
         <div className="text-center mb-8 md:mb-10 animate-slide-up">
           <div className="inline-flex items-center justify-center w-28 h-28 md:w-36 md:h-36 rounded-2xl bg-white shadow-elevated border border-slate-200/80 overflow-hidden mb-4 ring-2 ring-primary-100/80">
@@ -46,30 +119,15 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
           </p>
         </div>
 
-        {/* Visual Preview - מקום ל-GIF או סרטון */}
+        {/* Visual Preview - צילומי מסך מהמערכת */}
         <div className="mb-8 md:mb-10 animate-slide-up" style={{ animationDelay: '0.05s' }}>
-          <div className="relative rounded-2xl overflow-hidden border border-slate-200/80 shadow-elevated bg-gradient-to-br from-slate-50 to-white aspect-video max-h-[220px] md:max-h-[280px] flex items-center justify-center">
-            <div className="absolute inset-0 flex items-center justify-center p-4">
-              <div className="grid grid-cols-3 gap-2 md:gap-4 w-full max-w-md mx-auto">
-                {[
-                  { Icon: LayoutDashboard, label: 'דשבורד', color: 'text-primary-600' },
-                  { Icon: BarChart2, label: 'גרפים', color: 'text-emerald-600' },
-                  { Icon: Users, label: 'תלמידים', color: 'text-amber-600' },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="flex flex-col items-center justify-center p-3 md:p-4 rounded-xl bg-white/80 border border-slate-100 shadow-sm backdrop-blur-sm"
-                  >
-                    <item.Icon className={`w-8 h-8 md:w-10 md:h-10 mb-1.5 ${item.color}`} strokeWidth={2} />
-                    <span className="text-xs font-medium text-slate-600">{item.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="absolute top-3 left-3 text-[10px] md:text-xs font-medium text-slate-500 bg-white/90 px-2 py-1 rounded-lg shadow-sm">
-              תצוגה מקדימה
-            </div>
-          </div>
+          <PreviewCarousel
+            images={[
+              { src: '/dashboard-preview.png', label: 'דשבורד כיתתי' },
+              { src: '/heatmap-preview.png', label: 'מפת חום' },
+              { src: '/student-profile-preview.png', label: 'פרופיל תלמיד' },
+            ]}
+          />
         </div>
 
         {/* What / Upload / Get */}
