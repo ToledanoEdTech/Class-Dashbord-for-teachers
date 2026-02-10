@@ -101,8 +101,9 @@ export async function exportStudentProfileToExcel(
       row.getCell(2).font = { name: 'Arial', size: 11 };
       
       // צבעים מיוחדים
-      if (label.includes('ממוצע ציונים')) {
-        const avg = parseFloat(value);
+      const labelStr = String(label);
+      if (labelStr.includes('ממוצע ציונים')) {
+        const avg = parseFloat(String(value));
         if (avg < 60) {
           row.getCell(2).font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFEF4444' } };
           row.getCell(2).fill = {
@@ -125,7 +126,7 @@ export async function exportStudentProfileToExcel(
             fgColor: { argb: 'FFE5F5E5' }
           };
         }
-      } else if (label.includes('רמת סיכון')) {
+      } else if (labelStr.includes('רמת סיכון')) {
         if (student.riskLevel === 'high') {
           row.getCell(2).font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFEF4444' } };
           row.getCell(2).fill = {
@@ -141,9 +142,9 @@ export async function exportStudentProfileToExcel(
             fgColor: { argb: 'FFFFF4E5' }
           };
         }
-      } else if (label.includes('אירועים חיוביים')) {
+      } else if (labelStr.includes('אירועים חיוביים')) {
         row.getCell(2).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF22C55E' } };
-      } else if (label.includes('אירועים שליליים') || label.includes('חיסורים')) {
+      } else if (labelStr.includes('אירועים שליליים') || labelStr.includes('חיסורים')) {
         row.getCell(2).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFEF4444' } };
       }
     }

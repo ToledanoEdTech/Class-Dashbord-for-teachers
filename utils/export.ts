@@ -256,8 +256,8 @@ export async function exportStudentsAtRiskToExcel(
 
   atRiskStudents.forEach((student) => {
     student.behaviorEvents.forEach((event) => {
-      const categoryText = event.category === 'positive' || event.category === 'POSITIVE' ? 'חיובי' : 
-                          event.category === 'negative' || event.category === 'NEGATIVE' ? 'שלילי' : 'ניטרלי';
+      const categoryText = event.category === EventType.POSITIVE ? 'חיובי' : 
+                          event.category === EventType.NEGATIVE ? 'שלילי' : 'ניטרלי';
       
       const behaviorRow = behaviorSheet.addRow([
         student.id,
@@ -285,14 +285,14 @@ export async function exportStudentsAtRiskToExcel(
 
       // צבע לפי קטגוריה
       const categoryCell = behaviorRow.getCell(5);
-      if (event.category === 'positive' || event.category === 'POSITIVE') {
+      if (event.category === EventType.POSITIVE) {
         categoryCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF22C55E' } };
         categoryCell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: 'FFE5F5E5' }
         };
-      } else if (event.category === 'negative' || event.category === 'NEGATIVE') {
+      } else if (event.category === EventType.NEGATIVE) {
         categoryCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFEF4444' } };
         categoryCell.fill = {
           type: 'pattern',
@@ -524,13 +524,14 @@ export async function exportClassSummaryToExcel(
     row.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
     
     // צבעים מיוחדים
-    if (label.includes('סיכון גבוה')) {
+    const labelStr = String(label);
+    if (labelStr.includes('סיכון גבוה')) {
       row.getCell(2).font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFEF4444' } };
-    } else if (label.includes('סיכון בינוני')) {
+    } else if (labelStr.includes('סיכון בינוני')) {
       row.getCell(2).font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFF59E0B' } };
-    } else if (label.includes('סיכון נמוך')) {
+    } else if (labelStr.includes('סיכון נמוך')) {
       row.getCell(2).font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF22C55E' } };
-    } else if (label.includes('ממוצע')) {
+    } else if (labelStr.includes('ממוצע')) {
       row.getCell(2).font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF0C8EE6' } };
     }
     
@@ -773,8 +774,8 @@ export async function exportClassSummaryToExcel(
 
   students.forEach((student) => {
     student.behaviorEvents.forEach((event) => {
-      const categoryText = event.category === 'positive' || event.category === 'POSITIVE' ? 'חיובי' : 
-                          event.category === 'negative' || event.category === 'NEGATIVE' ? 'שלילי' : 'ניטרלי';
+      const categoryText = event.category === EventType.POSITIVE ? 'חיובי' : 
+                          event.category === EventType.NEGATIVE ? 'שלילי' : 'ניטרלי';
       
       const behaviorRow = behaviorSheet.addRow([
         student.id,
@@ -802,14 +803,14 @@ export async function exportClassSummaryToExcel(
 
       // צבע לפי קטגוריה
       const categoryCell = behaviorRow.getCell(5);
-      if (event.category === 'positive' || event.category === 'POSITIVE') {
+      if (event.category === EventType.POSITIVE) {
         categoryCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF22C55E' } };
         categoryCell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: 'FFE5F5E5' }
         };
-      } else if (event.category === 'negative' || event.category === 'NEGATIVE') {
+      } else if (event.category === EventType.NEGATIVE) {
         categoryCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFEF4444' } };
         categoryCell.fill = {
           type: 'pattern',
