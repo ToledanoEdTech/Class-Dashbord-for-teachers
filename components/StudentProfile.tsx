@@ -147,6 +147,17 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
   const [activeTab, setActiveTab] = useState<'trends' | 'grades' | 'behavior' | 'insights'>('trends');
   const [showAddGrade, setShowAddGrade] = useState(false);
   const [showAddEvent, setShowAddEvent] = useState(false);
+  const [selectedSubject, setSelectedSubject] = useState<string>('');
+
+  // Unique subjects from grades and behavior (for filter dropdown)
+  const subjectOptions = useMemo(() => {
+    const fromGrades = new Set(student.grades.map(g => g.subject).filter(Boolean));
+    student.behaviorEvents.forEach(e => {
+      const s = e.subject?.trim();
+      if (s && !/^\d+$/.test(s)) fromGrades.add(e.subject!);
+    });
+    return Array.from(fromGrades).sort((a, b) => a.localeCompare(b));
+  }, [student.grades, student.behaviorEvents]);
 
   // Scroll to top on mount
   useEffect(() => {
@@ -199,11 +210,13 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
     XLSX.writeFile(wb, `דוח_תלמיד_${getDisplayName(student.name, studentIndex ?? 0, isAnonymous ?? false)}.xlsx`);
   };
 
-  // Chart Data: Grades - Aggregated by Week
+  // Chart Data: Grades - Aggregated by Week (optional filter by subject)
   const gradeChartData = useMemo(() => {
-    if (student.grades.length === 0) return [];
+    const grades = selectedSubject
+      ? student.grades.filter(g => g.subject === selectedSubject)
+      : student.grades;
+    if (grades.length === 0) return [];
 
-    const grades = student.grades;
     const timestamps = grades.map(g => g.date.getTime());
     const minTime = Math.min(...timestamps);
     const maxTime = Math.max(...timestamps);
@@ -227,11 +240,12 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
             count: weeklyGrades.length
         };
     }).filter(Boolean); // Remove empty weeks
-  }, [student.grades]);
+  }, [student.grades, selectedSubject]);
 
-  // Chart Data: Behavior Trends (excluding absences – positive + other negative only)
+  // Chart Data: Behavior Trends (excluding absences – positive + other negative only), optional subject filter
   const { chartData: behaviorChartData, viewMode } = useMemo(() => {
-    const events = student.behaviorEvents.filter((e) => !isAbsenceEvent(e));
+    let events = student.behaviorEvents.filter((e) => !isAbsenceEvent(e));
+    if (selectedSubject) events = events.filter(e => e.subject === selectedSubject);
     if (events.length === 0) return { chartData: [], viewMode: 'daily' };
 
     const dates = events.map(e => e.date);
@@ -299,12 +313,13 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
     });
 
     return { chartData: data, viewMode: isDailyView ? 'daily' : 'weekly' };
-  }, [student.behaviorEvents]);
+  }, [student.behaviorEvents, selectedSubject]);
 
-  // Chart Data: Absences only (same time range and daily/weekly logic as behavior)
+  // Chart Data: Absences only (same time range and daily/weekly logic as behavior), optional subject filter
   const { chartData: absenceChartData, viewMode: absenceViewMode } = useMemo(() => {
     const allEvents = student.behaviorEvents;
-    const absenceEvents = allEvents.filter(isAbsenceEvent);
+    let absenceEvents = allEvents.filter(isAbsenceEvent);
+    if (selectedSubject) absenceEvents = absenceEvents.filter(e => e.subject === selectedSubject);
     if (allEvents.length === 0) return { chartData: [], viewMode: 'daily' as const };
 
     const dates = allEvents.map((e) => e.date);
@@ -347,7 +362,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
     });
 
     return { chartData: data, viewMode: isDailyView ? 'daily' : 'weekly' };
-  }, [student.behaviorEvents]);
+  }, [student.behaviorEvents, selectedSubject]);
 
   // Absence Analysis (subject can be numeric on mobile when column order differs in Excel parsing)
   const displaySubject = (raw: string) => (/^\d+$/.test(String(raw).trim()) ? 'מקצוע לא צוין' : (raw || 'כללי'));
@@ -499,10 +514,31 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
       <div className="max-w-7xl mx-auto p-4 md:p-6 min-h-[500px]">
         {activeTab === 'trends' && (
           <div className="grid grid-cols-1 gap-5 md:gap-6">
+            {/* Subject filter for all three charts */}
+            <div className="bg-white p-3 md:p-4 rounded-2xl shadow-card border border-slate-100/80 flex flex-wrap items-center gap-3">
+              <span className="text-sm font-bold text-slate-700">מגמה לפי מקצוע:</span>
+              <select
+                value={selectedSubject}
+                onChange={(e) => setSelectedSubject(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-800 font-medium text-sm focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 min-w-[180px]"
+              >
+                <option value="">כל המקצועות</option>
+                {subjectOptions.map((subj) => (
+                  <option key={subj} value={subj}>{subj}</option>
+                ))}
+              </select>
+              {selectedSubject && (
+                <span className="text-xs text-slate-500">מציג ציונים, התנהגות וחיסורים במקצוע נבחר בלבד</span>
+              )}
+            </div>
+
             {/* Grades Chart */}
             <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 hover:shadow-card-hover transition-shadow">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-2">
-                    <h3 className="text-lg font-bold text-slate-700">מגמת ציונים (ממוצע שבועי)</h3>
+                    <h3 className="text-lg font-bold text-slate-700">
+                      מגמת ציונים (ממוצע שבועי)
+                      {selectedSubject && <span className="text-primary-600 font-normal text-base"> – {selectedSubject}</span>}
+                    </h3>
                     <div className="flex gap-4 text-xs flex-wrap">
                          <div className="flex items-center gap-1">
                             <div className="w-3 h-0.5 bg-red-500"></div>
@@ -544,7 +580,10 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
             <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 hover:shadow-card-hover transition-shadow">
                 <div className="flex justify-between items-center mb-4 md:mb-6">
                     <div>
-                        <h3 className="text-lg font-bold text-slate-700">אירועי משמעת – חיזוקים וטעון שיפור</h3>
+                        <h3 className="text-lg font-bold text-slate-700">
+                          אירועי משמעת – חיזוקים וטעון שיפור
+                          {selectedSubject && <span className="text-primary-600 font-normal text-base"> – {selectedSubject}</span>}
+                        </h3>
                         <p className="text-xs text-slate-500 mt-0.5">ללא חיסורים (מוצגים בגרף נפרד)</p>
                     </div>
                     <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
@@ -594,7 +633,10 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, onBack, classA
                             <CalendarX2 size={22} strokeWidth={2} />
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">חיסורים לאורך זמן</h3>
+                            <h3 className="text-lg font-bold text-slate-800">
+                              חיסורים לאורך זמן
+                              {selectedSubject && <span className="text-primary-600 font-normal text-base"> – {selectedSubject}</span>}
+                            </h3>
                             <p className="text-xs text-amber-700/90 mt-0.5">חיסורים (ללא הצדקה) לפי תאריך</p>
                         </div>
                     </div>
