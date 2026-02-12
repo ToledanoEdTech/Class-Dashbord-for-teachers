@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { Student, EventType, Grade, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent, RiskSettings, ClassGroup, PeriodDefinition } from '../types';
-import { Search, ChevronRight, PieChart as PieChartIcon, Filter, ChevronDown, Printer, LayoutGrid, LayoutList, Download, FileSpreadsheet, FileText, AlertCircle, TrendingUp } from 'lucide-react';
+import { Search, ChevronRight, PieChart as PieChartIcon, Filter, ChevronDown, Printer, LayoutGrid, LayoutList, Download, FileSpreadsheet, FileText, AlertCircle, TrendingUp, Check, X } from 'lucide-react';
 import { MetricIcons } from '../constants/icons';
 import { exportStudentsAtRiskToExcel, exportClassSummaryToExcel, exportClassSummaryToPDF } from '../utils/export';
+import { generateClassCertificates } from '../utils/certificate';
 import {
   BarChart,
   Bar,
@@ -84,6 +85,8 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
     try { return (localStorage.getItem('toledano-view-mode') as 'table' | 'cards') || 'table'; } catch { return 'table'; }
   });
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [showCertificateDialog, setShowCertificateDialog] = useState(false);
+  const [selectedSubjectsForCertificates, setSelectedSubjectsForCertificates] = useState<Set<string>>(new Set());
 
   React.useEffect(() => {
     try { localStorage.setItem('toledano-view-mode', viewMode); } catch {}
@@ -189,7 +192,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
     const teachers = new Set<string>();
     students.forEach((s) => {
       s.grades.forEach((g) => {
-        if (g.subject?.trim()) subjects.add(g.subject.trim());
+        if (g.subject?.trim() && !/^\d+$/.test(g.subject.trim())) subjects.add(g.subject.trim());
         if (g.teacher?.trim()) teachers.add(g.teacher.trim());
       });
       s.behaviorEvents.forEach((e) => {
@@ -201,6 +204,25 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       allTeachers: Array.from(teachers).sort((a, b) => a.localeCompare(b, 'he')),
     };
   }, [students]);
+
+  // Handle Certificate Generation for all students
+  const handleGenerateClassCertificates = async () => {
+    try {
+      const subjectsArray = selectedSubjectsForCertificates.size > 0
+        ? Array.from(selectedSubjectsForCertificates)
+        : undefined;
+      
+      await generateClassCertificates(studentsInRange, {
+        selectedSubjects: subjectsArray
+      });
+      
+      setShowCertificateDialog(false);
+      setSelectedSubjectsForCertificates(new Set());
+    } catch (error) {
+      console.error('Error generating certificates:', error);
+      alert('שגיאה ביצירת התעודות');
+    }
+  };
 
   const filteredStudents = useMemo(() => {
     let result = studentsInRange.filter((s) => {
@@ -486,6 +508,21 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                   <div className="flex-1">
                     <div className="font-medium text-sm">ייצוא סיכום כיתתי</div>
                     <div className="text-xs text-slate-500">PDF</div>
+                  </div>
+                </button>
+                <div className="border-t border-slate-200 my-2"></div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCertificateDialog(true);
+                    setExportMenuOpen(false);
+                  }}
+                  className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-emerald-50 active:bg-emerald-100 text-slate-700 hover:text-emerald-700 transition-colors"
+                >
+                  <FileText size={18} className="text-emerald-600 shrink-0" />
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">הפקת תעודות לכיתה</div>
+                    <div className="text-xs text-slate-500">PDF - תעודה לכל תלמיד</div>
                   </div>
                 </button>
                 </div>
@@ -987,6 +1024,35 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         </div>
       </div>
       )}
+
+      {/* Certificate Generation Dialog */}
+      {showCertificateDialog && (
+        <CertificateDialog
+          availableSubjects={allSubjects}
+          selectedSubjects={selectedSubjectsForCertificates}
+          onToggleSubject={(subject) => {
+            const newSet = new Set(selectedSubjectsForCertificates);
+            if (newSet.has(subject)) {
+              newSet.delete(subject);
+            } else {
+              newSet.add(subject);
+            }
+            setSelectedSubjectsForCertificates(newSet);
+          }}
+          onSelectAll={() => {
+            setSelectedSubjectsForCertificates(new Set(allSubjects));
+          }}
+          onDeselectAll={() => {
+            setSelectedSubjectsForCertificates(new Set());
+          }}
+          onGenerate={handleGenerateClassCertificates}
+          onClose={() => {
+            setShowCertificateDialog(false);
+            setSelectedSubjectsForCertificates(new Set());
+          }}
+          studentCount={studentsInRange.length}
+        />
+      )}
     </div>
   );
 };
@@ -1192,6 +1258,135 @@ const StudentCard: React.FC<{ student: Student; onClick: () => void; index: numb
           {student.behaviorTrend === 'declining' && <MetricIcons.TrendDown size={18} className="text-grade-danger mx-auto" />}
           {student.behaviorTrend === 'stable' && <MetricIcons.TrendStable size={18} className="text-slate-400 mx-auto" />}
           <MiniSparkline values={behaviorValues} color="#f59e0b" min={behaviorMin} max={behaviorMax} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* --- Certificate Dialog Component --- */
+const CertificateDialog: React.FC<{
+  availableSubjects: string[];
+  selectedSubjects: Set<string>;
+  onToggleSubject: (subject: string) => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
+  onGenerate: () => void;
+  onClose: () => void;
+  studentCount?: number;
+}> = ({ availableSubjects, selectedSubjects, onToggleSubject, onSelectAll, onDeselectAll, onGenerate, onClose, studentCount }) => {
+  const allSelected = availableSubjects.length > 0 && selectedSubjects.size === availableSubjects.length;
+  const noneSelected = selectedSubjects.size === 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-elevated border border-slate-200 w-full max-w-lg p-6 animate-scale-in max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <FileText className="text-primary-500" size={20} />
+            הפקת תעודות לכיתה
+            {studentCount !== undefined && (
+              <span className="text-sm font-normal text-slate-500">({studentCount} תלמידים)</span>
+            )}
+          </h3>
+          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500">
+            <X size={20} />
+          </button>
+        </div>
+        
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            בחר את המקצועות שיופיעו בתעודות. אם לא תבחר מקצועות, כל המקצועות יופיעו בכל תעודה.
+            {studentCount !== undefined && (
+              <span className="block mt-1 text-xs text-slate-500">
+                יווצר קובץ PDF אחד עם {studentCount} עמודים - עמוד לכל תלמיד.
+              </span>
+            )}
+          </p>
+          
+          {availableSubjects.length > 0 ? (
+            <>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onSelectAll}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                >
+                  בחר הכל
+                </button>
+                <button
+                  type="button"
+                  onClick={onDeselectAll}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                >
+                  בטל הכל
+                </button>
+              </div>
+              
+              <div className="border border-slate-200 rounded-xl p-4 max-h-64 overflow-y-auto">
+                <div className="space-y-2">
+                  {availableSubjects.map((subject) => {
+                    const isSelected = selectedSubjects.has(subject);
+                    return (
+                      <label
+                        key={subject}
+                        className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-primary-50 border-2 border-primary-300'
+                            : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                          isSelected
+                            ? 'bg-primary-500 border-primary-500'
+                            : 'border-slate-300'
+                        }`}>
+                          {isSelected && <Check size={14} className="text-white" strokeWidth={3} />}
+                        </div>
+                        <span className="flex-1 text-sm font-medium text-slate-700">{subject}</span>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => onToggleSubject(subject)}
+                          className="sr-only"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              <div className="text-xs text-slate-500 text-center">
+                {selectedSubjects.size === 0
+                  ? 'כל המקצועות יופיעו בתעודות'
+                  : `נבחרו ${selectedSubjects.size} מתוך ${availableSubjects.length} מקצועות`}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-8 text-slate-500">
+              <p className="text-sm">אין מקצועות זמינים להצגה בתעודות.</p>
+            </div>
+          )}
+          
+          <div className="flex gap-3 pt-4 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50"
+            >
+              ביטול
+            </button>
+            <button
+              type="button"
+              onClick={onGenerate}
+              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 text-white font-medium hover:from-primary-600 hover:to-primary-700 shadow-md shadow-primary-500/25"
+            >
+              <span className="flex items-center justify-center gap-2">
+                <FileText size={16} />
+                צור תעודות
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent } from '../types';
 import { calculateStudentStats } from '../utils/processing';
-import { ArrowRight, ArrowLeft, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer, TrendingUp, TrendingDown, BarChart3, Target, Users, Zap, Star, MessageSquare, ThumbsUp, Lightbulb, ChevronRight, ChevronLeft } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer, TrendingUp, TrendingDown, BarChart3, Target, Users, Zap, Star, MessageSquare, ThumbsUp, Lightbulb, ChevronRight, ChevronLeft, FileText, Check, Grid, LayoutGrid } from 'lucide-react';
 import HelpTip from './HelpTip';
 import {
   LineChart,
@@ -19,6 +19,7 @@ import {
 import { format, differenceInDays, eachDayOfInterval, eachWeekOfInterval, isSameDay, isSameWeek, endOfWeek } from 'date-fns';
 import { getDisplayName } from '../utils/displayName';
 import { exportStudentProfileToExcel } from '../utils/exportStudent';
+import { generateStudentCertificate } from '../utils/certificate';
 
 interface StudentProfileProps {
   student: Student;
@@ -151,6 +152,9 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
   const [showAddGrade, setShowAddGrade] = useState(false);
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState<string>('');
+  const [showCertificateDialog, setShowCertificateDialog] = useState(false);
+  const [selectedSubjectsForCertificate, setSelectedSubjectsForCertificate] = useState<Set<string>>(new Set());
+  const [gradesChartViewMode, setGradesChartViewMode] = useState<'single' | 'multiple'>('single');
 
   const hasPrevStudent = students.length > 0 && currentIndex > 0;
   const hasNextStudent = students.length > 0 && currentIndex < students.length - 1;
@@ -201,6 +205,36 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     }
   };
 
+  // Handle Certificate Generation
+  const handleGenerateCertificate = async () => {
+    try {
+      const subjectsArray = selectedSubjectsForCertificate.size > 0
+        ? Array.from(selectedSubjectsForCertificate)
+        : undefined;
+      
+      await generateStudentCertificate(student, {
+        selectedSubjects: subjectsArray
+      });
+      
+      setShowCertificateDialog(false);
+      setSelectedSubjectsForCertificate(new Set());
+    } catch (error) {
+      console.error('Error generating certificate:', error);
+      alert('שגיאה ביצירת התעודה');
+    }
+  };
+
+  // Get all available subjects for certificate
+  const availableSubjectsForCertificate = useMemo(() => {
+    const subjects = new Set<string>();
+    student.grades.forEach(g => {
+      if (g.subject && g.subject.trim() && !/^\d+$/.test(g.subject.trim())) {
+        subjects.add(g.subject);
+      }
+    });
+    return Array.from(subjects).sort();
+  }, [student.grades]);
+
   // Chart Data: Grades - Aggregated by Week (optional filter by subject)
   const gradeChartData = useMemo(() => {
     const grades = selectedSubject
@@ -232,6 +266,70 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
         };
     }).filter(Boolean); // Remove empty weeks
   }, [student.grades, selectedSubject]);
+
+  // Chart Data: Grades per Subject (for multiple charts view)
+  const gradesBySubject = useMemo(() => {
+    if (selectedSubject) return {}; // Don't show multiple charts when a subject is selected
+    
+    const subjects = subjectOptions.filter(subj => {
+      const subjectGrades = student.grades.filter(g => g.subject === subj);
+      return subjectGrades.length > 0;
+    });
+
+    const result: Record<string, any[]> = {};
+
+    subjects.forEach(subj => {
+      const grades = student.grades.filter(g => g.subject === subj);
+      if (grades.length === 0) return;
+
+      const timestamps = grades.map(g => g.date.getTime());
+      const minTime = Math.min(...timestamps);
+      const maxTime = Math.max(...timestamps);
+      const startDate = getStartOfWeek(new Date(minTime));
+      const endDate = endOfWeek(new Date(maxTime));
+
+      const weeks = eachWeekOfInterval({ start: startDate, end: endDate });
+
+      result[subj] = weeks.map(weekStart => {
+        const weekEnd = endOfWeek(weekStart);
+        const weeklyGrades = grades.filter(g => isSameWeek(g.date, weekStart));
+        
+        if (weeklyGrades.length === 0) return null;
+
+        const avg = weeklyGrades.reduce((sum, g) => sum + g.score, 0) / weeklyGrades.length;
+        
+        return {
+          date: `${format(weekStart, 'dd/MM')}-${format(weekEnd, 'dd/MM')}`,
+          score: parseFloat(avg.toFixed(1)),
+          grades: weeklyGrades,
+          count: weeklyGrades.length
+        };
+      }).filter(Boolean);
+    });
+
+    return result;
+  }, [student.grades, subjectOptions, selectedSubject]);
+
+  // Calculate class average per subject
+  const classAverageBySubject = useMemo(() => {
+    if (students.length === 0) return {};
+    
+    const result: Record<string, number> = {};
+    
+    subjectOptions.forEach(subject => {
+      // Get all grades for this subject from all students
+      const allSubjectGrades = students.flatMap(s => 
+        s.grades.filter(g => g.subject === subject)
+      );
+      
+      if (allSubjectGrades.length > 0) {
+        const sum = allSubjectGrades.reduce((acc, g) => acc + g.score, 0);
+        result[subject] = parseFloat((sum / allSubjectGrades.length).toFixed(1));
+      }
+    });
+    
+    return result;
+  }, [students, subjectOptions]);
 
   // Chart Data: Behavior Trends (excluding absences – positive + other negative only), optional subject filter
   const { chartData: behaviorChartData, viewMode } = useMemo(() => {
@@ -790,6 +888,13 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                   >
                     <Download size={14} strokeWidth={2} />
                   </button>
+                  <button
+                    onClick={() => setShowCertificateDialog(true)}
+                    className="bg-white border border-slate-200 text-slate-600 p-1.5 rounded-lg hover:bg-slate-50 transition-all"
+                    title="הפקת תעודה"
+                  >
+                    <FileText size={14} strokeWidth={2} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -891,6 +996,14 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                     <span className="hidden md:inline">ייצוא לאקסל</span>
                     <span className="md:hidden">ייצוא</span>
                   </button>
+                  <button
+                    onClick={() => setShowCertificateDialog(true)}
+                    className="bg-gradient-to-r from-primary-500 to-primary-600 text-white px-3 py-2 rounded-xl hover:from-primary-600 hover:to-primary-700 font-medium text-sm flex items-center gap-2 shadow-md shadow-primary-500/25 transition-all"
+                  >
+                    <FileText size={16} strokeWidth={2} />
+                    <span className="hidden md:inline">הפקת תעודה</span>
+                    <span className="md:hidden">תעודה</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -944,10 +1057,31 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
             {/* Grades Chart */}
             <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 hover:shadow-card-hover transition-shadow">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 md:mb-6 gap-2">
-                    <h3 className="text-lg font-bold text-slate-700">
-                      מגמת ציונים (ממוצע שבועי)
-                      {selectedSubject && <span className="text-primary-600 font-normal text-base"> – {selectedSubject}</span>}
-                    </h3>
+                    <div className="flex items-center gap-3">
+                        <h3 className="text-lg font-bold text-slate-700">
+                          מגמת ציונים (ממוצע שבועי)
+                          {selectedSubject && <span className="text-primary-600 font-normal text-base"> – {selectedSubject}</span>}
+                        </h3>
+                        {!selectedSubject && (
+                            <button
+                                onClick={() => setGradesChartViewMode(gradesChartViewMode === 'single' ? 'multiple' : 'single')}
+                                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                title={gradesChartViewMode === 'single' ? 'הצג גרפים נפרדים לכל מקצוע' : 'הצג גרף אחד משולב'}
+                            >
+                                {gradesChartViewMode === 'single' ? (
+                                    <>
+                                        <Grid size={14} />
+                                        <span>תצוגה לפי מקצועות</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <BarChart3 size={14} />
+                                        <span>תצוגה משולבת</span>
+                                    </>
+                                )}
+                            </button>
+                        )}
+                    </div>
                     <div className="flex gap-4 text-xs flex-wrap">
                          <div className="flex items-center gap-1">
                             <div className="w-3 h-0.5 bg-red-500"></div>
@@ -959,30 +1093,93 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                          </div>
                     </div>
                 </div>
-                {/* Scrollable Container for Mobile */}
-                <div className="overflow-x-auto">
-                    <div className="h-64 md:h-72 w-full min-w-[500px] md:min-w-0">
-                    {gradeChartData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={gradeChartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                            <XAxis 
-                                dataKey="date" 
-                                tick={{ fontSize: 10, fill: '#64748b' }}
-                                tickMargin={10}
-                            />
-                            <YAxis domain={[0, 100]} hide={false} width={30} tick={{ fontSize: 10 }} />
-                            <Tooltip content={<CustomGradeTooltip />} cursor={{ stroke: '#94a3b8', strokeWidth: 1 }} />
-                            <ReferenceLine y={55} label={{ value: "55", position: 'right', fill: 'red', fontSize: 10 }} stroke="red" strokeDasharray="3 3" />
-                            <ReferenceLine y={classAverage} label={{ value: "כיתתי", position: 'right', fill: 'orange', fontSize: 10 }} stroke="orange" strokeDasharray="5 5" />
-                            <Line type="monotone" dataKey="score" stroke="#0c8ee6" strokeWidth={3} activeDot={{ r: 6 }} dot={{ r: 4 }} />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <div className="h-full flex items-center justify-center text-slate-400">אין מספיק נתוני ציונים להצגה</div>
-                    )}
+                
+                {gradesChartViewMode === 'single' || selectedSubject ? (
+                    /* Single Chart View */
+                    <div className="overflow-x-auto">
+                        <div className="h-64 md:h-72 w-full min-w-[500px] md:min-w-0">
+                        {gradeChartData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={gradeChartData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                <XAxis 
+                                    dataKey="date" 
+                                    tick={{ fontSize: 10, fill: '#64748b' }}
+                                    tickMargin={10}
+                                />
+                                <YAxis domain={[0, 100]} hide={false} width={30} tick={{ fontSize: 10 }} />
+                                <Tooltip content={<CustomGradeTooltip />} cursor={{ stroke: '#94a3b8', strokeWidth: 1 }} />
+                                <ReferenceLine y={55} label={{ value: "55", position: 'right', fill: 'red', fontSize: 10 }} stroke="red" strokeDasharray="3 3" />
+                                <ReferenceLine y={classAverage} label={{ value: "כיתתי", position: 'right', fill: 'orange', fontSize: 10 }} stroke="orange" strokeDasharray="5 5" />
+                                <Line type="monotone" dataKey="score" stroke="#0c8ee6" strokeWidth={3} activeDot={{ r: 6 }} dot={{ r: 4 }} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="h-full flex items-center justify-center text-slate-400">אין מספיק נתוני ציונים להצגה</div>
+                        )}
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    /* Multiple Charts View - One per Subject */
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5">
+                        {Object.entries(gradesBySubject).map(([subject, data]) => {
+                            const subjectClassAverage = classAverageBySubject[subject] ?? classAverage;
+                            return (
+                                <div key={subject} className="bg-slate-50/50 rounded-xl p-4 border border-slate-200">
+                                    <div className="mb-3 text-center">
+                                        <h4 className="text-sm font-bold text-slate-700">{subject}</h4>
+                                        <p className="text-xs text-slate-500 mt-1">ממוצע כיתתי: {subjectClassAverage.toFixed(1)}</p>
+                                    </div>
+                                    <div className="h-48">
+                                        {data.length > 0 ? (
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <LineChart data={data}>
+                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                                    <XAxis 
+                                                        dataKey="date" 
+                                                        tick={{ fontSize: 8, fill: '#64748b' }}
+                                                        tickMargin={5}
+                                                        angle={-45}
+                                                        textAnchor="end"
+                                                        height={50}
+                                                    />
+                                                    <YAxis domain={[0, 100]} width={25} tick={{ fontSize: 8 }} />
+                                                    <Tooltip 
+                                                        content={<CustomGradeTooltip />} 
+                                                        cursor={{ stroke: '#94a3b8', strokeWidth: 1 }} 
+                                                    />
+                                                    <ReferenceLine y={55} stroke="red" strokeDasharray="3 3" strokeWidth={1} />
+                                                    <ReferenceLine 
+                                                        y={subjectClassAverage} 
+                                                        stroke="orange" 
+                                                        strokeDasharray="5 5" 
+                                                        strokeWidth={1}
+                                                        label={{ value: `${subjectClassAverage.toFixed(1)}`, position: 'right', fill: 'orange', fontSize: 8 }}
+                                                    />
+                                                    <Line 
+                                                        type="monotone" 
+                                                        dataKey="score" 
+                                                        stroke="#0c8ee6" 
+                                                        strokeWidth={2} 
+                                                        activeDot={{ r: 4 }} 
+                                                        dot={{ r: 2 }} 
+                                                    />
+                                                </LineChart>
+                                            </ResponsiveContainer>
+                                        ) : (
+                                            <div className="h-full flex items-center justify-center text-slate-400 text-xs">אין נתונים</div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {Object.keys(gradesBySubject).length === 0 && (
+                            <div className="col-span-full h-48 flex items-center justify-center text-slate-400">
+                                אין מספיק נתוני ציונים להצגה
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Behavior Chart – positive & negative (no absences) */}
@@ -1857,6 +2054,34 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
             onSubmit={handleAddEvent}
           />
         )}
+
+        {/* Certificate Generation Dialog */}
+        {showCertificateDialog && (
+          <CertificateDialog
+            availableSubjects={availableSubjectsForCertificate}
+            selectedSubjects={selectedSubjectsForCertificate}
+            onToggleSubject={(subject) => {
+              const newSet = new Set(selectedSubjectsForCertificate);
+              if (newSet.has(subject)) {
+                newSet.delete(subject);
+              } else {
+                newSet.add(subject);
+              }
+              setSelectedSubjectsForCertificate(newSet);
+            }}
+            onSelectAll={() => {
+              setSelectedSubjectsForCertificate(new Set(availableSubjectsForCertificate));
+            }}
+            onDeselectAll={() => {
+              setSelectedSubjectsForCertificate(new Set());
+            }}
+            onGenerate={handleGenerateCertificate}
+            onClose={() => {
+              setShowCertificateDialog(false);
+              setSelectedSubjectsForCertificate(new Set());
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -1979,6 +2204,126 @@ const AddEventModal: React.FC<{
             <button type="submit" className="flex-1 py-2.5 rounded-xl bg-primary-500 text-white font-medium hover:bg-primary-600">שמור</button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+/* --- Certificate Dialog --- */
+const CertificateDialog: React.FC<{
+  availableSubjects: string[];
+  selectedSubjects: Set<string>;
+  onToggleSubject: (subject: string) => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
+  onGenerate: () => void;
+  onClose: () => void;
+}> = ({ availableSubjects, selectedSubjects, onToggleSubject, onSelectAll, onDeselectAll, onGenerate, onClose }) => {
+  const allSelected = availableSubjects.length > 0 && selectedSubjects.size === availableSubjects.length;
+  const noneSelected = selectedSubjects.size === 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-elevated border border-slate-200 w-full max-w-lg p-6 animate-scale-in max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <FileText className="text-primary-500" size={20} />
+            הפקת תעודה לקראת אסיפת הורים
+          </h3>
+          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500">
+            <X size={20} />
+          </button>
+        </div>
+        
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            בחר את המקצועות שיופיעו בתעודה. אם לא תבחר מקצועות, כל המקצועות יופיעו בתעודה.
+          </p>
+          
+          {availableSubjects.length > 0 ? (
+            <>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={onSelectAll}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                >
+                  בחר הכל
+                </button>
+                <button
+                  type="button"
+                  onClick={onDeselectAll}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                >
+                  בטל הכל
+                </button>
+              </div>
+              
+              <div className="border border-slate-200 rounded-xl p-4 max-h-64 overflow-y-auto">
+                <div className="space-y-2">
+                  {availableSubjects.map((subject) => {
+                    const isSelected = selectedSubjects.has(subject);
+                    return (
+                      <label
+                        key={subject}
+                        className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-primary-50 border-2 border-primary-300'
+                            : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                          isSelected
+                            ? 'bg-primary-500 border-primary-500'
+                            : 'border-slate-300'
+                        }`}>
+                          {isSelected && <Check size={14} className="text-white" strokeWidth={3} />}
+                        </div>
+                        <span className="flex-1 text-sm font-medium text-slate-700">{subject}</span>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => onToggleSubject(subject)}
+                          className="sr-only"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              <div className="text-xs text-slate-500 text-center">
+                {selectedSubjects.size === 0
+                  ? 'כל המקצועות יופיעו בתעודה'
+                  : `נבחרו ${selectedSubjects.size} מתוך ${availableSubjects.length} מקצועות`}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-8 text-slate-500">
+              <p className="text-sm">אין מקצועות זמינים להצגה בתעודה.</p>
+            </div>
+          )}
+          
+          <div className="flex gap-3 pt-4 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50"
+            >
+              ביטול
+            </button>
+            <button
+              type="button"
+              onClick={onGenerate}
+              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 text-white font-medium hover:from-primary-600 hover:to-primary-700 shadow-md shadow-primary-500/25"
+            >
+              <span className="flex items-center justify-center gap-2">
+                <FileText size={16} />
+                צור תעודה
+              </span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
