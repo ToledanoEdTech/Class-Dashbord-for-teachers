@@ -474,35 +474,63 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
 
   // ניתוח מקצועות - חוזקות וחולשות
   const subjectAnalysis = useMemo(() => {
-    const subjectStats: Record<string, { avg: number; count: number; trend: 'improving' | 'declining' | 'stable'; behaviorScore: number }> = {};
+    const subjectStats: Record<string, { avg: number; count: number; trend: 'improving' | 'declining' | 'stable'; behaviorScore: number; classAvg: number }> = {};
     
-    // Calculate grades per subject
+    // Calculate weighted averages per subject for student
     student.grades.forEach(g => {
       const subj = displaySubject(g.subject);
       if (!subjectStats[subj]) {
-        subjectStats[subj] = { avg: 0, count: 0, trend: 'stable', behaviorScore: 0 };
+        subjectStats[subj] = { avg: 0, count: 0, trend: 'stable', behaviorScore: 0, classAvg: 0 };
       }
-      subjectStats[subj].avg += g.score;
       subjectStats[subj].count += 1;
     });
     
-    // Calculate averages and trends
+    // Calculate weighted class averages per subject
+    const classAvgBySubject: Record<string, number> = {};
+    if (students.length > 0) {
+      Object.keys(subjectStats).forEach(subj => {
+        // Get all grades for this subject from all students
+        const allSubjectGrades = students.flatMap(s => 
+          s.grades.filter(g => displaySubject(g.subject) === subj)
+        );
+        
+        if (allSubjectGrades.length > 0) {
+          // Calculate weighted average for class
+          const totalWeight = allSubjectGrades.reduce((acc, g) => acc + (g.weight || 1), 0);
+          const weightedSum = allSubjectGrades.reduce((acc, g) => acc + g.score * (g.weight || 1), 0);
+          classAvgBySubject[subj] = totalWeight > 0 ? parseFloat((weightedSum / totalWeight).toFixed(1)) : 0;
+        }
+      });
+    }
+    
+    // Calculate weighted averages and trends for student
     Object.keys(subjectStats).forEach(subj => {
       const stats = subjectStats[subj];
-      if (stats.count > 0) {
-        stats.avg = stats.avg / stats.count;
+      const subjectGrades = student.grades.filter(g => displaySubject(g.subject) === subj);
+      
+      if (subjectGrades.length > 0) {
+        // Calculate weighted average for student
+        const totalWeight = subjectGrades.reduce((acc, g) => acc + (g.weight || 1), 0);
+        const weightedSum = subjectGrades.reduce((acc, g) => acc + g.score * (g.weight || 1), 0);
+        stats.avg = totalWeight > 0 ? parseFloat((weightedSum / totalWeight).toFixed(1)) : 0;
+        stats.classAvg = classAvgBySubject[subj] || 0;
         
         // Calculate trend for this subject
-        const subjectGrades = student.grades
-          .filter(g => displaySubject(g.subject) === subj)
-          .sort((a, b) => a.date.getTime() - b.date.getTime());
+        const sortedGrades = subjectGrades.sort((a, b) => a.date.getTime() - b.date.getTime());
         
-        if (subjectGrades.length >= 2) {
-          const recent = subjectGrades.slice(-Math.min(3, subjectGrades.length));
-          const older = subjectGrades.slice(0, Math.max(0, subjectGrades.length - recent.length));
+        if (sortedGrades.length >= 2) {
+          const recent = sortedGrades.slice(-Math.min(3, sortedGrades.length));
+          const older = sortedGrades.slice(0, Math.max(0, sortedGrades.length - recent.length));
           if (older.length > 0) {
-            const recentAvg = recent.reduce((s, g) => s + g.score, 0) / recent.length;
-            const olderAvg = older.reduce((s, g) => s + g.score, 0) / older.length;
+            // Calculate weighted averages for trend
+            const recentWeight = recent.reduce((acc, g) => acc + (g.weight || 1), 0);
+            const recentWeightedSum = recent.reduce((acc, g) => acc + g.score * (g.weight || 1), 0);
+            const recentAvg = recentWeight > 0 ? recentWeightedSum / recentWeight : 0;
+            
+            const olderWeight = older.reduce((acc, g) => acc + (g.weight || 1), 0);
+            const olderWeightedSum = older.reduce((acc, g) => acc + g.score * (g.weight || 1), 0);
+            const olderAvg = olderWeight > 0 ? olderWeightedSum / olderWeight : 0;
+            
             if (recentAvg - olderAvg > 3) stats.trend = 'improving';
             else if (recentAvg - olderAvg < -3) stats.trend = 'declining';
           }
@@ -527,7 +555,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       weakest: sorted.slice(-3).reverse(),
       all: sorted
     };
-  }, [student.grades, student.behaviorEvents]);
+  }, [student.grades, student.behaviorEvents, students]);
 
   // ניתוח זמני - דפוסים יומיים
   const temporalAnalysis = useMemo(() => {
@@ -1460,7 +1488,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                                 <div className="flex-1">
                                                     <span className="font-medium text-slate-700 text-sm">{subj}</span>
                                                     <div className="flex items-center gap-2 mt-1">
-                                                        <span className="text-xs text-slate-600">ממוצע: {stats.avg.toFixed(1)}</span>
+                                                        <span className="text-xs text-slate-600">ממוצע: {stats.classAvg > 0 ? stats.classAvg.toFixed(1) : '-'}</span>
                                                         {stats.trend === 'improving' && <TrendingUp size={12} className="text-emerald-600" />}
                                                         {stats.trend === 'declining' && <TrendingDown size={12} className="text-red-600" />}
                                                     </div>
@@ -1482,7 +1510,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                                 <div className="flex-1">
                                                     <span className="font-medium text-slate-700 text-sm">{subj}</span>
                                                     <div className="flex items-center gap-2 mt-1">
-                                                        <span className="text-xs text-slate-600">ממוצע: {stats.avg.toFixed(1)}</span>
+                                                        <span className="text-xs text-slate-600">ממוצע: {stats.classAvg > 0 ? stats.classAvg.toFixed(1) : '-'}</span>
                                                         {stats.trend === 'improving' && <TrendingUp size={12} className="text-emerald-600" />}
                                                         {stats.trend === 'declining' && <TrendingDown size={12} className="text-red-600" />}
                                                     </div>
