@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import LandingPage from './components/LandingPage';
 import FileUpload from './components/FileUpload';
 import Dashboard from './components/Dashboard';
@@ -10,6 +10,9 @@ import { Student, AppState, ClassGroup, RiskSettings, PerClassRiskSettings, Peri
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
 import { saveToStorage, loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets } from './utils/storage';
+import { useAuth } from './context/AuthContext';
+import { loadFromFirestore, saveToFirestore } from './utils/firestoreSync';
+import { isFirebaseConfigured } from './firebase';
 import { Menu, X } from 'lucide-react';
 import { NavIcons, FileIcons } from './constants/icons';
 
@@ -56,6 +59,7 @@ function getEffectiveRiskSettings(
 }
 
 const App: React.FC = () => {
+  const { user } = useAuth();
   const [state, setState] = useState<AppState>(getInitialState);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
@@ -64,6 +68,8 @@ const App: React.FC = () => {
   const [darkMode, setDarkMode] = useState(() => loadPreferences().darkMode);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => loadPreferences().fontSize);
   const [dashboardWidgets, setDashboardWidgets] = useState(() => loadDashboardWidgets());
+  const [cloudLoaded, setCloudLoaded] = useState(false);
+  const saveToFirestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeClass = state.classes.find((c) => c.id === state.activeClassId);
   const effectiveRiskSettings = getEffectiveRiskSettings(state.activeClassId, state.riskSettings, state.perClassRiskSettings);
@@ -75,6 +81,29 @@ const App: React.FC = () => {
   const selectedStudent = students.find((s) => s.id === state.selectedStudentId);
   const selectedStudentIndex = state.selectedStudentId ? students.findIndex((s) => s.id === state.selectedStudentId) : -1;
 
+  // Load from Firestore when user is logged in (once per user)
+  useEffect(() => {
+    if (!user?.uid || !isFirebaseConfigured() || cloudLoaded) return;
+    let cancelled = false;
+    loadFromFirestore(user.uid).then((data) => {
+      if (cancelled || !data) return;
+      setState((prev) => ({
+        ...prev,
+        classes: data.classes,
+        activeClassId: data.activeClassId,
+        riskSettings: data.riskSettings,
+        perClassRiskSettings: data.perClassRiskSettings ?? {},
+        periodDefinitions: data.periodDefinitions ?? [],
+      }));
+      setCloudLoaded(true);
+    }).catch(() => setCloudLoaded(true));
+    return () => { cancelled = true; };
+  }, [user?.uid, cloudLoaded]);
+
+  useEffect(() => {
+    if (!user) setCloudLoaded(false);
+  }, [user]);
+
   useEffect(() => {
     saveToStorage({
       classes: state.classes,
@@ -83,7 +112,23 @@ const App: React.FC = () => {
       perClassRiskSettings: state.perClassRiskSettings,
       periodDefinitions: state.periodDefinitions,
     });
-  }, [state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions]);
+    if (user?.uid && isFirebaseConfigured()) {
+      if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
+      saveToFirestoreTimeoutRef.current = setTimeout(() => {
+        saveToFirestore(user.uid, {
+          classes: state.classes,
+          activeClassId: state.activeClassId,
+          riskSettings: state.riskSettings,
+          perClassRiskSettings: state.perClassRiskSettings,
+          periodDefinitions: state.periodDefinitions,
+        }).catch(() => {});
+        saveToFirestoreTimeoutRef.current = null;
+      }, 1500);
+    }
+    return () => {
+      if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
+    };
+  }, [state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions, user?.uid]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);

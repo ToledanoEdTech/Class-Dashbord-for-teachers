@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart2, FileText, FileSpreadsheet, TrendingUp, ArrowLeft, ChevronRight, ChevronLeft } from 'lucide-react';
+import { BarChart2, FileText, FileSpreadsheet, TrendingUp, ArrowLeft, ChevronRight, ChevronLeft, LogIn, LogOut, CloudCog } from 'lucide-react';
 import { FileIcons } from '../constants/icons';
+import { useAuth } from '../context/AuthContext';
+import LoginSignup from './LoginSignup';
+import FirebaseConfigDialog from './FirebaseConfigDialog';
 
 const BRAND_NAME = 'ToledanoEdTech';
 const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
@@ -100,6 +103,10 @@ const PreviewCarousel: React.FC<{ images: PreviewImage[] }> = ({ images }) => {
 };
 
 const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
+  const { user, isConfigured, signOut } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
+
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col items-center justify-center px-4 py-2 overflow-hidden">
       <div className="w-full flex flex-col h-full justify-between">
@@ -119,52 +126,82 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
           </p>
         </div>
 
-        {/* Visual Preview - Centered and Large */}
-        <div className="flex-1 flex items-center justify-center min-h-0 mb-1 animate-slide-up w-full" style={{ animationDelay: '0.05s' }}>
-          <div className="w-full max-w-5xl h-full">
-            <PreviewCarousel
-              images={[
-                { src: '/dashboard-preview.png', label: 'דשבורד כיתתי' },
-                { src: '/heatmap-preview.png', label: 'מטריצות' },
-                { src: '/student-profile-preview.png', label: 'פרופיל תלמיד' },
-              ]}
-            />
+        {/* Visual Preview + Info on sides: carousel center, text blocks left/right */}
+        <div className="flex-1 flex items-stretch gap-3 min-h-0 mb-1 animate-slide-up w-full max-w-6xl mx-auto" style={{ animationDelay: '0.05s' }}>
+          {/* Left column - 2 info blocks */}
+          <div className="hidden lg:flex flex-col gap-2 w-44 xl:w-52 flex-shrink-0">
+            <div className="bg-white rounded-lg border border-slate-100 p-3 shadow-card hover:shadow-card-hover transition-shadow">
+              <div className="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center mb-2">
+                <BarChart2 size={18} strokeWidth={2} />
+              </div>
+              <h3 className="font-bold text-slate-800 text-sm mb-1">מה המערכת עושה</h3>
+              <p className="text-slate-600 text-xs leading-snug">
+                מנתחת אוטומטית ציונים ואירועי התנהגות, מזהה מגמות, סיכונים וקשרים בין התנהגות לציונים.
+              </p>
+            </div>
+            <div className="bg-white rounded-lg border border-slate-100 p-3 shadow-card hover:shadow-card-hover transition-shadow">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center mb-2">
+                <FileText size={16} className="ml-0.5" />
+                <FileSpreadsheet size={16} className="-ml-0.5" />
+              </div>
+              <h3 className="font-bold text-slate-800 text-sm mb-1">מה צריך להעלות</h3>
+              <p className="text-slate-600 text-xs leading-snug">
+                <strong>קובץ התנהגות:</strong> יומן מחנך → דוחות → פירוט אירועי התנהגות.
+                <br />
+                <strong>קובץ ציונים:</strong> מערכת הציונים → ציונים שוטפים - סדין.
+              </p>
+            </div>
+          </div>
+
+          {/* Center - Carousel */}
+          <div className="flex-1 min-w-0 flex items-center justify-center">
+            <div className="w-full h-full">
+              <PreviewCarousel
+                images={[
+                  { src: '/dashboard-preview.png', label: 'דשבורד כיתתי' },
+                  { src: '/heatmap-preview.png', label: 'מטריצות' },
+                  { src: '/student-profile-preview.png', label: 'פרופיל תלמיד' },
+                ]}
+              />
+            </div>
+          </div>
+
+          {/* Right column - 1 info block */}
+          <div className="hidden lg:flex flex-col w-44 xl:w-52 flex-shrink-0">
+            <div className="bg-white rounded-lg border border-slate-100 p-3 shadow-card hover:shadow-card-hover transition-shadow">
+              <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center mb-2">
+                <TrendingUp size={18} strokeWidth={2} />
+              </div>
+              <h3 className="font-bold text-slate-800 text-sm mb-1">מה מקבלים</h3>
+              <p className="text-slate-600 text-xs leading-snug">
+                דשבורד כיתתי, מפת חום, פרופיל תלמיד מפורט, אנליטיקת מורים, מטריצת מקצועות וייצוא לאקסל.
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* What / Upload / Get - Compact */}
-        <div className="grid gap-1 md:grid-cols-3 mb-1 animate-slide-up flex-shrink-0" style={{ animationDelay: '0.1s' }}>
-          <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-card hover:shadow-card-hover transition-shadow">
+        {/* What / Upload / Get - Mobile/tablet: compact row below (kept so small screens still have the info) */}
+        <div className="grid gap-1 grid-cols-3 lg:hidden mb-1 animate-slide-up flex-shrink-0" style={{ animationDelay: '0.1s' }}>
+          <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-card">
             <div className="w-7 h-7 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center mb-1">
               <BarChart2 size={16} strokeWidth={2} />
             </div>
             <h3 className="font-bold text-slate-800 text-xs mb-0.5">מה המערכת עושה</h3>
-            <p className="text-slate-600 text-[10px] leading-tight">
-              מנתחת אוטומטית ציונים ואירועי התנהגות, מזהה מגמות, סיכונים וקשרים בין התנהגות לציונים.
-            </p>
+            <p className="text-slate-600 text-[10px] leading-tight">מנתחת ציונים והתנהגות, מגמות וסיכונים.</p>
           </div>
-
-          <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-card hover:shadow-card-hover transition-shadow">
+          <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-card">
             <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center mb-1">
-              <FileText size={14} className="ml-0.5" />
-              <FileSpreadsheet size={14} className="-ml-0.5" />
+              <FileText size={14} />
             </div>
-            <h3 className="font-bold text-slate-800 text-xs mb-0.5">מה צריך להעלות</h3>
-            <p className="text-slate-600 text-[10px] leading-tight">
-              <strong>קובץ התנהגות:</strong> יומן מחנך → דוחות → פירוט אירועי התנהגות.
-              <br />
-              <strong>קובץ ציונים:</strong> מערכת הציונים → ציונים שוטפים - סדין.
-            </p>
+            <h3 className="font-bold text-slate-800 text-xs mb-0.5">מה להעלות</h3>
+            <p className="text-slate-600 text-[10px] leading-tight">התנהגות + ציונים מיומן/מערכת.</p>
           </div>
-
-          <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-card hover:shadow-card-hover transition-shadow">
+          <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-card">
             <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center mb-1">
               <TrendingUp size={16} strokeWidth={2} />
             </div>
             <h3 className="font-bold text-slate-800 text-xs mb-0.5">מה מקבלים</h3>
-            <p className="text-slate-600 text-[10px] leading-tight">
-              דשבורד כיתתי, מפת חום, פרופיל תלמיד מפורט, אנליטיקת מורים, מטריצת מקצועות וייצוא לאקסל.
-            </p>
+            <p className="text-slate-600 text-[10px] leading-tight">דשבורד, מפת חום, תעודות.</p>
           </div>
         </div>
 
@@ -181,8 +218,47 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
           <p className="text-slate-500 text-[10px] mt-1">
             אין לך קבצים? אפשר לטעון נתוני דוגמה בשלב הבא
           </p>
+          <div className="mt-3 flex flex-col items-center gap-2">
+            {isConfigured ? (
+              user ? (
+                <div className="flex items-center gap-2 flex-wrap justify-center">
+                  <span className="text-slate-600 dark:text-slate-400 text-sm">
+                    שלום, {user.email}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => signOut()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    <LogOut size={16} />
+                    התנתק
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowAuthModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-slate-700/50 transition-colors"
+                >
+                  <LogIn size={16} />
+                  התחבר כדי לשמור את הנתונים בענן
+                </button>
+              )
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowFirebaseConfig(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-600"
+              >
+                <CloudCog size={16} />
+                הגדר חיבור לענן (Firebase)
+              </button>
+            )}
+          </div>
         </div>
       </div>
+      {showAuthModal && <LoginSignup onClose={() => setShowAuthModal(false)} />}
+      {showFirebaseConfig && <FirebaseConfigDialog onClose={() => setShowFirebaseConfig(false)} />}
     </div>
   );
 };

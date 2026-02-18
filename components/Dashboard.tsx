@@ -61,6 +61,14 @@ const getDateRangeFromStudents = (students: Student[]): { min: Date; max: Date }
   };
 };
 
+/** התאמת מקצוע לסינון: בחר "מתמטיקה" = כל "מתמטיקה", "מתמטיקה א", "מתמטיקה ב" וכו'. */
+const subjectMatchesFilter = (filter: string, subjectValue: string | undefined): boolean => {
+  if (!filter) return true;
+  const s = (subjectValue || '').trim();
+  if (!s) return false;
+  return s === filter || s.startsWith(filter + ' ');
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings, isAnonymous = false, className = 'כיתה', classGroup, periodDefinitions = [], visibleWidgets: visibleWidgetsProp }) => {
   const visibleWidgets = visibleWidgetsProp ?? getDefaultDashboardWidgets();
   const { start: defaultStart, end: defaultEnd } = useMemo(getDefaultDateRange, []);
@@ -111,19 +119,19 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const rangeStart = useMemo(() => startOfDay(startDate), [startDate]);
   const rangeEnd = useMemo(() => endOfDay(endDate), [endDate]);
 
-  /** סינון מקצוע/מורה משפיע על כל הדשבורד: רק ציונים ואירועים שמתאימים */
+  /** סינון מקצוע/מורה משפיע על כל הדשבורד: רק ציונים ואירועים שמתאימים. מקצוע תואם גם קבוצות (מתמטיקה א, מתמטיקה ב). */
   const studentsFilteredBySubjectTeacher = useMemo(() => {
     if (!subjectFilter && !teacherFilter) return students;
     return students.map((s) => ({
       ...s,
       grades: s.grades.filter(
         (gr) =>
-          (!subjectFilter || (gr.subject || '').trim() === subjectFilter) &&
+          subjectMatchesFilter(subjectFilter, gr.subject) &&
           (!teacherFilter || (gr.teacher || '').trim() === teacherFilter)
       ),
       behaviorEvents: s.behaviorEvents.filter(
         (ev) =>
-          (!subjectFilter || (ev.subject || '').trim() === subjectFilter) &&
+          subjectMatchesFilter(subjectFilter, ev.subject) &&
           (!teacherFilter || (ev.teacher || '').trim() === teacherFilter)
       ),
     }));
@@ -190,12 +198,23 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const { allSubjects, allTeachers } = useMemo(() => {
     const subjects = new Set<string>();
     const teachers = new Set<string>();
+    const addSubject = (raw: string) => {
+      const t = raw?.trim();
+      if (!t || /^\d+$/.test(t)) return;
+      subjects.add(t);
+      const lastSpace = t.lastIndexOf(' ');
+      if (lastSpace > 0) {
+        const base = t.slice(0, lastSpace).trim();
+        if (base) subjects.add(base);
+      }
+    };
     students.forEach((s) => {
       s.grades.forEach((g) => {
-        if (g.subject?.trim() && !/^\d+$/.test(g.subject.trim())) subjects.add(g.subject.trim());
+        if (g.subject) addSubject(g.subject);
         if (g.teacher?.trim()) teachers.add(g.teacher.trim());
       });
       s.behaviorEvents.forEach((e) => {
+        if (e.subject) addSubject(e.subject);
         if (e.teacher?.trim()) teachers.add(e.teacher.trim());
       });
     });

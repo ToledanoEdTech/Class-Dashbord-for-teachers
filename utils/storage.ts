@@ -127,6 +127,47 @@ function getDefaultPersistedState() {
   };
 }
 
+/** For cloud sync: turn app state into JSON-safe persisted form */
+export function toPersistedState(payload: {
+  classes: ClassGroup[];
+  activeClassId: string | null;
+  riskSettings: RiskSettings;
+  perClassRiskSettings?: PerClassRiskSettings;
+  periodDefinitions?: PeriodDefinition[];
+}): PersistedState {
+  return {
+    classes: payload.classes.map(toPersistedClass),
+    activeClassId: payload.activeClassId,
+    riskSettings: payload.riskSettings,
+    perClassRiskSettings: payload.perClassRiskSettings ?? {},
+    periodDefinitions: payload.periodDefinitions ?? [],
+  };
+}
+
+/** For cloud sync: parse persisted form back into app state */
+export function fromPersistedState(parsed: PersistedState): {
+  classes: ClassGroup[];
+  activeClassId: string | null;
+  riskSettings: RiskSettings;
+  perClassRiskSettings: PerClassRiskSettings;
+  periodDefinitions: PeriodDefinition[];
+} {
+  const perClass = parsed.perClassRiskSettings ?? {};
+  const normalizedPerClass: PerClassRiskSettings = {};
+  Object.keys(perClass).forEach((classId) => {
+    normalizedPerClass[classId] = normalizeRiskSettings(perClass[classId]);
+  });
+  return {
+    classes: (parsed.classes || []).map(fromPersistedClass),
+    activeClassId: parsed.activeClassId ?? null,
+    riskSettings: normalizeRiskSettings(parsed.riskSettings),
+    perClassRiskSettings: normalizedPerClass,
+    periodDefinitions: Array.isArray(parsed.periodDefinitions) ? parsed.periodDefinitions : [],
+  };
+}
+
+export type { PersistedState };
+
 /* ===== User Preferences ===== */
 
 const PREFS_KEY = 'toledano-edtech-prefs';

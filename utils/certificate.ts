@@ -641,7 +641,7 @@ export async function generateStudentCertificate(
       height: certificateElement.scrollHeight,
       windowWidth: 794,
       windowHeight: certificateElement.scrollHeight,
-    } as any);
+    });
     
     const imgData = canvas.toDataURL('image/png', 0.95);
     
@@ -725,7 +725,7 @@ export async function generateClassCertificates(
         height: certificateElement.scrollHeight,
         windowWidth: 794,
         windowHeight: certificateElement.scrollHeight,
-      } as any);
+      });
       
       const imgData = canvas.toDataURL('image/png', 0.95);
       const pdfWidth = pdf.internal.pageSize.getWidth();
