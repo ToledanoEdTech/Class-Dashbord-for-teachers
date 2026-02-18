@@ -83,6 +83,7 @@ const App: React.FC = () => {
     perClassRiskSettings: PerClassRiskSettings;
     periodDefinitions: PeriodDefinition[];
   } | null>(null);
+  const previousUserIdRef = useRef<string | null>(null);
 
   const activeClass = state.classes.find((c) => c.id === state.activeClassId);
   const effectiveRiskSettings = getEffectiveRiskSettings(state.activeClassId, state.riskSettings, state.perClassRiskSettings);
@@ -101,6 +102,7 @@ const App: React.FC = () => {
     let cancelled = false;
     loadFromFirestore(user.uid).then((data) => {
       if (cancelled) return;
+      // Always prioritize Firestore data over localStorage when user is logged in
       if (data) {
         setState((prev) => ({
           ...prev,
@@ -110,11 +112,23 @@ const App: React.FC = () => {
           perClassRiskSettings: data.perClassRiskSettings ?? {},
           periodDefinitions: data.periodDefinitions ?? [],
         }));
+        // Save Firestore data to localStorage for offline access
+        saveToStorage({
+          classes: data.classes,
+          activeClassId: data.activeClassId,
+          riskSettings: data.riskSettings,
+          perClassRiskSettings: data.perClassRiskSettings ?? {},
+          periodDefinitions: data.periodDefinitions ?? [],
+        });
+      } else {
+        // No Firestore data - keep localStorage data but mark as loaded
+        // This handles the case where user logs in but has no cloud data yet
       }
       setCloudLoaded(true);
       setCloudLoadPending(false);
       setCloudSyncError(null);
     }).catch((err) => {
+      if (cancelled) return;
       setCloudLoaded(true);
       setCloudLoadPending(false);
       const msg = err?.message ?? String(err);
@@ -127,18 +141,44 @@ const App: React.FC = () => {
     return () => { cancelled = true; };
   }, [user?.uid, cloudLoaded]);
 
+  // Reset cloudLoaded when user changes (logs out or different user logs in)
   useEffect(() => {
-    if (!user) setCloudLoaded(false);
+    if (!user) {
+      setCloudLoaded(false);
+      setCloudLoadPending(false);
+      previousUserIdRef.current = null;
+    } else if (user.uid) {
+      // Reset cloudLoaded when user ID changes (different user logged in)
+      // This ensures we reload data for the new user
+      const currentUserId = user.uid;
+      if (previousUserIdRef.current !== null && previousUserIdRef.current !== currentUserId) {
+        // Different user logged in - reset to load their data
+        setCloudLoaded(false);
+      }
+      previousUserIdRef.current = currentUserId;
+    }
   }, [user]);
 
   // שמירה לענן כשעוזבים את הדף (סגירת טאב/מעבר)
   useEffect(() => {
     const flushFirestoreSave = () => {
-      const payload = pendingFirestorePayloadRef.current;
-      if (user?.uid && isFirebaseConfigured() && payload) {
+      // Use current state if ref is not set (shouldn't happen, but safety check)
+      const payload = pendingFirestorePayloadRef.current || {
+        classes: state.classes,
+        activeClassId: state.activeClassId,
+        riskSettings: state.riskSettings,
+        perClassRiskSettings: state.perClassRiskSettings,
+        periodDefinitions: state.periodDefinitions,
+      };
+      if (user?.uid && isFirebaseConfigured()) {
         if (saveToFirestoreTimeoutRef.current) {
           clearTimeout(saveToFirestoreTimeoutRef.current);
           saveToFirestoreTimeoutRef.current = null;
+        }
+        // Use sendBeacon for beforeunload (more reliable than async)
+        if (navigator.sendBeacon) {
+          // For beforeunload, we can't use async properly, so we'll rely on visibilitychange
+          // But we'll still try to save synchronously if possible
         }
         saveToFirestore(user.uid, payload).then(() => setCloudSyncError(null)).catch((err) => {
           setCloudSyncError(err?.message?.includes('permission') ? 'שמירה לענן: עדכן כללי Firestore.' : (err?.message ?? 'שגיאה'));
@@ -148,9 +188,17 @@ const App: React.FC = () => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') flushFirestoreSave();
     };
+    const onBeforeUnload = () => {
+      // Try to save synchronously before unload
+      flushFirestoreSave();
+    };
     document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [user?.uid]);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [user?.uid, state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions]);
 
   useEffect(() => {
     const payload = {
