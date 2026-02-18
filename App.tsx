@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import LandingPage from './components/LandingPage';
 import FileUpload from './components/FileUpload';
+import LoginSignup from './components/LoginSignup';
+import FirebaseConfigDialog from './components/FirebaseConfigDialog';
 import Dashboard from './components/Dashboard';
 import StudentProfile from './components/StudentProfile';
 import SettingsPanel from './components/SettingsPanel';
@@ -13,7 +15,7 @@ import { saveToStorage, loadFromStorage, savePreferences, loadPreferences, loadD
 import { useAuth } from './context/AuthContext';
 import { loadFromFirestore, saveToFirestore } from './utils/firestoreSync';
 import { isFirebaseConfigured } from './firebase';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, LogIn } from 'lucide-react';
 import { NavIcons, FileIcons } from './constants/icons';
 
 const LOGO_PATH = '/logo.png';
@@ -60,6 +62,8 @@ function getEffectiveRiskSettings(
 
 const App: React.FC = () => {
   const { user } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
   const [state, setState] = useState<AppState>(getInitialState);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
@@ -496,16 +500,27 @@ const App: React.FC = () => {
                   </button>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
+                {!user && (
                   <button
                     type="button"
-                    onClick={() => setDarkMode((d) => !d)}
-                    className={`p-2 rounded-xl transition-colors no-print ${darkMode ? 'bg-amber-100 text-amber-700 active:bg-amber-200' : 'bg-slate-100 text-slate-600 active:bg-slate-200'}`}
-                    aria-label={darkMode ? 'מצב בהיר' : 'מצב כהה'}
-                    title={darkMode ? 'מצב בהיר' : 'מצב כהה'}
+                    onClick={() => setShowAuthModal(true)}
+                    className="p-2 rounded-xl bg-primary-100 text-primary-600 active:bg-primary-200 flex items-center gap-1.5"
+                    aria-label="התחבר"
                   >
-                    {darkMode ? <NavIcons.Light size={18} /> : <NavIcons.Dark size={18} />}
+                    <LogIn size={18} />
+                    <span className="text-xs font-medium">התחבר</span>
                   </button>
-                </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDarkMode((d) => !d)}
+                  className={`p-2 rounded-xl transition-colors no-print ${darkMode ? 'bg-amber-100 text-amber-700 active:bg-amber-200' : 'bg-slate-100 text-slate-600 active:bg-slate-200'}`}
+                  aria-label={darkMode ? 'מצב בהיר' : 'מצב כהה'}
+                  title={darkMode ? 'מצב בהיר' : 'מצב כהה'}
+                >
+                  {darkMode ? <NavIcons.Light size={18} /> : <NavIcons.Dark size={18} />}
+                </button>
+              </div>
               </div>
 
               {/* Second Row: Navigation Buttons (only when not in upload/settings) */}
@@ -686,6 +701,17 @@ const App: React.FC = () => {
                     </div>
                   </>
                 )}
+                {!user && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAuthModal(true)}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary-100 text-primary-600 hover:bg-primary-200 font-medium text-sm"
+                    aria-label="התחבר"
+                  >
+                    <LogIn size={18} />
+                    התחבר
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setDarkMode((d) => !d)}
@@ -699,6 +725,17 @@ const App: React.FC = () => {
             </div>
           </div>
         </nav>
+
+        {showAuthModal && (
+          <LoginSignup
+            onClose={() => setShowAuthModal(false)}
+            onOpenFirebaseConfig={() => {
+              setShowAuthModal(false);
+              setShowFirebaseConfig(true);
+            }}
+          />
+        )}
+        {showFirebaseConfig && <FirebaseConfigDialog onClose={() => setShowFirebaseConfig(false)} />}
 
         <main className="animate-fade-in flex-1 relative">
           {cloudSyncError && user && (
@@ -714,6 +751,7 @@ const App: React.FC = () => {
           )}
           {state.view === 'landing' && (
             <LandingPage
+              onOpenAuth={() => setShowAuthModal(true)}
               onStart={() => {
                 setState((prev) => {
                   if (prev.classes.length > 0) {

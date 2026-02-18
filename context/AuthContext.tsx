@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (email: string, password: string) => {
       setError(null);
       if (!auth) {
-        setError('Firebase לא מוגדר. בדוק את קובץ .env');
+        setError('חיבור לענן לא מוגדר. באתר Vercel: הוסף משתני VITE_FIREBASE_* ב-Settings → Environment Variables ובצע Redeploy. ראה VERCEL-SETUP.md');
         return;
       }
       try {
@@ -65,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (email: string, password: string) => {
       setError(null);
       if (!auth) {
-        setError('Firebase לא מוגדר. בדוק את קובץ .env');
+        setError('חיבור לענן לא מוגדר. באתר Vercel: הוסף משתני VITE_FIREBASE_* ב-Settings → Environment Variables ובצע Redeploy. ראה VERCEL-SETUP.md');
         return;
       }
       try {
@@ -74,6 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'שגיאת הרשמה';
         if (msg.includes('auth/email-already-in-use')) setError('האימייל כבר רשום. נסה להתחבר.');
         else if (msg.includes('auth/weak-password')) setError('הסיסמה חייבת להכיל 6 תווים לפחות.');
+        else if (msg.includes('auth/operation-not-allowed')) setError('התחברות באימייל לא מופעלת. ב-Firebase: Authentication → Sign-in method → הפעל Email/Password.');
         else setError(msg);
         throw e;
       }
@@ -84,7 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = useCallback(async () => {
     setError(null);
     if (!auth) {
-      setError('Firebase לא מוגדר.');
+      setError('חיבור לענן לא מוגדר. באתר Vercel: הוסף משתני VITE_FIREBASE_* ב-Settings → Environment Variables ובצע Redeploy. ראה VERCEL-SETUP.md');
       return;
     }
     try {
@@ -102,9 +103,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? `הדומיין לא מורשה. ב-Firebase Console: Authentication → Settings → Authorized domains → Add domain. הוסף בדיוק: ${domain}`
           : 'הדומיין לא מורשה ב-Firebase. ב-Console: Authentication → Settings → Authorized domains → Add domain.');
       } else if (msg.includes('auth/operation-not-allowed')) {
-        setError('התחברות עם Google לא מופעלת. ב-Firebase: Authentication → Sign-in method → הפעל Google.');
+        setError('שיטת ההתחברות לא מופעלת. ב-Firebase Console: Authentication → Sign-in method → הפעל Google ו-Email/Password.');
+      } else if (msg.includes('auth/api-key-expired') || msg.includes('api-key-expired')) {
+        setError('מפתח ה-API פג תוקף. ב-Firebase Console: Project Settings → Your apps → צור Web app חדש או שחזר מפתח. עדכן את .env ו-Vercel Environment Variables.');
+      } else if (msg.includes('auth/network-request-failed')) {
+        setError('שגיאת רשת. בדוק את החיבור לאינטרנט ונסה שוב.');
+      } else if (msg.includes('auth/cancelled-popup-request')) {
+        setError('ההתחברות בוטלה. נסה שוב.');
       } else {
-        setError(msg.includes('auth/') ? 'לא הצלחנו להתחבר עם Google' : msg);
+        setError(msg.includes('auth/') ? `שגיאת Google: ${msg}` : msg);
       }
       throw e;
     }

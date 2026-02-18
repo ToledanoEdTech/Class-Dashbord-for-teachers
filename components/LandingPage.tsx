@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { BarChart2, FileText, FileSpreadsheet, TrendingUp, ArrowLeft, ChevronRight, ChevronLeft, LogIn, LogOut, CloudCog } from 'lucide-react';
 import { FileIcons } from '../constants/icons';
 import { useAuth } from '../context/AuthContext';
-import LoginSignup from './LoginSignup';
 import FirebaseConfigDialog from './FirebaseConfigDialog';
 
 const BRAND_NAME = 'ToledanoEdTech';
@@ -12,6 +11,7 @@ const LOGO_PATH = '/logo.png';
 
 interface LandingPageProps {
   onStart: () => void;
+  onOpenAuth?: () => void;
 }
 
 const LandingLogo: React.FC = () => {
@@ -102,9 +102,8 @@ const PreviewCarousel: React.FC<{ images: PreviewImage[] }> = ({ images }) => {
   );
 };
 
-const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
+const LandingPage: React.FC<LandingPageProps> = ({ onStart, onOpenAuth }) => {
   const { user, isConfigured, signOut } = useAuth();
-  const [showAuthModal, setShowAuthModal] = useState(false);
   const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
 
   return (
@@ -219,45 +218,45 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
             אין לך קבצים? אפשר לטעון נתוני דוגמה בשלב הבא
           </p>
           <div className="mt-3 flex flex-col items-center gap-2">
-            {isConfigured ? (
-              user ? (
-                <div className="flex items-center gap-2 flex-wrap justify-center">
-                  <span className="text-slate-600 dark:text-slate-400 text-sm">
-                    שלום, {user.email}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => signOut()}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                  >
-                    <LogOut size={16} />
-                    התנתק
-                  </button>
-                </div>
-              ) : (
+            {user ? (
+              <div className="flex items-center gap-2 flex-wrap justify-center">
+                <span className="text-slate-600 dark:text-slate-400 text-sm">
+                  שלום, {user.email}
+                </span>
                 <button
                   type="button"
-                  onClick={() => setShowAuthModal(true)}
+                  onClick={() => signOut()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                >
+                  <LogOut size={16} />
+                  התנתק
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth?.()}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-slate-700/50 transition-colors"
                 >
                   <LogIn size={16} />
-                  התחבר כדי לשמור את הנתונים בענן
+                  התחבר (Google או אימייל+סיסמה) – לשמירת נתונים בענן
                 </button>
-              )
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowFirebaseConfig(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-600"
-              >
-                <CloudCog size={16} />
-                הגדר חיבור לענן (Firebase)
-              </button>
+                {!isConfigured && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFirebaseConfig(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-600"
+                  >
+                    <CloudCog size={14} />
+                    לא מצליח להתחבר? הגדר חיבור ל-Firebase
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
       </div>
-      {showAuthModal && <LoginSignup onClose={() => setShowAuthModal(false)} />}
       {showFirebaseConfig && <FirebaseConfigDialog onClose={() => setShowFirebaseConfig(false)} />}
     </div>
   );

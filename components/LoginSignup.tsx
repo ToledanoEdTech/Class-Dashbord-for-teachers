@@ -14,14 +14,15 @@ const GoogleIcon = () => (
 interface LoginSignupProps {
   onClose: () => void;
   defaultMode?: 'login' | 'signup';
+  onOpenFirebaseConfig?: () => void;
 }
 
-export default function LoginSignup({ onClose, defaultMode = 'login' }: LoginSignupProps) {
+export default function LoginSignup({ onClose, defaultMode = 'login', onOpenFirebaseConfig }: LoginSignupProps) {
   const [mode, setMode] = useState<'login' | 'signup'>(defaultMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const { signIn, signUp, signInWithGoogle, error, clearError } = useAuth();
+  const { signIn, signUp, signInWithGoogle, error, clearError, isConfigured } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +46,7 @@ export default function LoginSignup({ onClose, defaultMode = 'login' }: LoginSig
         className="bg-white dark:bg-slate-800 rounded-2xl shadow-elevated border border-slate-200 dark:border-slate-700 w-full max-w-sm p-6 animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">
             {mode === 'login' ? 'התחברות' : 'הרשמה'}
           </h2>
@@ -58,6 +59,22 @@ export default function LoginSignup({ onClose, defaultMode = 'login' }: LoginSig
             <X size={20} />
           </button>
         </div>
+
+        {!isConfigured && (
+          <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-sm">
+            <strong>חיבור לענן לא מוגדר.</strong>
+            <p className="mt-1">באתר Vercel: הוסף 6 משתני VITE_FIREBASE_* ב-Settings → Environment Variables ובצע Redeploy. ראה VERCEL-SETUP.md.</p>
+            {onOpenFirebaseConfig && (
+              <button
+                type="button"
+                onClick={onOpenFirebaseConfig}
+                className="mt-2 px-3 py-1.5 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-900 font-medium text-sm"
+              >
+                הגדר חיבור ידנית (הדבקת מפתחות)
+              </button>
+            )}
+          </div>
+        )}
 
         {/* התחברות עם Google */}
         <button

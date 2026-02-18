@@ -48,6 +48,8 @@ export default function FirebaseConfigDialog({ onClose, onSaved }: FirebaseConfi
     setFirebaseConfigInStorage(config);
     setSaved(true);
     onSaved?.();
+    // רענון אוטומטי כדי לטעון את ההגדרות
+    setTimeout(() => window.location.reload(), 800);
   };
 
   return (
@@ -79,14 +81,7 @@ export default function FirebaseConfigDialog({ onClose, onSaved }: FirebaseConfi
         {saved ? (
           <div className="rounded-xl bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 p-4 text-center">
             <p className="font-medium text-primary-800 dark:text-primary-200">ההגדרות נשמרו.</p>
-            <p className="text-sm text-primary-700 dark:text-primary-300 mt-1">רענן את הדף (F5) כדי להפעיל את החיבור.</p>
-            <button
-              type="button"
-              onClick={onClose}
-              className="mt-3 px-4 py-2 rounded-xl bg-primary-500 text-white font-medium hover:bg-primary-600"
-            >
-              סגור
-            </button>
+            <p className="text-sm text-primary-700 dark:text-primary-300 mt-1">הדף ירענן אוטומטית כדי להפעיל את החיבור.</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-3">
