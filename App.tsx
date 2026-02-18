@@ -13,7 +13,7 @@ import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
 import { saveToStorage, loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets } from './utils/storage';
 import { useAuth } from './context/AuthContext';
-import { loadFromFirestore, saveToFirestore } from './utils/firestoreSync';
+import { loadFromFirestore, saveToFirestore, subscribeToFirestore } from './utils/firestoreSync';
 import { isFirebaseConfigured } from './firebase';
 import { Menu, X, LogIn } from 'lucide-react';
 import { NavIcons, FileIcons } from './constants/icons';
@@ -84,6 +84,8 @@ const App: React.FC = () => {
     periodDefinitions: PeriodDefinition[];
   } | null>(null);
   const previousUserIdRef = useRef<string | null>(null);
+  /** True once we've received non-empty data from cloud - allows empty save (user deleted all) */
+  const lastCloudHadDataRef = useRef(false);
 
   const activeClass = state.classes.find((c) => c.id === state.activeClassId);
   const effectiveRiskSettings = getEffectiveRiskSettings(state.activeClassId, state.riskSettings, state.perClassRiskSettings);
@@ -95,50 +97,51 @@ const App: React.FC = () => {
   const selectedStudent = students.find((s) => s.id === state.selectedStudentId);
   const selectedStudentIndex = state.selectedStudentId ? students.findIndex((s) => s.id === state.selectedStudentId) : -1;
 
-  // Load from Firestore when user is logged in (once per user)
+  // Real-time Firestore sync - load + subscribe for updates from any device/tab
   useEffect(() => {
     if (!user?.uid || !isFirebaseConfigured() || cloudLoaded) return;
     setCloudLoadPending(true);
     let cancelled = false;
-    loadFromFirestore(user.uid).then((data) => {
-      if (cancelled) return;
-      // Always prioritize Firestore data over localStorage when user is logged in
-      if (data) {
-        setState((prev) => ({
-          ...prev,
-          classes: data.classes,
-          activeClassId: data.activeClassId,
-          riskSettings: data.riskSettings,
-          perClassRiskSettings: data.perClassRiskSettings ?? {},
-          periodDefinitions: data.periodDefinitions ?? [],
-        }));
-        // Save Firestore data to localStorage for offline access
-        saveToStorage({
-          classes: data.classes,
-          activeClassId: data.activeClassId,
-          riskSettings: data.riskSettings,
-          perClassRiskSettings: data.perClassRiskSettings ?? {},
-          periodDefinitions: data.periodDefinitions ?? [],
-        });
-      } else {
-        // No Firestore data - keep localStorage data but mark as loaded
-        // This handles the case where user logs in but has no cloud data yet
+    const unsubscribe = subscribeToFirestore(
+      user.uid,
+      (data) => {
+        if (cancelled) return;
+        if (data) {
+          lastCloudHadDataRef.current = data.classes.length > 0;
+          setState((prev) => ({
+            ...prev,
+            classes: data.classes,
+            activeClassId: data.activeClassId,
+            riskSettings: data.riskSettings,
+            perClassRiskSettings: data.perClassRiskSettings ?? {},
+            periodDefinitions: data.periodDefinitions ?? [],
+          }));
+          saveToStorage({
+            classes: data.classes,
+            activeClassId: data.activeClassId,
+            riskSettings: data.riskSettings,
+            perClassRiskSettings: data.perClassRiskSettings ?? {},
+            periodDefinitions: data.periodDefinitions ?? [],
+          });
+          setCloudSyncError(null);
+        } else {
+          lastCloudHadDataRef.current = false;
+        }
+        setCloudLoaded(true);
+        setCloudLoadPending(false);
+      },
+      (err) => {
+        if (cancelled) return;
+        setCloudLoaded(true);
+        setCloudLoadPending(false);
+        const msg = err?.message ?? String(err);
+        setCloudSyncError(msg.includes('permission') ? 'אין הרשאה לקרוא מהענן. עדכן את כללי Firestore.' : msg);
       }
-      setCloudLoaded(true);
-      setCloudLoadPending(false);
-      setCloudSyncError(null);
-    }).catch((err) => {
-      if (cancelled) return;
-      setCloudLoaded(true);
-      setCloudLoadPending(false);
-      const msg = err?.message ?? String(err);
-      if (msg.includes('permission-denied') || msg.includes('Permission denied')) {
-        setCloudSyncError('אין הרשאה לקרוא מהענן. עדכן את כללי Firestore (ראה FIREBASE-SETUP.md).');
-      } else {
-        setCloudSyncError(msg);
-      }
-    });
-    return () => { cancelled = true; };
+    );
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [user?.uid, cloudLoaded]);
 
   // Reset cloudLoaded when user changes (logs out or different user logs in)
@@ -147,6 +150,7 @@ const App: React.FC = () => {
       setCloudLoaded(false);
       setCloudLoadPending(false);
       previousUserIdRef.current = null;
+      lastCloudHadDataRef.current = false;
     } else if (user.uid) {
       // Reset cloudLoaded when user ID changes (different user logged in)
       // This ensures we reload data for the new user
@@ -162,7 +166,7 @@ const App: React.FC = () => {
   // שמירה לענן כשעוזבים את הדף (סגירת טאב/מעבר)
   useEffect(() => {
     const flushFirestoreSave = () => {
-      // Use current state if ref is not set (shouldn't happen, but safety check)
+      if (!user?.uid || !isFirebaseConfigured() || !cloudLoaded) return;
       const payload = pendingFirestorePayloadRef.current || {
         classes: state.classes,
         activeClassId: state.activeClassId,
@@ -170,44 +174,18 @@ const App: React.FC = () => {
         perClassRiskSettings: state.perClassRiskSettings,
         periodDefinitions: state.periodDefinitions,
       };
-      if (user?.uid && isFirebaseConfigured()) {
-        if (saveToFirestoreTimeoutRef.current) {
-          clearTimeout(saveToFirestoreTimeoutRef.current);
-          saveToFirestoreTimeoutRef.current = null;
-        }
-        saveToFirestore(user.uid, payload).then(() => setCloudSyncError(null)).catch((err) => {
-          setCloudSyncError(err?.message?.includes('permission') ? 'שמירה לענן: עדכן כללי Firestore.' : (err?.message ?? 'שגיאה'));
-        });
+      if (saveToFirestoreTimeoutRef.current) {
+        clearTimeout(saveToFirestoreTimeoutRef.current);
+        saveToFirestoreTimeoutRef.current = null;
       }
+      const allowEmpty = lastCloudHadDataRef.current;
+      saveToFirestore(user.uid, payload, allowEmpty).then(() => setCloudSyncError(null)).catch((err) => {
+        setCloudSyncError(err?.message?.includes('permission') ? 'שמירה לענן: עדכן כללי Firestore.' : (err?.message ?? 'שגיאה'));
+      });
     };
-    const onVisibilityChange = async () => {
-      if (document.visibilityState === 'hidden') {
-        flushFirestoreSave();
-      } else if (document.visibilityState === 'visible' && user?.uid && isFirebaseConfigured()) {
-        // Re-fetch from Firestore when user returns to tab (e.g. after changes on phone)
-        try {
-          const data = await loadFromFirestore(user.uid);
-          if (data) {
-            setState((prev) => ({
-              ...prev,
-              classes: data.classes,
-              activeClassId: data.activeClassId,
-              riskSettings: data.riskSettings,
-              perClassRiskSettings: data.perClassRiskSettings ?? {},
-              periodDefinitions: data.periodDefinitions ?? [],
-            }));
-            saveToStorage({
-              classes: data.classes,
-              activeClassId: data.activeClassId,
-              riskSettings: data.riskSettings,
-              perClassRiskSettings: data.perClassRiskSettings ?? {},
-              periodDefinitions: data.periodDefinitions ?? [],
-            });
-          }
-        } catch {
-          // Ignore errors - user can refresh manually if needed
-        }
-      }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushFirestoreSave();
+      // onSnapshot gives real-time updates - no need to re-fetch when tab becomes visible
     };
     const onBeforeUnload = () => {
       // Try to save synchronously before unload
@@ -219,7 +197,7 @@ const App: React.FC = () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [user?.uid, state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions]);
+  }, [user?.uid, cloudLoaded, state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions]);
 
   useEffect(() => {
     const payload = {
@@ -230,11 +208,12 @@ const App: React.FC = () => {
       periodDefinitions: state.periodDefinitions,
     };
     saveToStorage(payload);
-    if (user?.uid && isFirebaseConfigured()) {
+    if (user?.uid && isFirebaseConfigured() && cloudLoaded) {
       pendingFirestorePayloadRef.current = payload;
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
       saveToFirestoreTimeoutRef.current = setTimeout(() => {
-        saveToFirestore(user.uid, payload)
+        const allowEmpty = lastCloudHadDataRef.current;
+        saveToFirestore(user.uid, payload, allowEmpty)
           .then(() => setCloudSyncError(null))
           .catch((err) => {
             const msg = err?.message ?? String(err);
@@ -250,7 +229,7 @@ const App: React.FC = () => {
     return () => {
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
     };
-  }, [state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions, user?.uid]);
+  }, [state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions, user?.uid, cloudLoaded]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
