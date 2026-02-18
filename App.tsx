@@ -180,8 +180,34 @@ const App: React.FC = () => {
         });
       }
     };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushFirestoreSave();
+    const onVisibilityChange = async () => {
+      if (document.visibilityState === 'hidden') {
+        flushFirestoreSave();
+      } else if (document.visibilityState === 'visible' && user?.uid && isFirebaseConfigured()) {
+        // Re-fetch from Firestore when user returns to tab (e.g. after changes on phone)
+        try {
+          const data = await loadFromFirestore(user.uid);
+          if (data) {
+            setState((prev) => ({
+              ...prev,
+              classes: data.classes,
+              activeClassId: data.activeClassId,
+              riskSettings: data.riskSettings,
+              perClassRiskSettings: data.perClassRiskSettings ?? {},
+              periodDefinitions: data.periodDefinitions ?? [],
+            }));
+            saveToStorage({
+              classes: data.classes,
+              activeClassId: data.activeClassId,
+              riskSettings: data.riskSettings,
+              perClassRiskSettings: data.perClassRiskSettings ?? {},
+              periodDefinitions: data.periodDefinitions ?? [],
+            });
+          }
+        } catch {
+          // Ignore errors - user can refresh manually if needed
+        }
+      }
     };
     const onBeforeUnload = () => {
       // Try to save synchronously before unload
