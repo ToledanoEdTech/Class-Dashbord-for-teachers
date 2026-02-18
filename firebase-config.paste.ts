@@ -1,7 +1,6 @@
 /**
- * הדבק כאן את ה-config מפיירבייס (פעם אחת):
- * Firebase Console → Project Settings → Your apps → Web → העתק את אובייקט firebaseConfig.
- * החלף את null באובייקט שהעתקת (מחק "null" והדבק את האובייקט כך שיישאר }; בסוף).
+ * גיבוי ידני – מומלץ להגדיר את ההרשאות ב-.env (ראה .env.example).
+ * רק אם אין .env, אפשר להדביק כאן (לא מומלץ – נחשף ב-Git).
  */
 export const FIREBASE_CONFIG_PASTE: {
   apiKey: string;
@@ -10,11 +9,4 @@ export const FIREBASE_CONFIG_PASTE: {
   storageBucket: string;
   messagingSenderId: string;
   appId: string;
-} | null = {
-  apiKey: "AIzaSyBr520sEFUkF7wflma5760qG1o2q8Be5Nc",
-  authDomain: "dashboard-91c0a.firebaseapp.com",
-  projectId: "dashboard-91c0a",
-  storageBucket: "dashboard-91c0a.firebasestorage.app",
-  messagingSenderId: "295421288550",
-  appId: "1:295421288550:web:8536b324d6278d976a4da7",
-}; // <-- החלף את null באובייקט מ-Firebase Console
+} | null = null; // הגדר ב-.env (ראה .env.example)

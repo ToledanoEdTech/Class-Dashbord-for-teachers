@@ -43,10 +43,10 @@ function getConfigFromPasteFile(): FirebaseConfigRecord | null {
 }
 
 export function getFirebaseConfig(): FirebaseConfigRecord | null {
-  const fromPaste = getConfigFromPasteFile();
-  if (fromPaste) return fromPaste;
   const fromEnv = getConfigFromEnv();
   if (fromEnv.apiKey && fromEnv.apiKey !== 'your-api-key') return fromEnv;
+  const fromPaste = getConfigFromPasteFile();
+  if (fromPaste) return fromPaste;
   return getConfigFromStorage();
 }
 
