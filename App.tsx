@@ -69,7 +69,15 @@ const App: React.FC = () => {
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => loadPreferences().fontSize);
   const [dashboardWidgets, setDashboardWidgets] = useState(() => loadDashboardWidgets());
   const [cloudLoaded, setCloudLoaded] = useState(false);
+  const [cloudLoadPending, setCloudLoadPending] = useState(false);
   const saveToFirestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingFirestorePayloadRef = useRef<{
+    classes: ClassGroup[];
+    activeClassId: string | null;
+    riskSettings: RiskSettings;
+    perClassRiskSettings: PerClassRiskSettings;
+    periodDefinitions: PeriodDefinition[];
+  } | null>(null);
 
   const activeClass = state.classes.find((c) => c.id === state.activeClassId);
   const effectiveRiskSettings = getEffectiveRiskSettings(state.activeClassId, state.riskSettings, state.perClassRiskSettings);
@@ -84,19 +92,26 @@ const App: React.FC = () => {
   // Load from Firestore when user is logged in (once per user)
   useEffect(() => {
     if (!user?.uid || !isFirebaseConfigured() || cloudLoaded) return;
+    setCloudLoadPending(true);
     let cancelled = false;
     loadFromFirestore(user.uid).then((data) => {
-      if (cancelled || !data) return;
-      setState((prev) => ({
-        ...prev,
-        classes: data.classes,
-        activeClassId: data.activeClassId,
-        riskSettings: data.riskSettings,
-        perClassRiskSettings: data.perClassRiskSettings ?? {},
-        periodDefinitions: data.periodDefinitions ?? [],
-      }));
+      if (cancelled) return;
+      if (data) {
+        setState((prev) => ({
+          ...prev,
+          classes: data.classes,
+          activeClassId: data.activeClassId,
+          riskSettings: data.riskSettings,
+          perClassRiskSettings: data.perClassRiskSettings ?? {},
+          periodDefinitions: data.periodDefinitions ?? [],
+        }));
+      }
       setCloudLoaded(true);
-    }).catch(() => setCloudLoaded(true));
+      setCloudLoadPending(false);
+    }).catch(() => {
+      setCloudLoaded(true);
+      setCloudLoadPending(false);
+    });
     return () => { cancelled = true; };
   }, [user?.uid, cloudLoaded]);
 
@@ -104,26 +119,41 @@ const App: React.FC = () => {
     if (!user) setCloudLoaded(false);
   }, [user]);
 
+  // שמירה לענן כשעוזבים את הדף (סגירת טאב/מעבר)
   useEffect(() => {
-    saveToStorage({
+    const flushFirestoreSave = () => {
+      const payload = pendingFirestorePayloadRef.current;
+      if (user?.uid && isFirebaseConfigured() && payload) {
+        if (saveToFirestoreTimeoutRef.current) {
+          clearTimeout(saveToFirestoreTimeoutRef.current);
+          saveToFirestoreTimeoutRef.current = null;
+        }
+        saveToFirestore(user.uid, payload).catch(() => {});
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushFirestoreSave();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    const payload = {
       classes: state.classes,
       activeClassId: state.activeClassId,
       riskSettings: state.riskSettings,
       perClassRiskSettings: state.perClassRiskSettings,
       periodDefinitions: state.periodDefinitions,
-    });
+    };
+    saveToStorage(payload);
     if (user?.uid && isFirebaseConfigured()) {
+      pendingFirestorePayloadRef.current = payload;
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
       saveToFirestoreTimeoutRef.current = setTimeout(() => {
-        saveToFirestore(user.uid, {
-          classes: state.classes,
-          activeClassId: state.activeClassId,
-          riskSettings: state.riskSettings,
-          perClassRiskSettings: state.perClassRiskSettings,
-          periodDefinitions: state.periodDefinitions,
-        }).catch(() => {});
+        saveToFirestore(user.uid, payload).catch(() => {});
         saveToFirestoreTimeoutRef.current = null;
-      }, 1500);
+      }, 800);
     }
     return () => {
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
@@ -651,7 +681,12 @@ const App: React.FC = () => {
           </div>
         </nav>
 
-        <main className="animate-fade-in flex-1">
+        <main className="animate-fade-in flex-1 relative">
+          {cloudLoadPending && (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/95 dark:bg-slate-900/95">
+              <p className="text-slate-600 dark:text-slate-400 font-medium">טוען נתונים מהענן...</p>
+            </div>
+          )}
           {state.view === 'landing' && (
             <LandingPage
               onStart={() => {

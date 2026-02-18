@@ -35,6 +35,19 @@
 
 ---
 
+## 2.1 דומיין מורשה (כשהאתר על Vercel / דומיין חיצוני)
+
+אם האתר רץ בכתובת כמו `xxx.vercel.app` או דומיין משלך – **חובה** להוסיף את הדומיין ב-Firebase, אחרת "התחבר עם Google" ייכשל:
+
+1. **Firebase Console** → **Authentication** → לשונית **Settings** (או התפריט ⋮) → **Authorized domains**.
+2. **Add domain**.
+3. הזן את הדומיין בדיוק, למשל: `class-dashboard-for-teachers.vercel.app`.
+4. **Add**.
+
+בלי שלב זה ההתחברות עם Google תציג "לא הצלחנו להתחבר עם Google".
+
+---
+
 ## 3. כללי אבטחה ב-Firestore (חשוב)
 
 ב-**Firebase Console** → **Firestore Database** → **Rules** – החלף את כל התוכן ב-**הטקסט הזה** (העתק והדבק):
@@ -43,6 +56,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /users/{userId}/data/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
@@ -50,7 +66,7 @@ service cloud.firestore {
 }
 ```
 
-לחץ **Publish**.
+לחץ **Publish**. בלי כללים אלה הנתונים לא יישמרו/יטענו בין מכשירים.
 
 ---
 
