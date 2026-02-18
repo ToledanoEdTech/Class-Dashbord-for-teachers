@@ -175,11 +175,6 @@ const App: React.FC = () => {
           clearTimeout(saveToFirestoreTimeoutRef.current);
           saveToFirestoreTimeoutRef.current = null;
         }
-        // Use sendBeacon for beforeunload (more reliable than async)
-        if (navigator.sendBeacon) {
-          // For beforeunload, we can't use async properly, so we'll rely on visibilitychange
-          // But we'll still try to save synchronously if possible
-        }
         saveToFirestore(user.uid, payload).then(() => setCloudSyncError(null)).catch((err) => {
           setCloudSyncError(err?.message?.includes('permission') ? 'שמירה לענן: עדכן כללי Firestore.' : (err?.message ?? 'שגיאה'));
         });
