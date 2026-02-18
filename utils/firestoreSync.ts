@@ -5,6 +5,11 @@ import type { ClassGroup, RiskSettings, PerClassRiskSettings, PeriodDefinition }
 
 const FIRESTORE_DOC_KEY = 'appData';
 
+/** Firestore rejects undefined. JSON round-trip strips all undefined values. */
+function toFirestoreSafe(obj: object): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(obj)) as Record<string, unknown>;
+}
+
 export async function saveToFirestore(
   userId: string,
   payload: {
@@ -19,7 +24,7 @@ export async function saveToFirestore(
   if (!db) return;
   const persisted = toPersistedState(payload);
   const ref = doc(db, 'users', userId, 'data', FIRESTORE_DOC_KEY);
-  await setDoc(ref, persisted);
+  await setDoc(ref, toFirestoreSafe(persisted));
 }
 
 export async function loadFromFirestore(userId: string): Promise<{
