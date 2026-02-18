@@ -157,6 +157,21 @@ html.dark .text-blue-400 { color: #93c5fd; }
 html.dark .text-orange-500 { color: #fdba74; }
 html.dark .text-orange-600 { color: #fdba74; }
 
+/* Matrix table - dark mode: strong contrast for grade cells */
+html.dark .matrix-cell.bg-red-100,
+html.dark .matrix-cell.bg-red-50 { background-color: rgba(239, 68, 68, 0.22); }
+html.dark .matrix-cell.bg-amber-100,
+html.dark .matrix-cell.bg-amber-50 { background-color: rgba(245, 158, 11, 0.22); }
+html.dark .matrix-cell.bg-emerald-100,
+html.dark .matrix-cell.bg-emerald-50 { background-color: rgba(16, 185, 129, 0.22); }
+html.dark .matrix-cell.bg-slate-50 { background-color: #334155; }
+html.dark .matrix-cell.bg-slate-100 { background-color: #475569; }
+html.dark .matrix-cell.text-red-800 { color: #fca5a5; }
+html.dark .matrix-cell.text-amber-800 { color: #fde68a; }
+html.dark .matrix-cell.text-emerald-800 { color: #6ee7b7; }
+html.dark .matrix-cell.text-slate-700 { color: #e2e8f0; }
+html.dark .matrix-cell.text-slate-400 { color: #94a3b8; }
+
 /* Chart axes/tooltips - dark-friendly */
 html.dark .recharts-default-tooltip { background-color: #1e293b !important; border-color: #334155 !important; color: #e2e8f0 !important; }
 

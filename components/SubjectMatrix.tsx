@@ -372,7 +372,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       return (
         <td
           key={colIdx}
-          className={`px-2 sm:px-3 py-2 sm:py-2.5 text-center min-w-[64px] sm:min-w-[80px] border-l border-slate-100 text-sm ${getCellClass(row.generalAvg)}`}
+          className={`matrix-cell px-1.5 sm:px-3 py-1.5 sm:py-2.5 text-center min-w-[44px] sm:min-w-[80px] border-l border-slate-100 dark:border-slate-600 text-xs sm:text-sm ${getCellClass(row.generalAvg)}`}
         >
           <div className="flex items-center justify-center gap-1">
             {row.generalAvg}
@@ -386,7 +386,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       return (
         <td
           key={colIdx}
-          className={`px-2 sm:px-3 py-2 sm:py-2.5 text-center min-w-[64px] sm:min-w-[80px] border-l border-slate-100 text-sm ${getCellClass(val)}`}
+          className={`matrix-cell px-1.5 sm:px-3 py-1.5 sm:py-2.5 text-center min-w-[44px] sm:min-w-[80px] border-l border-slate-100 dark:border-slate-600 text-xs sm:text-sm ${getCellClass(val)}`}
         >
           <div className="flex items-center justify-center gap-1">
             {val}
@@ -405,7 +405,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       <td
         key={colIdx}
         onClick={() => hasGrades && handleCellClick(row, colIdx)}
-        className={`group relative px-2 sm:px-3 py-2 sm:py-2.5 text-center min-w-[64px] sm:min-w-[80px] border-l border-slate-100 text-sm ${getCellClass(displayVal ?? null)} ${hasGrades ? 'cursor-pointer hover:ring-1 hover:ring-primary-300 rounded' : ''} ${isGap ? 'ring-1 ring-amber-400' : ''}`}
+        className={`matrix-cell group relative px-1.5 sm:px-3 py-1.5 sm:py-2.5 text-center min-w-[44px] sm:min-w-[80px] border-l border-slate-100 dark:border-slate-600 text-xs sm:text-sm ${getCellClass(displayVal ?? null)} ${hasGrades ? 'cursor-pointer hover:ring-1 hover:ring-primary-300 dark:hover:ring-primary-500 rounded' : ''} ${isGap ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
       >
         <div className="flex items-center justify-center gap-1">
           <span>{displayVal === null ? '—' : displayVal}</span>
@@ -526,19 +526,20 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
         </span>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden">
-        <div className="overflow-auto overflow-touch max-h-[70vh] min-h-[200px]">
-          <table className="w-full border-collapse text-right min-w-[320px]">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-card border border-slate-100/80 dark:border-slate-600 overflow-hidden">
+        <p className="sr-only">במובייל: גלול ימינה/שמאלה כדי לראות את כל המקצועות</p>
+        <div className="overflow-x-auto overflow-y-auto overflow-touch max-h-[70vh] min-h-[200px] -webkit-overflow-scrolling-touch">
+          <table className="w-full border-collapse text-right min-w-0 matrix-table">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="sticky top-0 right-0 z-20 bg-slate-100 border-l border-slate-200 px-3 sm:px-4 py-3 font-bold text-slate-700 whitespace-nowrap min-w-[100px] sm:min-w-[120px] text-sm sm:text-base shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+              <tr className="bg-slate-50 dark:bg-slate-700/80 border-b border-slate-200 dark:border-slate-600">
+                <th className="sticky top-0 right-0 z-20 bg-slate-100 dark:bg-slate-700 border-l border-slate-200 dark:border-slate-600 px-2 sm:px-4 py-2 sm:py-3 font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap min-w-[80px] sm:min-w-[120px] text-xs sm:text-base shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
                   שם התלמיד
                 </th>
                 {filteredColumns.map((subj, i) => (
                   <th
                     key={subj}
                     onClick={() => handleSort(i)}
-                    className="sticky top-0 z-10 bg-slate-100 px-2 sm:px-3 py-2.5 sm:py-3 font-semibold text-slate-600 text-xs sm:text-sm whitespace-nowrap min-w-[72px] sm:min-w-[90px] border-l border-slate-200 cursor-pointer hover:bg-slate-200/80 transition-colors select-none"
+                    className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-700 px-1.5 sm:px-3 py-2 sm:py-3 font-semibold text-slate-600 dark:text-slate-300 text-[10px] sm:text-sm whitespace-nowrap min-w-[44px] sm:min-w-[90px] border-l border-slate-200 dark:border-slate-600 cursor-pointer hover:bg-slate-200/80 dark:hover:bg-slate-600 transition-colors select-none"
                   >
                     <div className="flex items-center justify-center gap-1">
                       {subj}
@@ -556,8 +557,8 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
             </thead>
             <tbody>
               {displayRows.map((row) => (
-                <tr key={row.student.id} className="border-b border-slate-100 hover:bg-slate-50/50">
-                  <td className="sticky right-0 z-10 bg-white border-l border-slate-200 px-3 sm:px-4 py-2 sm:py-2.5 font-medium text-slate-800 whitespace-nowrap text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                <tr key={row.student.id} className="border-b border-slate-100 dark:border-slate-600 hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
+                  <td className="sticky right-0 z-10 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-600 px-2 sm:px-4 py-1.5 sm:py-2.5 font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap text-xs sm:text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setRadarRow(row)}
@@ -576,8 +577,8 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
                 </tr>
               ))}
 
-              <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold">
-                <td className="sticky right-0 z-10 bg-slate-100 border-l border-slate-200 px-3 sm:px-4 py-2.5 text-slate-700 text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+              <tr className="border-t-2 border-slate-300 dark:border-slate-500 bg-slate-50 dark:bg-slate-700/80 font-bold">
+                <td className="sticky right-0 z-10 bg-slate-100 dark:bg-slate-700 border-l border-slate-200 dark:border-slate-600 px-2 sm:px-4 py-2 sm:py-2.5 text-slate-700 dark:text-slate-200 text-xs sm:text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
                   ממוצע כיתתי
                 </td>
                 {filteredColumns.map((_, colIdx) => {
@@ -588,7 +589,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
                   return (
                     <td
                       key={colIdx}
-                      className={`px-2 sm:px-3 py-2.5 text-center border-l border-slate-200 text-sm ${getCellClass(avg)}`}
+                      className={`matrix-cell px-1.5 sm:px-3 py-2 sm:py-2.5 text-center border-l border-slate-200 dark:border-slate-600 text-xs sm:text-sm ${getCellClass(avg)}`}
                     >
                       {avg === null ? '—' : avg}
                     </td>
@@ -599,24 +600,24 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
           </table>
         </div>
 
-        <div className="flex flex-wrap gap-3 sm:gap-4 p-3 sm:p-4 border-t border-slate-100 bg-slate-50/50 text-xs text-slate-600">
+        <div className="flex flex-wrap gap-3 sm:gap-4 p-3 sm:p-4 border-t border-slate-100 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/30 text-xs text-slate-600 dark:text-slate-400">
           <span className="flex items-center gap-1.5">
-            <span className="w-4 h-4 rounded bg-red-100" /> &lt; 55
+            <span className="w-4 h-4 rounded bg-red-100 dark:bg-red-500/25" /> &lt; 55
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-4 h-4 rounded bg-amber-100" /> 55–75
+            <span className="w-4 h-4 rounded bg-amber-100 dark:bg-amber-500/25" /> 55–75
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-4 h-4 rounded bg-slate-50" /> 76–85
+            <span className="w-4 h-4 rounded bg-slate-50 dark:bg-slate-600" /> 76–85
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-4 h-4 rounded bg-emerald-100" /> &gt; 85
+            <span className="w-4 h-4 rounded bg-emerald-100 dark:bg-emerald-500/25" /> &gt; 85
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-4 h-4 rounded bg-slate-100 text-slate-400">—</span> ללא ציון
+            <span className="w-4 h-4 rounded bg-slate-100 dark:bg-slate-600 text-slate-400 dark:text-slate-500">—</span> ללא ציון
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-4 h-4 rounded ring-1 ring-amber-400 bg-amber-50" /> פער (נכשל/חריג)
+            <span className="w-4 h-4 rounded ring-1 ring-amber-400 dark:ring-amber-500 bg-amber-50 dark:bg-amber-500/20" /> פער (נכשל/חריג)
           </span>
         </div>
       </div>

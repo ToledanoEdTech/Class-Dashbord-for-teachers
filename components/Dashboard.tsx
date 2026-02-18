@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Student, EventType, Grade, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent, RiskSettings, ClassGroup, PeriodDefinition } from '../types';
-import { Search, ChevronRight, PieChart as PieChartIcon, Filter, ChevronDown, Printer, LayoutGrid, LayoutList, Download, FileSpreadsheet, FileText, AlertCircle, TrendingUp, Check, X } from 'lucide-react';
+import { Search, ChevronRight, PieChart as PieChartIcon, Filter, ChevronDown, Printer, LayoutGrid, LayoutList, Download, FileSpreadsheet, FileText, AlertCircle, TrendingUp, Check, X, Trash2 } from 'lucide-react';
 import { MetricIcons } from '../constants/icons';
 import { exportStudentsAtRiskToExcel, exportClassSummaryToExcel, exportClassSummaryToPDF } from '../utils/export';
 import { generateClassCertificates } from '../utils/certificate';
@@ -24,7 +24,7 @@ import { computeStudentStatsFromData } from '../utils/processing';
 import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
 import HelpTip from './HelpTip';
-import type { DashboardWidgetsState } from '../constants/dashboardWidgets';
+import type { DashboardWidgetsState, DashboardWidgetId } from '../constants/dashboardWidgets';
 import { getDefaultDashboardWidgets } from '../constants/dashboardWidgets';
 
 interface DashboardProps {
@@ -37,6 +37,7 @@ interface DashboardProps {
   classGroup?: ClassGroup;
   periodDefinitions?: PeriodDefinition[];
   visibleWidgets?: DashboardWidgetsState;
+  onHideWidget?: (id: DashboardWidgetId) => void;
 }
 
 const getDefaultDateRange = (): { start: Date; end: Date } => {
@@ -46,6 +47,51 @@ const getDefaultDateRange = (): { start: Date; end: Date } => {
   if (now < sept1) sept1 = new Date(year - 1, 8, 1);
   return { start: sept1, end: startOfDay(now) };
 };
+
+/** Wrapper for dashboard widgets: hover-to-show remove button, exit animation when hiding */
+function DashboardWidgetWrap({
+  id,
+  onRemove,
+  removingId,
+  setRemovingId,
+  children,
+  className = '',
+}: {
+  id: DashboardWidgetId;
+  onRemove?: (id: DashboardWidgetId) => void;
+  removingId: DashboardWidgetId | null;
+  setRemovingId: (v: DashboardWidgetId | null) => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const isRemoving = removingId === id;
+  const showRemove = !!onRemove;
+
+  const handleRemove = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!onRemove) return;
+    setRemovingId(id);
+  };
+
+  return (
+    <div
+      className={`group/widget relative transition-all duration-300 ease-out ${isRemoving ? 'opacity-0 scale-[0.98] pointer-events-none' : ''} ${className}`}
+    >
+      {showRemove && (
+        <button
+          type="button"
+          onClick={handleRemove}
+          aria-label="הסר רכיב מדשבורד"
+          className="no-print absolute left-2 top-2 z-10 p-1.5 rounded-lg bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-500/30 dark:hover:text-red-400 opacity-0 group-hover/widget:opacity-100 transition-opacity duration-200 shadow-sm border border-slate-200 dark:border-slate-500"
+        >
+          <Trash2 size={16} />
+        </button>
+      )}
+      {children}
+    </div>
+  );
+}
 
 /** Extract min/max dates from all students' grades and behavior events. */
 const getDateRangeFromStudents = (students: Student[]): { min: Date; max: Date } | null => {
@@ -69,12 +115,22 @@ const subjectMatchesFilter = (filter: string, subjectValue: string | undefined):
   return s === filter || s.startsWith(filter + ' ');
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings, isAnonymous = false, className = 'כיתה', classGroup, periodDefinitions = [], visibleWidgets: visibleWidgetsProp }) => {
+const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings, isAnonymous = false, className = 'כיתה', classGroup, periodDefinitions = [], visibleWidgets: visibleWidgetsProp, onHideWidget }) => {
   const visibleWidgets = visibleWidgetsProp ?? getDefaultDashboardWidgets();
+  const [removingWidgetId, setRemovingWidgetId] = useState<DashboardWidgetId | null>(null);
   const { start: defaultStart, end: defaultEnd } = useMemo(getDefaultDateRange, []);
   const dataRange = useMemo(() => getDateRangeFromStudents(students), [students]);
   const [startDate, setStartDate] = useState<Date>(defaultStart);
   const [endDate, setEndDate] = useState<Date>(defaultEnd);
+
+  React.useEffect(() => {
+    if (!removingWidgetId || !onHideWidget) return;
+    const t = setTimeout(() => {
+      onHideWidget(removingWidgetId);
+      setRemovingWidgetId(null);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [removingWidgetId, onHideWidget]);
 
   React.useEffect(() => {
     if (dataRange) {
@@ -565,6 +621,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
 
       {/* Executive Summary + Immediate Attention - קומפקטי */}
       {visibleWidgets.summary && (
+      <DashboardWidgetWrap id="summary" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="lg:col-span-2 bg-gradient-to-br from-primary-50/80 to-white rounded-xl shadow-card border border-primary-100/80 p-3.5 md:p-4">
           <h3 className="text-xs font-bold text-slate-600 mb-2 flex items-center gap-1.5">
@@ -640,10 +697,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           )}
         </div>
       </div>
+      </DashboardWidgetWrap>
       )}
 
       {/* Date Range Filter */}
       {visibleWidgets.dateFilter && (
+      <DashboardWidgetWrap id="dateFilter" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 md:p-5">
         <h3 className="text-sm font-bold text-slate-600 mb-3">סינון לפי טווח תאריכים</h3>
         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
@@ -667,10 +726,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           </label>
         </div>
       </div>
+      </DashboardWidgetWrap>
       )}
 
       {/* Advanced Filters */}
       {visibleWidgets.advancedFilters && (
+      <DashboardWidgetWrap id="advancedFilters" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
       <div className="no-print bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 md:p-5">
         <button
           type="button"
@@ -721,10 +782,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           </div>
         )}
       </div>
+      </DashboardWidgetWrap>
       )}
 
       {/* KPI Cards - 2 cols on mobile, 6 on large */}
       {visibleWidgets.kpiCards && (
+      <DashboardWidgetWrap id="kpiCards" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4 md:gap-5">
         <KPICard
           label="סה״כ תלמידים"
@@ -779,10 +842,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           gradient="from-red-500 to-rose-500"
         />
       </div>
+      </DashboardWidgetWrap>
       )}
 
       {/* Timeline - מגמה כיתתית */}
       {visibleWidgets.timeline && timelineData.length > 0 && (
+        <DashboardWidgetWrap id="timeline" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
         <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
           <h3 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2">
             <TrendingUp size={20} className="text-primary-500" />
@@ -808,10 +873,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             </ResponsiveContainer>
           </div>
         </div>
+        </DashboardWidgetWrap>
       )}
 
       {/* השוואה בין תקופות (כשמוגדרות בהגדרות) */}
       {visibleWidgets.periodComparison && periodStats.length > 0 && (
+        <DashboardWidgetWrap id="periodComparison" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
         <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
           <h3 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2">
             <MetricIcons.ClassAverage size={20} className="text-primary-500" />
@@ -842,12 +909,14 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             </table>
           </div>
         </div>
+        </DashboardWidgetWrap>
       )}
 
       {/* Charts */}
       {(visibleWidgets.gradeDistribution || visibleWidgets.behaviorChart) && (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 md:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 md:gap-6 transition-all duration-300">
         {visibleWidgets.gradeDistribution && (
+        <DashboardWidgetWrap id="gradeDistribution" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
         <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-shadow duration-300">
           <h3 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2">
             <MetricIcons.ClassAverage size={20} className="text-primary-500" />
@@ -865,8 +934,10 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             </ResponsiveContainer>
           </div>
         </div>
+        </DashboardWidgetWrap>
         )}
         {visibleWidgets.behaviorChart && (
+        <DashboardWidgetWrap id="behaviorChart" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
         <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-shadow duration-300">
           <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-5">
             <PieChartIcon size={20} className="text-primary-500" />
@@ -913,6 +984,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             )}
           </div>
         </div>
+        </DashboardWidgetWrap>
         )}
       </div>
       )}
@@ -924,6 +996,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
 
       {/* Students List */}
       {visibleWidgets.studentsList && (
+      <DashboardWidgetWrap id="studentsList" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden">
         <div className="p-4 sm:p-5 md:p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between gap-4 items-stretch md:items-center">
           <h3 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -1042,6 +1115,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           </table>
         </div>
       </div>
+      </DashboardWidgetWrap>
       )}
 
       {/* Certificate Generation Dialog */}

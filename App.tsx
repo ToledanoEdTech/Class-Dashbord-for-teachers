@@ -12,6 +12,7 @@ import { Student, AppState, ClassGroup, RiskSettings, PerClassRiskSettings, Peri
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
 import { saveToStorage, loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets } from './utils/storage';
+import { normalizeDashboardWidgets } from './constants/dashboardWidgets';
 import { useAuth } from './context/AuthContext';
 import { loadFromFirestore, saveToFirestore, subscribeToFirestore } from './utils/firestoreSync';
 import { isFirebaseConfigured } from './firebase';
@@ -90,6 +91,7 @@ const App: React.FC = () => {
     riskSettings: RiskSettings;
     perClassRiskSettings: PerClassRiskSettings;
     periodDefinitions: PeriodDefinition[];
+    preferences?: { darkMode: boolean; fontSize: 'small' | 'medium' | 'large'; dashboardViewMode: 'table' | 'cards'; dashboardWidgets?: Record<string, boolean> };
   } | null>(null);
   const previousUserIdRef = useRef<string | null>(null);
   /** True once we've received non-empty data from cloud - allows empty save (user deleted all) */
@@ -141,6 +143,12 @@ const App: React.FC = () => {
             perClassRiskSettings: data.perClassRiskSettings ?? {},
             periodDefinitions: data.periodDefinitions ?? [],
           }, user.uid);
+          if (data.preferences) {
+            setDarkMode(data.preferences.darkMode);
+            setFontSize(data.preferences.fontSize);
+            setDashboardWidgets(data.preferences.dashboardWidgets ? normalizeDashboardWidgets(data.preferences.dashboardWidgets) : loadDashboardWidgets());
+            savePreferences(data.preferences);
+          }
           setCloudSyncError(null);
         } else {
           lastCloudHadDataRef.current = false;
@@ -191,12 +199,14 @@ const App: React.FC = () => {
   useEffect(() => {
     const flushFirestoreSave = () => {
       if (!user?.uid || !isFirebaseConfigured() || !cloudLoaded) return;
+      const prefs = loadPreferences();
       const payload = pendingFirestorePayloadRef.current || {
         classes: state.classes,
         activeClassId: state.activeClassId,
         riskSettings: state.riskSettings,
         perClassRiskSettings: state.perClassRiskSettings,
         periodDefinitions: state.periodDefinitions,
+        preferences: { darkMode, fontSize, dashboardViewMode: prefs.dashboardViewMode ?? 'table', dashboardWidgets },
       };
       if (saveToFirestoreTimeoutRef.current) {
         clearTimeout(saveToFirestoreTimeoutRef.current);
@@ -222,7 +232,7 @@ const App: React.FC = () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [user?.uid, cloudLoaded, state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions]);
+  }, [user?.uid, cloudLoaded, state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions, darkMode, fontSize, dashboardWidgets]);
 
   useEffect(() => {
     const payload = {
@@ -231,8 +241,14 @@ const App: React.FC = () => {
       riskSettings: state.riskSettings,
       perClassRiskSettings: state.perClassRiskSettings,
       periodDefinitions: state.periodDefinitions,
+      preferences: {
+        darkMode,
+        fontSize,
+        dashboardViewMode: 'table' as const,
+        dashboardWidgets,
+      },
     };
-    saveToStorage(payload, user?.uid ?? undefined);
+    saveToStorage({ ...payload, preferences: undefined } as Parameters<typeof saveToStorage>[0], user?.uid ?? undefined);
     if (user?.uid && isFirebaseConfigured() && cloudLoaded) {
       pendingFirestorePayloadRef.current = payload;
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
@@ -254,7 +270,7 @@ const App: React.FC = () => {
     return () => {
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
     };
-  }, [state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions, user?.uid, cloudLoaded]);
+  }, [state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions, user?.uid, cloudLoaded, darkMode, fontSize, dashboardWidgets]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -858,6 +874,11 @@ const App: React.FC = () => {
               classGroup={activeClass}
               periodDefinitions={state.periodDefinitions}
               visibleWidgets={dashboardWidgets}
+              onHideWidget={(id) => {
+                const next = { ...dashboardWidgets, [id]: false };
+                setDashboardWidgets(next);
+                savePreferences({ ...loadPreferences(), dashboardWidgets: next });
+              }}
             />
           )}
 

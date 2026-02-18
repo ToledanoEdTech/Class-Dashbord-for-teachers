@@ -19,7 +19,10 @@ import {
   type PersistedState,
   type PersistedClassGroup,
   type PersistedStudent,
+  type UserPreferences,
+  DEFAULT_PREFS,
 } from './storage';
+import { normalizeDashboardWidgets } from '../constants/dashboardWidgets';
 import type { ClassGroup, RiskSettings, PerClassRiskSettings, PeriodDefinition } from '../types';
 import { normalizeRiskSettings } from '../types';
 
@@ -53,7 +56,7 @@ function toFirestoreValue(obj: unknown): unknown {
   return result;
 }
 
-/** Settings doc - small, no compression needed */
+/** Settings doc - small, no compression needed. Includes user preferences (darkMode, widgets, etc.). */
 async function loadSettings(
   db: Firestore,
   userId: string
@@ -62,6 +65,7 @@ async function loadSettings(
   riskSettings: RiskSettings;
   perClassRiskSettings: PerClassRiskSettings;
   periodDefinitions: PeriodDefinition[];
+  preferences?: UserPreferences;
 } | null> {
   const ref = doc(db, 'users', userId, 'data', SETTINGS_DOC);
   const snap = await getDoc(ref);
@@ -71,17 +75,32 @@ async function loadSettings(
     riskSettings?: RiskSettings;
     perClassRiskSettings?: PerClassRiskSettings;
     periodDefinitions?: PeriodDefinition[];
+    darkMode?: boolean;
+    fontSize?: 'small' | 'medium' | 'large';
+    dashboardViewMode?: 'table' | 'cards';
+    dashboardWidgets?: Record<string, boolean>;
   };
   const perClass = raw.perClassRiskSettings ?? {};
   const normalizedPerClass: PerClassRiskSettings = {};
   Object.keys(perClass).forEach((classId) => {
     normalizedPerClass[classId] = normalizeRiskSettings(perClass[classId]);
   });
+  const hasPrefsFromCloud = raw.darkMode !== undefined || raw.fontSize !== undefined || raw.dashboardWidgets !== undefined;
+  const preferences: UserPreferences | undefined = hasPrefsFromCloud
+    ? {
+        ...DEFAULT_PREFS,
+        darkMode: typeof raw.darkMode === 'boolean' ? raw.darkMode : DEFAULT_PREFS.darkMode,
+        fontSize: raw.fontSize === 'small' || raw.fontSize === 'medium' || raw.fontSize === 'large' ? raw.fontSize : DEFAULT_PREFS.fontSize,
+        dashboardViewMode: raw.dashboardViewMode === 'cards' ? 'cards' : 'table',
+        dashboardWidgets: raw.dashboardWidgets ? normalizeDashboardWidgets(raw.dashboardWidgets) : undefined,
+      }
+    : undefined;
   return {
     activeClassId: raw.activeClassId ?? null,
     riskSettings: normalizeRiskSettings(raw.riskSettings),
     perClassRiskSettings: normalizedPerClass,
     periodDefinitions: Array.isArray(raw.periodDefinitions) ? raw.periodDefinitions : [],
+    preferences,
   };
 }
 
@@ -169,6 +188,7 @@ export async function loadFromFirestore(userId: string): Promise<{
   riskSettings: RiskSettings;
   perClassRiskSettings: PerClassRiskSettings;
   periodDefinitions: PeriodDefinition[];
+  preferences?: UserPreferences;
 } | null> {
   const db = getFirebaseDb();
   if (!db) return null;
@@ -181,6 +201,7 @@ export async function loadFromFirestore(userId: string): Promise<{
       riskSettings: settings.riskSettings,
       perClassRiskSettings: settings.perClassRiskSettings,
       periodDefinitions: settings.periodDefinitions,
+      preferences: settings.preferences,
     };
   }
   return loadLegacyDoc(db, userId);
@@ -194,6 +215,7 @@ export async function saveToFirestore(
     riskSettings: RiskSettings;
     perClassRiskSettings?: PerClassRiskSettings;
     periodDefinitions?: PeriodDefinition[];
+    preferences?: UserPreferences;
   },
   allowEmptyOverwrite = true
 ): Promise<void> {
@@ -206,12 +228,17 @@ export async function saveToFirestore(
 
   const batch = writeBatch(db);
 
+  const prefs = payload.preferences;
   const settingsRef = doc(db, 'users', userId, 'data', SETTINGS_DOC);
   batch.set(settingsRef, toFirestoreValue({
     activeClassId: payload.activeClassId,
     riskSettings: payload.riskSettings,
     perClassRiskSettings: payload.perClassRiskSettings ?? {},
     periodDefinitions: payload.periodDefinitions ?? [],
+    darkMode: prefs?.darkMode,
+    fontSize: prefs?.fontSize,
+    dashboardViewMode: prefs?.dashboardViewMode,
+    dashboardWidgets: prefs?.dashboardWidgets,
     t: Date.now(),
   }) as Record<string, unknown>);
 
@@ -276,7 +303,7 @@ export async function saveToFirestore(
   await batch.commit();
 }
 
-/** Subscribe to real-time updates - combines settings + classes */
+/** Subscribe to real-time updates - combines settings + classes + preferences */
 export function subscribeToFirestore(
   userId: string,
   onData: (
@@ -286,6 +313,7 @@ export function subscribeToFirestore(
       riskSettings: RiskSettings;
       perClassRiskSettings: PerClassRiskSettings;
       periodDefinitions: PeriodDefinition[];
+      preferences?: UserPreferences;
     } | null,
     updatedAt: number
   ) => void,
