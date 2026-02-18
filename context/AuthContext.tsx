@@ -4,8 +4,7 @@ import { getFirebaseAuth, isFirebaseConfigured } from '../firebase';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   GoogleAuthProvider,
   signOut as firebaseSignOut,
   onAuthStateChanged,
@@ -37,29 +36,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
-    let cancelled = false;
-    const init = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (cancelled) return;
-        if (result) {
-          // User returned from Google redirect - onAuthStateChanged will set user
-        }
-      } catch (e: unknown) {
-        if (cancelled) return;
-        const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'שגיאת התחברות עם Google';
-        setError(msg.includes('auth/') ? `שגיאת Google: ${msg}` : msg);
-      }
-    };
-    init();
     const unsubscribe = onAuthStateChanged(auth, (u: User | null) => {
       setUser(u);
       setLoading(false);
     });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [auth]);
 
   const signIn = useCallback(
@@ -109,11 +90,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithRedirect(auth, provider);
-      // Page will redirect to Google - user returns via redirect URL
+      await signInWithPopup(auth, provider);
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'שגיאת התחברות עם Google';
-      if (msg.includes('auth/unauthorized-domain')) {
+      if (msg.includes('auth/popup-closed-by-user')) {
+        setError('ההתחברות בוטלה.');
+      } else if (msg.includes('auth/popup-blocked')) {
+        setError('הדפדפן חסם את חלון ההתחברות. נסה לאפשר popups.');
+      } else if (msg.includes('auth/unauthorized-domain')) {
         const domain = typeof window !== 'undefined' ? window.location.hostname : '';
         setError(domain
           ? `הדומיין לא מורשה. ב-Firebase Console: Authentication → Settings → Authorized domains → Add domain. הוסף בדיוק: ${domain}`
@@ -124,6 +108,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setError('מפתח ה-API פג תוקף. ב-Firebase Console: Project Settings → Your apps → צור Web app חדש או שחזר מפתח. עדכן את .env ו-Vercel Environment Variables.');
       } else if (msg.includes('auth/network-request-failed')) {
         setError('שגיאת רשת. בדוק את החיבור לאינטרנט ונסה שוב.');
+      } else if (msg.includes('auth/cancelled-popup-request')) {
+        setError('ההתחברות בוטלה. נסה שוב.');
       } else {
         setError(msg.includes('auth/') ? `שגיאת Google: ${msg}` : msg);
       }
