@@ -151,6 +151,8 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [showCertificateDialog, setShowCertificateDialog] = useState(false);
   const [selectedSubjectsForCertificates, setSelectedSubjectsForCertificates] = useState<Set<string>>(new Set());
+  /** כשנבחרת תקופה – טווח התאריכים של הדשבורד מוגבל לתקופה זו */
+  const [dashboardPeriodId, setDashboardPeriodId] = useState<string | null>(null);
 
   React.useEffect(() => {
     try { localStorage.setItem('toledano-view-mode', viewMode); } catch {}
@@ -706,12 +708,40 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 md:p-5">
         <h3 className="text-sm font-bold text-slate-600 mb-3">סינון לפי טווח תאריכים</h3>
         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
+          {periodDefinitions.length > 0 && (
+            <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 text-slate-600 text-sm font-medium flex-1 sm:flex-initial">
+              <span>תקופה:</span>
+              <select
+                value={dashboardPeriodId ?? ''}
+                onChange={(e) => {
+                  const id = e.target.value || null;
+                  setDashboardPeriodId(id);
+                  if (id) {
+                    const p = periodDefinitions.find((x) => x.id === id);
+                    if (p) {
+                      setStartDate(startOfDay(new Date(p.startDate)));
+                      setEndDate(endOfDay(new Date(p.endDate)));
+                    }
+                  } else if (dataRange) {
+                    setStartDate(dataRange.min);
+                    setEndDate(dataRange.max);
+                  }
+                }}
+                className="w-full sm:w-auto min-w-[140px] px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 font-medium min-h-[44px]"
+              >
+                <option value="">כל הנתונים</option>
+                {periodDefinitions.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 text-slate-600 text-sm font-medium flex-1 sm:flex-initial">
             <span>מתאריך:</span>
             <input
               type="date"
               value={format(startDate, 'yyyy-MM-dd')}
-              onChange={(e) => setStartDate(new Date(e.target.value))}
+              onChange={(e) => { setStartDate(new Date(e.target.value)); setDashboardPeriodId(null); }}
               className="w-full sm:w-auto px-3 py-2.5 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium min-h-[44px]"
             />
           </label>
@@ -720,7 +750,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             <input
               type="date"
               value={format(endDate, 'yyyy-MM-dd')}
-              onChange={(e) => setEndDate(new Date(e.target.value))}
+              onChange={(e) => { setEndDate(new Date(e.target.value)); setDashboardPeriodId(null); }}
               className="w-full sm:w-auto px-3 py-2.5 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium min-h-[44px]"
             />
           </label>
@@ -876,7 +906,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         </DashboardWidgetWrap>
       )}
 
-      {/* השוואה בין תקופות (כשמוגדרות בהגדרות) */}
+      {/* השוואה בין תקופות (כשמוגדרות בהגדרות) – טבלה + גרף */}
       {visibleWidgets.periodComparison && periodStats.length > 0 && (
         <DashboardWidgetWrap id="periodComparison" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
         <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
@@ -884,7 +914,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             <MetricIcons.ClassAverage size={20} className="text-primary-500" />
             השוואה בין תקופות
           </h3>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto mb-5">
             <table className="w-full text-right border-collapse">
               <thead>
                 <tr className="border-b border-slate-200">
@@ -908,6 +938,38 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
               </tbody>
             </table>
           </div>
+          {periodStats.length >= 2 && (() => {
+            const maxחיסורים = Math.max(1, ...periodStats.map((r) => r.חיסורים));
+            const maxבסיכון = Math.max(1, ...periodStats.map((r) => r.בסיכון));
+            const domainחיסורים = [0, Math.ceil(maxחיסורים * 1.15) || 10];
+            const domainבסיכון = [0, Math.max(5, maxבסיכון + 1)];
+            return (
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={periodStats} margin={{ top: 8, right: 56, left: 8, bottom: 24 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
+                  <YAxis yAxisId="left" domain={[0, 100]} tick={{ fontSize: 11, fill: '#64748b' }} />
+                  <YAxis yAxisId="rightAbsences" orientation="right" domain={domainחיסורים} tick={{ fontSize: 10, fill: '#b45309' }} width={28} />
+                  <YAxis yAxisId="rightRisk" orientation="right" domain={domainבסיכון} tick={{ fontSize: 10, fill: '#dc2626' }} width={28} />
+                  <Tooltip
+                    content={({ active, payload }) => active && payload?.length ? (
+                      <div className="bg-white/95 border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-sm text-right">
+                        <p className="font-bold text-slate-800 mb-1">{payload[0].payload.name}</p>
+                        <p className="text-primary-600">ממוצע כיתתי: {payload[0].payload.ממוצע}</p>
+                        <p className="text-red-600">בסיכון: {payload[0].payload.בסיכון}</p>
+                        <p className="text-amber-700">חיסורים: {payload[0].payload.חיסורים}</p>
+                      </div>
+                    ) : null}
+                  />
+                  <Bar yAxisId="left" dataKey="ממוצע" name="ממוצע כיתתי" fill="#0c8ee6" radius={[4, 4, 0, 0]} barSize={20} />
+                  <Bar yAxisId="rightAbsences" dataKey="חיסורים" name="חיסורים" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={20} />
+                  <Bar yAxisId="rightRisk" dataKey="בסיכון" name="תלמידים בסיכון" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={20} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            );
+          })()}
         </div>
         </DashboardWidgetWrap>
       )}
@@ -1283,6 +1345,47 @@ const getBehaviorSparklineValues = (events: BehaviorEvent[]): number[] => {
   });
 };
 
+/** Smooth values with moving average to reduce jitter */
+function smoothValues(values: number[], window = 2): number[] {
+  if (values.length < 3) return values;
+  const result: number[] = [];
+  for (let i = 0; i < values.length; i++) {
+    const start = Math.max(0, i - window);
+    const end = Math.min(values.length - 1, i + window);
+    let sum = 0;
+    let count = 0;
+    for (let j = start; j <= end; j++) {
+      sum += values[j];
+      count++;
+    }
+    result.push(sum / count);
+  }
+  return result;
+}
+
+/** Create smooth SVG path through points using Catmull-Rom-like curve */
+function pointsToSmoothPath(points: { x: number; y: number }[]): string {
+  if (points.length < 2) return '';
+  if (points.length === 2) {
+    return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  }
+  const path: string[] = [];
+  path.push(`M ${points[0].x} ${points[0].y}`);
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const tension = 0.3; // 0 = smooth, 1 = sharp
+    const cp1x = p1.x + (p2.x - p0.x) * tension / 6;
+    const cp1y = p1.y + (p2.y - p0.y) * tension / 6;
+    const cp2x = p2.x - (p3.x - p1.x) * tension / 6;
+    const cp2y = p2.y - (p3.y - p1.y) * tension / 6;
+    path.push(`C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)} ${cp2x.toFixed(2)} ${cp2y.toFixed(2)} ${p2.x} ${p2.y}`);
+  }
+  return path.join(' ');
+}
+
 const MiniSparkline: React.FC<{ values: number[]; color: string; min?: number; max?: number }> = ({ values, color, min, max }) => {
   if (!values || values.length < 2) {
     return <span className="text-[10px] text-slate-300 block mt-1">אין נתונים</span>;
@@ -1290,17 +1393,25 @@ const MiniSparkline: React.FC<{ values: number[]; color: string; min?: number; m
   const width = 74;
   const height = 26;
   const pad = 2;
-  const vmin = min ?? Math.min(...values);
-  const vmax = max ?? Math.max(...values);
+  const smoothed = smoothValues(values, 1);
+  const vmin = min ?? Math.min(...smoothed);
+  const vmax = max ?? Math.max(...smoothed);
   const range = vmax - vmin || 1;
-  const points = values.map((v, i) => {
-    const x = pad + (i / (values.length - 1)) * (width - pad * 2);
-    const y = height - pad - ((v - vmin) / range) * (height - pad * 2);
-    return `${x},${y}`;
-  }).join(' ');
+  const points = smoothed.map((v, i) => ({
+    x: pad + (i / (smoothed.length - 1)) * (width - pad * 2),
+    y: height - pad - ((v - vmin) / range) * (height - pad * 2),
+  }));
+  const pathD = pointsToSmoothPath(points);
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="mx-auto mt-1">
-      <polyline fill="none" stroke={color} strokeWidth="2" points={points} />
+      <path
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d={pathD}
+      />
     </svg>
   );
 };

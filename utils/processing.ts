@@ -60,6 +60,18 @@ const findSubjectCol = (headerRow: any[]): number => {
   return -1;
 };
 
+/**
+ * מנרמל שם מורה: אם מופיע תג הקבצה/מקצוע בתחילה (למשל "א1 רבקה גורדון") מחזיר רק "רבקה גורדון".
+ * כך מורים שמופיעים בהקבצות שונות יזוהו כאותו מורה.
+ */
+const normalizeTeacherName = (raw: string): string => {
+  const t = (raw || '').trim().replace(/\s+/g, ' ');
+  if (!t) return '';
+  const words = t.split(' ').filter(Boolean);
+  if (words.length >= 3) return words.slice(-2).join(' ');
+  return t;
+};
+
 const parseDate = (dateVal: any): Date | null => {
   if (!dateVal) return null;
   
@@ -208,13 +220,15 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
     const rawSubject = row[col.subject];
     const s = String(rawSubject ?? '').trim();
     const subjectFinal = s && !/^\d+$/.test(s) ? s : 'כללי';
+    const rawTeacher = (row[col.teacher] ?? '') as string;
+    const teacherNormalized = normalizeTeacherName(rawTeacher) || rawTeacher.trim();
 
     events.push({
       id: `evt-${i}`,
       studentId: studentId,
       studentName: (row[col.studentName] ?? 'Unknown') as string,
       date: date,
-      teacher: (row[col.teacher] ?? '') as string,
+      teacher: teacherNormalized,
       subject: subjectFinal,
       lessonNumber: parseInt(row[col.lessonNumber] as any) || 0,
       type: eventTypeStr,
@@ -239,28 +253,36 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
     if (!headerRaw || typeof headerRaw !== 'string') continue;
 
     const dateMatch = headerRaw.match(/(\d{2}\/\d{2}\/\d{4})/);
-    const weightMatch = headerRaw.match(/משקל\s*(\d+)/);
-    
+    const weightMatch = headerRaw.match(/משקל\s*(\d+)/) || headerRaw.match(/(\d+)\s*משקל/);
+    const bracketContent = headerRaw.match(/\[([^\]]*)\]/)?.[1]?.trim() || '';
+
     let subject = "כללי";
     let teacher = "";
     let assignment = "מטלה";
 
-    const parts = headerRaw.split('[');
-    if (parts.length > 0) {
-        const firstPart = parts[0].trim().split(' ');
-        if (firstPart.length > 0) subject = firstPart[0];
-        if (firstPart.length > 1) teacher = firstPart.slice(1).join(' ');
+    const beforeBrackets = headerRaw.replace(/\s*\[[^\]]*\].*$/s, '').trim();
+    const words = beforeBrackets ? beforeBrackets.split(/\s+/).filter(Boolean) : [];
+    if (words.length >= 3) {
+      teacher = words.slice(-2).join(' ');
+      subject = words.slice(0, -2).join(' ');
+    } else if (words.length === 2) {
+      teacher = words[1];
+      subject = words[0];
+    } else if (words.length === 1) {
+      subject = words[0];
     }
-    
-    if (parts.length > 1) {
-        const details = parts[1].split(']')[1] || '';
-        assignment = details.replace(/(\d{2}\/\d{2}\/\d{4})|משקל\s*\d+/g, '').trim();
-        if (!assignment) assignment = "מטלה";
+
+    if (bracketContent) {
+      assignment = bracketContent
+        .replace(/\d{2}\/\d{2}\/\d{4}/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!assignment) assignment = "מטלה";
     }
 
     headerMeta[c] = {
-      subject: subject,
-      teacher: teacher,
+      subject: subject || "כללי",
+      teacher: teacher.trim(),
       assignment: assignment,
       date: dateMatch ? parseDate(dateMatch[0])! : new Date(),
       weight: weightMatch ? parseInt(weightMatch[1]) : 1

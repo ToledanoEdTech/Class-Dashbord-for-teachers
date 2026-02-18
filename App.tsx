@@ -619,14 +619,14 @@ const App: React.FC = () => {
               {state.view !== 'upload' && state.view !== 'settings' && state.view !== 'landing' && (
                 <div className="pb-2.5 space-y-2">
                   {/* Main Navigation Tabs */}
-                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/90 border border-slate-200/80">
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/90 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600">
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
                       className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all min-h-[40px] ${
                         state.view === 'dashboard' || state.view === 'student'
-                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80'
-                          : 'text-slate-600 active:bg-slate-200/60'
+                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                          : 'text-slate-600 dark:text-slate-300 active:bg-slate-200/60 dark:active:bg-slate-600'
                       }`}
                       aria-label="דשבורד"
                     >
@@ -638,8 +638,8 @@ const App: React.FC = () => {
                       onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
                       className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all min-h-[40px] ${
                         state.view === 'teachers'
-                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80'
-                          : 'text-slate-600 active:bg-slate-200/60'
+                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                          : 'text-slate-600 dark:text-slate-300 active:bg-slate-200/60 dark:active:bg-slate-600'
                       }`}
                       aria-label="אנליטיקת מורים"
                     >
@@ -651,8 +651,8 @@ const App: React.FC = () => {
                       onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
                       className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all min-h-[40px] ${
                         state.view === 'matrix'
-                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80'
-                          : 'text-slate-600 active:bg-slate-200/60'
+                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                          : 'text-slate-600 dark:text-slate-300 active:bg-slate-200/60 dark:active:bg-slate-600'
                       }`}
                       aria-label="מטריצת מקצועות"
                     >
@@ -725,14 +725,14 @@ const App: React.FC = () => {
                 {state.view !== 'upload' && state.view !== 'settings' && state.view !== 'landing' && (
                   <>
                     {/* Navigation: Dashboard | Teacher Analytics | Subject Matrix */}
-                    <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 border border-slate-200/80">
+                    <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600">
                       <button
                         type="button"
                         onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
                         className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
                           state.view === 'dashboard' || state.view === 'student'
-                            ? 'bg-white text-primary-700 shadow-sm border border-slate-200'
-                            : 'text-slate-600 hover:text-slate-800'
+                            ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
                         }`}
                         aria-label="דשבורד"
                       >
@@ -744,8 +744,8 @@ const App: React.FC = () => {
                         onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
                         className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
                           state.view === 'teachers'
-                            ? 'bg-white text-primary-700 shadow-sm border border-slate-200'
-                            : 'text-slate-600 hover:text-slate-800'
+                            ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
                         }`}
                         aria-label="אנליטיקת מורים"
                       >
@@ -757,8 +757,8 @@ const App: React.FC = () => {
                         onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
                         className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
                           state.view === 'matrix'
-                            ? 'bg-white text-primary-700 shadow-sm border border-slate-200'
-                            : 'text-slate-600 hover:text-slate-800'
+                            ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
                         }`}
                         aria-label="מטריצת מקצועות"
                       >
@@ -894,11 +894,12 @@ const App: React.FC = () => {
               riskSettings={effectiveRiskSettings}
               isAnonymous={state.isAnonymous}
               studentIndex={selectedStudentIndex >= 0 ? selectedStudentIndex : 0}
+              periodDefinitions={state.periodDefinitions}
             />
           )}
 
           {state.view === 'teachers' && activeClass && (
-            <TeachersAnalytics students={students} isAnonymous={state.isAnonymous} />
+            <TeachersAnalytics students={students} isAnonymous={state.isAnonymous} periodDefinitions={state.periodDefinitions} />
           )}
 
           {state.view === 'matrix' && activeClass && (

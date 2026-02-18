@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent } from '../types';
-import { calculateStudentStats } from '../utils/processing';
+import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent, PeriodDefinition } from '../types';
+import { calculateStudentStats, computeStudentStatsFromData } from '../utils/processing';
 import { ArrowRight, ArrowLeft, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer, TrendingUp, TrendingDown, BarChart3, Target, Users, Zap, Star, MessageSquare, ThumbsUp, Lightbulb, ChevronRight, ChevronLeft, FileText, Check, Grid, LayoutGrid } from 'lucide-react';
 import HelpTip from './HelpTip';
 import {
@@ -16,7 +16,7 @@ import {
   Bar,
   Cell
 } from 'recharts';
-import { format, differenceInDays, eachDayOfInterval, eachWeekOfInterval, isSameDay, isSameWeek, endOfWeek } from 'date-fns';
+import { format, differenceInDays, eachDayOfInterval, eachWeekOfInterval, isSameDay, isSameWeek, endOfWeek, startOfDay, endOfDay } from 'date-fns';
 import { getDisplayName } from '../utils/displayName';
 import { exportStudentProfileToExcel } from '../utils/exportStudent';
 import { generateStudentCertificate } from '../utils/certificate';
@@ -32,6 +32,7 @@ interface StudentProfileProps {
   riskSettings?: RiskSettings;
   isAnonymous?: boolean;
   studentIndex?: number;
+  periodDefinitions?: PeriodDefinition[];
 }
 
 // Local helper for startOfWeek to avoid import issues
@@ -147,7 +148,7 @@ const CustomGradeTooltip = ({ active, payload, label }: any) => {
     return null;
 };
 
-const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [], currentIndex = 0, onSelectStudent, onBack, classAverage, onUpdateStudent, riskSettings, isAnonymous = false, studentIndex = 0 }) => {
+const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [], currentIndex = 0, onSelectStudent, onBack, classAverage, onUpdateStudent, riskSettings, isAnonymous = false, studentIndex = 0, periodDefinitions = [] }) => {
   const [activeTab, setActiveTab] = useState<'trends' | 'grades' | 'behavior' | 'insights'>('trends');
   const [showAddGrade, setShowAddGrade] = useState(false);
   const [showAddEvent, setShowAddEvent] = useState(false);
@@ -155,6 +156,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
   const [showCertificateDialog, setShowCertificateDialog] = useState(false);
   const [selectedSubjectsForCertificate, setSelectedSubjectsForCertificate] = useState<Set<string>>(new Set());
   const [gradesChartViewMode, setGradesChartViewMode] = useState<'single' | 'multiple'>('single');
+  /** כשנבחרת תקופה – מציגים רק נתונים מהתקופה הזו */
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
 
   const hasPrevStudent = students.length > 0 && currentIndex > 0;
   const hasNextStudent = students.length > 0 && currentIndex < students.length - 1;
@@ -180,15 +183,69 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [hasPrevStudent, hasNextStudent, prevStudent, nextStudent, onSelectStudent, onBack]);
 
+  const selectedPeriod = useMemo(() => (selectedPeriodId ? periodDefinitions.find((p) => p.id === selectedPeriodId) ?? null : null), [selectedPeriodId, periodDefinitions]);
+
+  /** תלמיד "וירטואלי" עם ציונים ואירועים מסוננים לפי תקופה נבחרת (ומחושב מחדש) */
+  const effectiveStudent = useMemo(() => {
+    if (!selectedPeriod) return student;
+    const pStart = startOfDay(new Date(selectedPeriod.startDate));
+    const pEnd = endOfDay(new Date(selectedPeriod.endDate));
+    const inRange = (d: Date) => d >= pStart && d <= pEnd;
+    const grades = student.grades.filter((g) => inRange(g.date));
+    const behaviorEvents = student.behaviorEvents.filter((e) => inRange(e.date));
+    const base = { id: student.id, name: student.name, grades, behaviorEvents };
+    return calculateStudentStats(base, riskSettings ?? undefined);
+  }, [student, selectedPeriod, riskSettings]);
+
+  /** סטטיסטיקות של התלמיד לפי כל תקופה (להשוואה בין תקופות) */
+  const periodStatsForStudent = useMemo(() => {
+    if (!periodDefinitions.length) return [];
+    const settings = riskSettings ?? undefined;
+    return periodDefinitions.map((p) => {
+      const pStart = startOfDay(new Date(p.startDate));
+      const pEnd = endOfDay(new Date(p.endDate));
+      const inRange = (d: Date) => d >= pStart && d <= pEnd;
+      const g = student.grades.filter((gr) => inRange(gr.date));
+      const e = student.behaviorEvents.filter((ev) => inRange(ev.date));
+      const absences = e.filter(isAbsenceEvent).length;
+      const stats = computeStudentStatsFromData(g, e, settings);
+      return { name: p.name, periodId: p.id, ממוצע: stats.averageScore, חיסורים: absences, שליליים: stats.negativeCount, ...stats };
+    });
+  }, [student, periodDefinitions, riskSettings]);
+
+  /** תובנות לפי תקופות: שיפור/ירידה בתקופה אחרונה לעומת קודמת */
+  const periodInsights = useMemo(() => {
+    if (periodStatsForStudent.length < 2) return [];
+    const last = periodStatsForStudent[periodStatsForStudent.length - 1];
+    const prev = periodStatsForStudent[periodStatsForStudent.length - 2];
+    const lines: { icon: React.ElementType; text: string; type: 'improve' | 'decline' | 'neutral' }[] = [];
+    if (last.ממוצע > prev.ממוצע + 2) {
+      lines.push({ icon: TrendingUp, text: `בתקופה "${last.name}" חל שיפור בממוצע הציונים (${prev.ממוצע.toFixed(1)} → ${last.ממוצע.toFixed(1)}) ביחס ל"${prev.name}"`, type: 'improve' });
+    } else if (last.ממוצע < prev.ממוצע - 2) {
+      lines.push({ icon: TrendingDown, text: `בתקופה "${last.name}" ירד ממוצע הציונים (${prev.ממוצע.toFixed(1)} → ${last.ממוצע.toFixed(1)}) ביחס ל"${prev.name}"`, type: 'decline' });
+    }
+    if (last.חיסורים < prev.חיסורים && prev.חיסורים > 0) {
+      lines.push({ icon: TrendingUp, text: `בתקופה "${last.name}" פחות חיסורים (${last.חיסורים}) ביחס ל"${prev.name}" (${prev.חיסורים})`, type: 'improve' });
+    } else if (last.חיסורים > prev.חיסורים && prev.חיסורים >= 0) {
+      lines.push({ icon: TrendingDown, text: `בתקופה "${last.name}" יותר חיסורים (${last.חיסורים}) ביחס ל"${prev.name}" (${prev.חיסורים})`, type: 'decline' });
+    }
+    if (last.שליליים < prev.שליליים && prev.שליליים > 0) {
+      lines.push({ icon: ThumbsUp, text: `בתקופה "${last.name}" פחות אירועים שליליים ביחס ל"${prev.name}"`, type: 'improve' });
+    } else if (last.שליליים > prev.שליליים) {
+      lines.push({ icon: AlertCircle, text: `בתקופה "${last.name}" יותר אירועים שליליים ביחס ל"${prev.name}"`, type: 'decline' });
+    }
+    return lines;
+  }, [periodStatsForStudent]);
+
   // Unique subjects from grades and behavior (for filter dropdown)
   const subjectOptions = useMemo(() => {
-    const fromGrades = new Set(student.grades.map(g => g.subject).filter(Boolean));
-    student.behaviorEvents.forEach(e => {
+    const fromGrades = new Set(effectiveStudent.grades.map(g => g.subject).filter(Boolean));
+    effectiveStudent.behaviorEvents.forEach(e => {
       const s = e.subject?.trim();
       if (s && !/^\d+$/.test(s)) fromGrades.add(e.subject!);
     });
     return Array.from(fromGrades).sort((a, b) => a.localeCompare(b));
-  }, [student.grades, student.behaviorEvents]);
+  }, [effectiveStudent.grades, effectiveStudent.behaviorEvents]);
 
   // Scroll to top on mount
   useEffect(() => {
@@ -238,8 +295,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
   // Chart Data: Grades - Aggregated by Week (optional filter by subject)
   const gradeChartData = useMemo(() => {
     const grades = selectedSubject
-      ? student.grades.filter(g => g.subject === selectedSubject)
-      : student.grades;
+      ? effectiveStudent.grades.filter(g => g.subject === selectedSubject)
+      : effectiveStudent.grades;
     if (grades.length === 0) return [];
 
     const timestamps = grades.map(g => g.date.getTime());
@@ -265,21 +322,21 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
             count: weeklyGrades.length
         };
     }).filter(Boolean); // Remove empty weeks
-  }, [student.grades, selectedSubject]);
+  }, [effectiveStudent.grades, selectedSubject]);
 
   // Chart Data: Grades per Subject (for multiple charts view)
   const gradesBySubject = useMemo(() => {
     if (selectedSubject) return {}; // Don't show multiple charts when a subject is selected
     
     const subjects = subjectOptions.filter(subj => {
-      const subjectGrades = student.grades.filter(g => g.subject === subj);
+      const subjectGrades = effectiveStudent.grades.filter(g => g.subject === subj);
       return subjectGrades.length > 0;
     });
 
     const result: Record<string, any[]> = {};
 
     subjects.forEach(subj => {
-      const grades = student.grades.filter(g => g.subject === subj);
+      const grades = effectiveStudent.grades.filter(g => g.subject === subj);
       if (grades.length === 0) return;
 
       const timestamps = grades.map(g => g.date.getTime());
@@ -308,7 +365,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     });
 
     return result;
-  }, [student.grades, subjectOptions, selectedSubject]);
+  }, [effectiveStudent.grades, subjectOptions, selectedSubject]);
 
   // Calculate class average per subject
   const classAverageBySubject = useMemo(() => {
@@ -333,7 +390,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
 
   // Chart Data: Behavior Trends (excluding absences – positive + other negative only), optional subject filter
   const { chartData: behaviorChartData, viewMode } = useMemo(() => {
-    let events = student.behaviorEvents.filter((e) => !isAbsenceEvent(e));
+    let events = effectiveStudent.behaviorEvents.filter((e) => !isAbsenceEvent(e));
     if (selectedSubject) events = events.filter(e => e.subject === selectedSubject);
     if (events.length === 0) return { chartData: [], viewMode: 'daily' };
 
@@ -402,11 +459,11 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     });
 
     return { chartData: data, viewMode: isDailyView ? 'daily' : 'weekly' };
-  }, [student.behaviorEvents, selectedSubject]);
+  }, [effectiveStudent.behaviorEvents, selectedSubject]);
 
   // Chart Data: Absences only (same time range and daily/weekly logic as behavior), optional subject filter
   const { chartData: absenceChartData, viewMode: absenceViewMode } = useMemo(() => {
-    const allEvents = student.behaviorEvents;
+    const allEvents = effectiveStudent.behaviorEvents;
     let absenceEvents = allEvents.filter(isAbsenceEvent);
     if (selectedSubject) absenceEvents = absenceEvents.filter(e => e.subject === selectedSubject);
     if (allEvents.length === 0) return { chartData: [], viewMode: 'daily' as const };
@@ -451,14 +508,14 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     });
 
     return { chartData: data, viewMode: isDailyView ? 'daily' : 'weekly' };
-  }, [student.behaviorEvents, selectedSubject]);
+  }, [effectiveStudent.behaviorEvents, selectedSubject]);
 
   // Absence Analysis (subject can be numeric on mobile when column order differs in Excel parsing)
   const displaySubject = (raw: string) => (/^\d+$/.test(String(raw).trim()) ? 'מקצוע לא צוין' : (raw || 'כללי'));
 
   const absenceData = useMemo(() => {
     const counts: Record<string, number> = {};
-    student.behaviorEvents.forEach(e => {
+    effectiveStudent.behaviorEvents.forEach(e => {
         const type = e.type || '';
         if (type.includes('חיסור') || type.includes('הברזה') || type.includes('אי הגעה') || type.includes('נעדר')) {
             const raw = e.subject ?? '';
@@ -470,14 +527,14 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     return Object.entries(counts)
         .sort((a, b) => b[1] - a[1])
         .filter(([_, count]) => count > 0);
-  }, [student.behaviorEvents]);
+  }, [effectiveStudent.behaviorEvents]);
 
   // ניתוח מקצועות - חוזקות וחולשות
   const subjectAnalysis = useMemo(() => {
     const subjectStats: Record<string, { avg: number; count: number; trend: 'improving' | 'declining' | 'stable'; behaviorScore: number; classAvg: number }> = {};
     
     // Calculate weighted averages per subject for student
-    student.grades.forEach(g => {
+    effectiveStudent.grades.forEach(g => {
       const subj = displaySubject(g.subject);
       if (!subjectStats[subj]) {
         subjectStats[subj] = { avg: 0, count: 0, trend: 'stable', behaviorScore: 0, classAvg: 0 };
@@ -506,7 +563,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     // Calculate weighted averages and trends for student
     Object.keys(subjectStats).forEach(subj => {
       const stats = subjectStats[subj];
-      const subjectGrades = student.grades.filter(g => displaySubject(g.subject) === subj);
+      const subjectGrades = effectiveStudent.grades.filter(g => displaySubject(g.subject) === subj);
       
       if (subjectGrades.length > 0) {
         // Calculate weighted average for student
@@ -538,7 +595,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       }
       
       // Calculate behavior score for this subject
-      const subjectEvents = student.behaviorEvents.filter(e => displaySubject(e.subject) === subj);
+      const subjectEvents = effectiveStudent.behaviorEvents.filter(e => displaySubject(e.subject) === subj);
       stats.behaviorScore = subjectEvents.reduce((sum, e) => {
         if (e.category === EventType.POSITIVE) return sum + 1;
         if (e.category === EventType.NEGATIVE) return sum - 2;
@@ -555,13 +612,13 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       weakest: sorted.slice(-3).reverse(),
       all: sorted
     };
-  }, [student.grades, student.behaviorEvents, students]);
+  }, [effectiveStudent.grades, effectiveStudent.behaviorEvents, students]);
 
   // ניתוח זמני - דפוסים יומיים
   const temporalAnalysis = useMemo(() => {
     const dayOfWeekCounts: Record<number, { absences: number; negatives: number; positives: number }> = {};
     
-    student.behaviorEvents.forEach(e => {
+    effectiveStudent.behaviorEvents.forEach(e => {
       const dayOfWeek = e.date.getDay(); // 0 = Sunday, 6 = Saturday
       if (!dayOfWeekCounts[dayOfWeek]) {
         dayOfWeekCounts[dayOfWeek] = { absences: 0, negatives: 0, positives: 0 };
@@ -587,8 +644,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       .sort((a, b) => (b.absences + b.negatives) - (a.absences + a.negatives));
     
     // Time-based trend (early vs late semester)
-    const sortedGrades = [...student.grades].sort((a, b) => a.date.getTime() - b.date.getTime());
-    const sortedEvents = [...student.behaviorEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const sortedGrades = [...effectiveStudent.grades].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const sortedEvents = [...effectiveStudent.behaviorEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
     
     let earlyLateComparison: { early: { avg: number; behaviorScore: number }; late: { avg: number; behaviorScore: number } } | null = null;
     
@@ -623,13 +680,13 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     }
     
     return { problemDays, earlyLateComparison };
-  }, [student.behaviorEvents, student.grades]);
+  }, [effectiveStudent.behaviorEvents, effectiveStudent.grades]);
 
   // ניתוח התנהגות מפורט
   const behaviorAnalysis = useMemo(() => {
     const behaviorTypes: Record<string, { count: number; category: EventType }> = {};
     
-    student.behaviorEvents.forEach(e => {
+    effectiveStudent.behaviorEvents.forEach(e => {
       const type = e.type || 'אחר';
       if (!behaviorTypes[type]) {
         behaviorTypes[type] = { count: 0, category: e.category };
@@ -641,13 +698,13 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       .sort((a, b) => b[1].count - a[1].count)
       .slice(0, 5);
     
-    const positiveRatio = student.behaviorEvents.length > 0 
-      ? student.positiveCount / student.behaviorEvents.length 
+    const positiveRatio = effectiveStudent.behaviorEvents.length > 0 
+      ? effectiveStudent.positiveCount / effectiveStudent.behaviorEvents.length 
       : 0;
     
     // Behavior by subject
     const behaviorBySubject: Record<string, { positive: number; negative: number; neutral: number }> = {};
-    student.behaviorEvents.forEach(e => {
+    effectiveStudent.behaviorEvents.forEach(e => {
       const subj = displaySubject(e.subject);
       if (!behaviorBySubject[subj]) {
         behaviorBySubject[subj] = { positive: 0, negative: 0, neutral: 0 };
@@ -666,11 +723,11 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       .sort((a, b) => (b[1].positive - b[1].negative) - (a[1].positive - a[1].negative));
     
     return { mostCommon, positiveRatio, problematicSubjects, positiveSubjects };
-  }, [student.behaviorEvents]);
+  }, [effectiveStudent.behaviorEvents]);
 
   // ניתוח מגמות מתקדם
   const advancedTrends = useMemo(() => {
-    const sortedGrades = [...student.grades].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const sortedGrades = [...effectiveStudent.grades].sort((a, b) => a.date.getTime() - b.date.getTime());
     
     // Consistency (volatility) - standard deviation
     let consistency = 0;
@@ -702,7 +759,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     
     // Recovery patterns - grades after negative events
     const recoveryPatterns: Array<{ eventDate: Date; gradesAfter: number[] }> = [];
-    const negativeEvents = student.behaviorEvents
+    const negativeEvents = effectiveStudent.behaviorEvents
       .filter(e => e.category === EventType.NEGATIVE && !isAbsenceEvent(e))
       .sort((a, b) => a.date.getTime() - b.date.getTime());
     
@@ -724,7 +781,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       : null;
     
     return { consistency, acceleration, avgRecovery, recoveryPatterns: recoveryPatterns.length };
-  }, [student.grades, student.behaviorEvents]);
+  }, [effectiveStudent.grades, effectiveStudent.behaviorEvents]);
 
   // השוואות עם ממוצע כיתתי
   const comparisonAnalysis = useMemo(() => {
@@ -744,37 +801,37 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     });
     
     return {
-      overallDiff: student.averageScore - classAverage,
-      overallPercentage: classAverage > 0 ? ((student.averageScore - classAverage) / classAverage) * 100 : 0,
+      overallDiff: effectiveStudent.averageScore - classAverage,
+      overallPercentage: classAverage > 0 ? ((effectiveStudent.averageScore - classAverage) / classAverage) * 100 : 0,
       subjectComparisons: subjectComparisons.filter(c => Math.abs(c.diff) > 3) // Only show significant differences
     };
-  }, [student.averageScore, classAverage, subjectAnalysis]);
+  }, [effectiveStudent.averageScore, classAverage, subjectAnalysis]);
 
-  // תובנות מומלצות – צעדים מומלצים לשיחה ומעקב
+  // תובנות מומלצות – צעדים מומלצים לשיחה ומעקב (+ תובנות לפי תקופות)
   const recommendedInsights = useMemo(() => {
     const insights: { icon: React.ElementType; text: string; priority: number }[] = [];
     const riskSettingsUsed = riskSettings ?? { minGradeThreshold: 55, maxNegativeBehaviors: 5, attendanceThreshold: 4 };
 
-    if (student.riskLevel === 'high') {
+    if (effectiveStudent.riskLevel === 'high') {
       insights.push({ icon: AlertTriangle, text: 'תלמיד בסיכון גבוה – כדאי לקבע פגישת שיחה קרובה ולהגדיר יעדים ברורים', priority: 1 });
     }
-    if (student.averageScore < riskSettingsUsed.minGradeThreshold) {
+    if (effectiveStudent.averageScore < riskSettingsUsed.minGradeThreshold) {
       insights.push({ icon: BookOpen, text: 'ממוצע מתחת לסף – להציע שיעורי עזר או תגבור במקצועות החלשים', priority: 2 });
     }
-    if (student.gradeTrend === 'declining') {
+    if (effectiveStudent.gradeTrend === 'declining') {
       insights.push({ icon: TrendingDown, text: 'מגמת ציונים יורדת – לבחון מה השתנה ולדבר עם התלמיד על חסמים', priority: 3 });
     }
-    if (student.behaviorTrend === 'declining') {
+    if (effectiveStudent.behaviorTrend === 'declining') {
       insights.push({ icon: AlertCircle, text: 'מגמת התנהגות מידרדרת – להזכיר חוקים ולהעמיק בשיחה על מקור האירועים', priority: 4 });
     }
-    const absencesCount = student.behaviorEvents.filter(isAbsenceEvent).length;
+    const absencesCount = effectiveStudent.behaviorEvents.filter(isAbsenceEvent).length;
     if (absencesCount >= riskSettingsUsed.attendanceThreshold) {
       insights.push({ icon: CalendarX2, text: `${absencesCount} חיסורים – לברר סיבה ולשקול שיחה עם הורים`, priority: 5 });
     }
-    if (student.negativeCount > riskSettingsUsed.maxNegativeBehaviors) {
+    if (effectiveStudent.negativeCount > riskSettingsUsed.maxNegativeBehaviors) {
       insights.push({ icon: MessageSquare, text: 'מספר אירועים שליליים גבוה – לשוחח על דפוסים ולבנות תוכנית שיפור', priority: 6 });
     }
-    if (student.averageScore < classAverage - 10 && student.averageScore >= 60) {
+    if (effectiveStudent.averageScore < classAverage - 10 && effectiveStudent.averageScore >= 60) {
       insights.push({ icon: Target, text: 'מתחת לממוצע הכיתתי – להציע יעד ריאלי לעלייה ולהגדיר צעדים', priority: 7 });
     }
     if (subjectAnalysis.weakest.length > 0) {
@@ -789,17 +846,20 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       const dayNames = temporalAnalysis.problemDays.slice(0, 2).map((d) => d.dayName).join(', ');
       insights.push({ icon: Calendar, text: `יותר אירועים בימים: ${dayNames} – לחפש דפוס (שיעורים מסוימים, עייפות וכו')`, priority: 10 });
     }
-    if (student.gradeTrend === 'improving' && student.riskLevel !== 'low') {
+    if (effectiveStudent.gradeTrend === 'improving' && effectiveStudent.riskLevel !== 'low') {
       insights.push({ icon: ThumbsUp, text: 'מגמת ציונים משתפרת – לחזק ולתמוך בהמשך', priority: 11 });
     }
-    if (student.positiveCount > student.negativeCount * 2 && student.negativeCount > 0) {
+    if (effectiveStudent.positiveCount > effectiveStudent.negativeCount * 2 && effectiveStudent.negativeCount > 0) {
       insights.push({ icon: Star, text: 'יותר חיזוקים מאירועים שליליים – לשמר ולהמשיך לחזק התנהגות חיובית', priority: 12 });
     }
+    periodInsights.forEach((p, i) => {
+      insights.push({ icon: p.icon, text: p.text, priority: 20 + i });
+    });
     if (insights.length === 0) {
       insights.push({ icon: Zap, text: 'המצב הכללי טוב – להמשיך במעקב שוטף ולחזק הישגים', priority: 0 });
     }
-    return insights.sort((a, b) => a.priority - b.priority).slice(0, 5);
-  }, [student, classAverage, subjectAnalysis, behaviorAnalysis, temporalAnalysis, riskSettings]);
+    return insights.sort((a, b) => a.priority - b.priority).slice(0, 8);
+  }, [effectiveStudent, classAverage, subjectAnalysis, behaviorAnalysis, temporalAnalysis, riskSettings, periodInsights]);
 
   const riskStyles = {
     high: 'text-red-700 font-bold bg-red-50 border-red-200',
@@ -861,25 +921,40 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
               חזרה
             </button>
 
+            {periodDefinitions.length > 0 && (
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] text-slate-500">תקופה:</span>
+                <select
+                  value={selectedPeriodId ?? ''}
+                  onChange={(e) => setSelectedPeriodId(e.target.value || null)}
+                  className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-700 flex-1 max-w-[140px]"
+                >
+                  <option value="">כל התקופות</option>
+                  {periodDefinitions.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {/* Student Info - Compact Row */}
             <div className="flex items-center gap-2.5 mb-2.5">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-base font-bold text-white shadow-md shrink-0
-                ${student.averageScore < 60 ? 'bg-gradient-to-br from-red-500 to-rose-600' : 
-                  student.averageScore < 80 ? 'bg-gradient-to-br from-amber-500 to-orange-500' : 
+                ${effectiveStudent.averageScore < 60 ? 'bg-gradient-to-br from-red-500 to-rose-600' : 
+                  effectiveStudent.averageScore < 80 ? 'bg-gradient-to-br from-amber-500 to-orange-500' : 
                   'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
-                {Math.round(student.averageScore)}
+                {Math.round(effectiveStudent.averageScore)}
               </div>
               <div className="flex-1 min-w-0">
                 <h1 className="text-base font-bold text-slate-800 leading-tight tracking-tight truncate">{getDisplayName(student.name, studentIndex, isAnonymous)}</h1>
                 <div className="text-slate-500 text-[10px] flex items-center gap-1.5 mt-0.5">
                   <span className="truncate">ת.ז: {student.id}</span>
                   <span className="text-slate-300">•</span>
-                  <span>{student.grades.length} ציונים</span>
+                  <span>{effectiveStudent.grades.length} ציונים</span>
                 </div>
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
-                <span className={`px-2 py-0.5 rounded-lg text-[10px] border ${riskStyles[student.riskLevel]}`}>
-                  {riskLabels[student.riskLevel]}
+                <span className={`px-2 py-0.5 rounded-lg text-[10px] border ${riskStyles[effectiveStudent.riskLevel]}`}>
+                  {riskLabels[effectiveStudent.riskLevel]}
                 </span>
                 <div className="flex items-center gap-1">
                   {hasPrevStudent && prevStudent && (
@@ -962,29 +1037,47 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start md:items-center gap-4">
                 <div className={`w-14 h-14 md:w-16 md:h-16 rounded-2xl flex items-center justify-center text-xl md:text-2xl font-bold text-white shadow-lg shrink-0
-                  ${student.averageScore < 60 ? 'bg-gradient-to-br from-red-500 to-rose-600' : 
-                    student.averageScore < 80 ? 'bg-gradient-to-br from-amber-500 to-orange-500' : 
+                  ${effectiveStudent.averageScore < 60 ? 'bg-gradient-to-br from-red-500 to-rose-600' : 
+                    effectiveStudent.averageScore < 80 ? 'bg-gradient-to-br from-amber-500 to-orange-500' : 
                     'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
-                  {Math.round(student.averageScore)}
+                  {Math.round(effectiveStudent.averageScore)}
                 </div>
                 <div>
                   <h1 className="text-xl md:text-2xl font-bold text-slate-800 leading-tight tracking-tight">{getDisplayName(student.name, studentIndex, isAnonymous)}</h1>
                   <div className="text-slate-500 text-xs md:text-sm flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
                     <span>ת.ז: {student.id}</span>
                     <span className="text-slate-300 hidden md:inline">|</span>
-                    <span>{student.grades.length} ציונים</span>
+                    <span>{effectiveStudent.grades.length} ציונים</span>
                     <span className="text-slate-300 hidden md:inline">|</span>
-                    <span>{student.behaviorEvents.length} אירועי התנהגות</span>
+                    <span>{effectiveStudent.behaviorEvents.length} אירועי התנהגות</span>
+                    {selectedPeriod && (
+                      <span className="text-primary-600 font-medium">(תקופה: {selectedPeriod.name})</span>
+                    )}
                   </div>
                 </div>
               </div>
 
               <div className="flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end gap-3 mt-2 md:mt-0">
+                {periodDefinitions.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-slate-500 whitespace-nowrap">תקופה:</label>
+                    <select
+                      value={selectedPeriodId ?? ''}
+                      onChange={(e) => setSelectedPeriodId(e.target.value || null)}
+                      className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    >
+                      <option value="">כל התקופות</option>
+                      {periodDefinitions.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="flex gap-2 items-center md:flex-col md:items-end md:gap-1">
-                  <span className={`px-3 py-1 rounded-xl text-xs md:text-sm border ${riskStyles[student.riskLevel]}`}>
-                    {riskLabels[student.riskLevel]}
+                  <span className={`px-3 py-1 rounded-xl text-xs md:text-sm border ${riskStyles[effectiveStudent.riskLevel]}`}>
+                    {riskLabels[effectiveStudent.riskLevel]}
                   </span>
-                  <span className="text-[10px] text-slate-400 hidden md:block">ציון סיכון: {student.riskScore}/10 <HelpTip text="ציון סיכון מ-1 עד 10. ציון נמוך = סיכון גבוה. מחושב לפי ממוצע ציונים, מגמות, אירועים שליליים וחיסורים." /></span>
+                  <span className="text-[10px] text-slate-400 hidden md:block">ציון סיכון: {effectiveStudent.riskScore}/10 <HelpTip text="ציון סיכון מ-1 עד 10. ציון נמוך = סיכון גבוה. מחושב לפי ממוצע ציונים, מגמות, אירועים שליליים וחיסורים." /></span>
                 </div>
                 <div className="flex gap-2 items-center">
                   {hasPrevStudent && prevStudent && (
@@ -1062,6 +1155,63 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
 
       {/* Content */}
       <div className="max-w-7xl mx-auto p-3 md:p-6 min-h-[500px]">
+        {/* השוואה בין תקופות (תלמיד זה) – לא מוצג בתובנות */}
+        {periodStatsForStudent.length > 0 && activeTab !== 'insights' && (
+          <div className="mb-6 bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
+            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <BarChart3 className="text-primary-500" size={20} />
+              השוואה בין תקופות – תלמיד זה
+            </h3>
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-right border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="py-2 px-3 font-bold text-slate-600">תקופה</th>
+                    <th className="py-2 px-3 font-bold text-slate-600">ממוצע</th>
+                    <th className="py-2 px-3 font-bold text-slate-600">חיסורים</th>
+                    <th className="py-2 px-3 font-bold text-slate-600">אירועים שליליים</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {periodStatsForStudent.map((row) => (
+                    <tr key={row.periodId} className="border-b border-slate-100 hover:bg-slate-50/50">
+                      <td className="py-2 px-3 font-medium text-slate-800">{row.name}</td>
+                      <td className="py-2 px-3">{row.ממוצע.toFixed(1)}</td>
+                      <td className="py-2 px-3">{row.חיסורים}</td>
+                      <td className="py-2 px-3">{row.שליליים}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {periodStatsForStudent.length >= 2 && (
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={periodStatsForStudent} margin={{ top: 8, right: 32, left: 8, bottom: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <YAxis yAxisId="left" domain={[0, 100]} tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <Tooltip
+                      content={({ active, payload }) => active && payload?.length ? (
+                        <div className="bg-white/95 border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-sm text-right">
+                          <p className="font-bold text-slate-800 mb-1">{payload[0].payload.name}</p>
+                          <p className="text-primary-600">ממוצע: {payload[0].payload.ממוצע?.toFixed(1)}</p>
+                          <p className="text-amber-700">חיסורים: {payload[0].payload.חיסורים}</p>
+                          <p className="text-red-600">שליליים: {payload[0].payload.שליליים}</p>
+                        </div>
+                      ) : null}
+                    />
+                    <Bar yAxisId="left" dataKey="ממוצע" name="ממוצע" fill="#0c8ee6" radius={[4, 4, 0, 0]} barSize={24} />
+                    <Bar yAxisId="right" dataKey="חיסורים" name="חיסורים" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={24} />
+                    <Bar yAxisId="right" dataKey="שליליים" name="אירועים שליליים" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={24} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'trends' && (
           <div className="grid grid-cols-1 gap-5 md:gap-6">
             {/* Subject filter for all three charts */}
@@ -1363,7 +1513,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                  )}
                  {/* Mobile Cards View for Grades */}
                  <div className="md:hidden space-y-3">
-                    {student.grades.map((grade, idx) => (
+                    {effectiveStudent.grades.map((grade, idx) => (
                         <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-card flex justify-between items-center">
                             <div>
                                 <h4 className="font-bold text-slate-800">{grade.subject}</h4>
@@ -1397,7 +1547,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {student.grades.map((grade, idx) => (
+                            {effectiveStudent.grades.map((grade, idx) => (
                                 <tr key={idx} className="hover:bg-slate-50">
                                     <td className="px-6 py-4 font-medium">{grade.subject}</td>
                                     <td className="px-6 py-4 text-slate-600">{grade.assignment}</td>
@@ -1680,7 +1830,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                 )}
 
                 {/* ניתוח מגמות מתקדם */}
-                {student.grades.length >= 3 && (
+                {effectiveStudent.grades.length >= 3 && (
                     <div className="bg-white p-5 md:p-6 rounded-2xl shadow-card border border-slate-100/80 hover:shadow-card-hover transition-shadow">
                         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                             <Zap className="text-blue-500" size={20} />
@@ -1747,7 +1897,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                     </span>
                                 </div>
                                 <div className="text-xs text-slate-600">
-                                    תלמיד: {student.averageScore.toFixed(1)} | כיתה: {classAverage.toFixed(1)}
+                                    תלמיד: {effectiveStudent.averageScore.toFixed(1)} | כיתה: {classAverage.toFixed(1)}
                                 </div>
                             </div>
                             <div>
@@ -1772,20 +1922,20 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                 )}
 
                 {/* הישגים וחוזקות */}
-                {(student.averageScore >= 85 || student.positiveCount > student.negativeCount * 2 || comparisonAnalysis.overallDiff > 5 || student.gradeTrend === 'improving') && (
+                {(effectiveStudent.averageScore >= 85 || effectiveStudent.positiveCount > effectiveStudent.negativeCount * 2 || comparisonAnalysis.overallDiff > 5 || effectiveStudent.gradeTrend === 'improving') && (
                     <div className="bg-gradient-to-br from-emerald-50/80 to-teal-50/50 p-5 md:p-6 rounded-2xl shadow-card border border-emerald-100/80 hover:shadow-card-hover transition-shadow md:col-span-2">
                         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                             <Star className="text-emerald-600" size={20} />
                             הישגים וחוזקות
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {student.averageScore >= 85 && (
+                            {effectiveStudent.averageScore >= 85 && (
                                 <div className="bg-white/70 p-3 rounded-xl border border-emerald-200">
                                     <div className="flex items-center gap-2 mb-1">
                                         <Award className="text-emerald-600" size={16} />
                                         <span className="font-bold text-emerald-700 text-sm">תלמיד מצטיין</span>
                                     </div>
-                                    <p className="text-xs text-slate-700">ממוצע ציונים גבוה: {student.averageScore.toFixed(1)}</p>
+                                    <p className="text-xs text-slate-700">ממוצע ציונים גבוה: {effectiveStudent.averageScore.toFixed(1)}</p>
                                 </div>
                             )}
                             {comparisonAnalysis.overallDiff > 5 && (
@@ -1797,16 +1947,16 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                     <p className="text-xs text-slate-700">ב-{comparisonAnalysis.overallDiff.toFixed(1)} נקודות מהממוצע</p>
                                 </div>
                             )}
-                            {student.positiveCount > student.negativeCount * 2 && student.positiveCount > 0 && (
+                            {effectiveStudent.positiveCount > effectiveStudent.negativeCount * 2 && effectiveStudent.positiveCount > 0 && (
                                 <div className="bg-white/70 p-3 rounded-xl border border-emerald-200">
                                     <div className="flex items-center gap-2 mb-1">
                                         <ThumbsUp className="text-emerald-600" size={16} />
                                         <span className="font-bold text-emerald-700 text-sm">התנהגות מצוינת</span>
                                     </div>
-                                    <p className="text-xs text-slate-700">{student.positiveCount} אירועים חיוביים לעומת {student.negativeCount} שליליים</p>
+                                    <p className="text-xs text-slate-700">{effectiveStudent.positiveCount} אירועים חיוביים לעומת {effectiveStudent.negativeCount} שליליים</p>
                                 </div>
                             )}
-                            {student.gradeTrend === 'improving' && (
+                            {effectiveStudent.gradeTrend === 'improving' && (
                                 <div className="bg-white/70 p-3 rounded-xl border border-emerald-200">
                                     <div className="flex items-center gap-2 mb-1">
                                         <TrendingUp className="text-emerald-600" size={16} />
@@ -1845,13 +1995,13 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                     </h3>
                     <ul className="space-y-4">
                         {/* המלצות חיוביות - לתלמידים מצטיינים */}
-                        {student.averageScore >= 85 && (
+                        {effectiveStudent.averageScore >= 85 && (
                             <li className="flex gap-3 items-start bg-emerald-50/50 p-3 rounded-lg border-r-4 border-emerald-500">
                                 <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 text-xs font-bold">⭐</div>
                                 <div className="flex-1">
                                     <p className="text-sm font-semibold text-emerald-800 mb-1">תלמיד מצטיין - מומלץ לחזק!</p>
                                     <p className="text-sm text-slate-700">
-                                        התלמיד מציג ביצועים מעולים (ממוצע: {student.averageScore.toFixed(1)}). 
+                                        התלמיד מציג ביצועים מעולים (ממוצע: {effectiveStudent.averageScore.toFixed(1)}). 
                                         <span className="font-medium"> מומלץ לשלוח הודעת חיזוק להורים</span>, להציע אתגרים נוספים, 
                                         ולשקול תפקידים מנהיגותיים בכיתה.
                                     </p>
@@ -1871,20 +2021,20 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                 </div>
                             </li>
                         )}
-                        {student.positiveCount > student.negativeCount * 2 && student.positiveCount > 3 && (
+                        {effectiveStudent.positiveCount > effectiveStudent.negativeCount * 2 && effectiveStudent.positiveCount > 3 && (
                             <li className="flex gap-3 items-start bg-emerald-50/50 p-3 rounded-lg border-r-4 border-emerald-500">
                                 <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 text-xs font-bold">👍</div>
                                 <div className="flex-1">
                                     <p className="text-sm font-semibold text-emerald-800 mb-1">התנהגות מצוינת - ראוי להכרה!</p>
                                     <p className="text-sm text-slate-700">
-                                        התלמיד מציג יחס חיובי מאוד ({student.positiveCount} אירועים חיוביים). 
+                                        התלמיד מציג יחס חיובי מאוד ({effectiveStudent.positiveCount} אירועים חיוביים). 
                                         <span className="font-medium"> מומלץ לשלוח הודעת חיזוק להורים</span>, 
                                         להכיר בפומבי בכיתה, ולשקול תפקידים אחראיים.
                                     </p>
                                 </div>
                             </li>
                         )}
-                        {student.gradeTrend === 'improving' && student.averageScore >= 75 && (
+                        {effectiveStudent.gradeTrend === 'improving' && effectiveStudent.averageScore >= 75 && (
                             <li className="flex gap-3 items-start bg-emerald-50/50 p-3 rounded-lg border-r-4 border-emerald-500">
                                 <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 text-xs font-bold">📈</div>
                                 <div className="flex-1">
@@ -1910,7 +2060,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                 </div>
                             </li>
                         )}
-                        {advancedTrends.acceleration === 'accelerating' && student.averageScore >= 70 && (
+                        {advancedTrends.acceleration === 'accelerating' && effectiveStudent.averageScore >= 70 && (
                             <li className="flex gap-3 items-start bg-emerald-50/50 p-3 rounded-lg border-r-4 border-emerald-500">
                                 <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 text-xs font-bold">⚡</div>
                                 <div className="flex-1">
@@ -1923,7 +2073,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                 </div>
                             </li>
                         )}
-                        {advancedTrends.consistency < 8 && student.averageScore >= 80 && (
+                        {advancedTrends.consistency < 8 && effectiveStudent.averageScore >= 80 && (
                             <li className="flex gap-3 items-start bg-emerald-50/50 p-3 rounded-lg border-r-4 border-emerald-500">
                                 <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 text-xs font-bold">✓</div>
                                 <div className="flex-1">
@@ -1936,7 +2086,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                 </div>
                             </li>
                         )}
-                        {student.behaviorTrend === 'improving' && (
+                        {effectiveStudent.behaviorTrend === 'improving' && (
                             <li className="flex gap-3 items-start bg-emerald-50/50 p-3 rounded-lg border-r-4 border-emerald-500">
                                 <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 text-xs font-bold">✨</div>
                                 <div className="flex-1">
@@ -1951,8 +2101,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                         )}
                         
                         {/* קו מפריד בין המלצות חיוביות לשליליות */}
-                        {(student.averageScore >= 85 || comparisonAnalysis.overallDiff > 5 || student.positiveCount > student.negativeCount * 2) && 
-                         (student.averageScore < 65 || student.negativeCount > 3 || absenceData.some(([_, count]) => count > 3)) && (
+                        {(effectiveStudent.averageScore >= 85 || comparisonAnalysis.overallDiff > 5 || effectiveStudent.positiveCount > effectiveStudent.negativeCount * 2) && 
+                         (effectiveStudent.averageScore < 65 || effectiveStudent.negativeCount > 3 || absenceData.some(([_, count]) => count > 3)) && (
                             <li className="border-t border-slate-200 pt-4 mt-4"></li>
                         )}
 
@@ -1969,19 +2119,19 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                             </li>
                         )}
 
-                        {student.averageScore < 65 && (
+                        {effectiveStudent.averageScore < 65 && (
                             <li className="flex gap-3 items-start">
                                 <div className="w-6 h-6 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0 text-xs font-bold">1</div>
                                 <p className="text-sm text-slate-700">התלמיד בסיכון אקדמי. מומלץ לזמן שיחה עם ההורים ולבנות תוכנית תגבור.</p>
                             </li>
                         )}
-                        {student.negativeCount > 3 && (
+                        {effectiveStudent.negativeCount > 3 && (
                             <li className="flex gap-3 items-start">
                                 <div className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center shrink-0 text-xs font-bold">!</div>
                                 <p className="text-sm text-slate-700">ריבוי אירועי משמעת. יש לבדוק האם הקושי נובע מחוסר עניין בחומר או בעיות אישיות.</p>
                             </li>
                         )}
-                         {student.behaviorTrend === 'declining' && (
+                         {effectiveStudent.behaviorTrend === 'declining' && (
                             <li className="flex gap-3 items-start">
                                 <div className="w-6 h-6 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0 text-xs font-bold">!</div>
                                 <p className="text-sm text-slate-700">זוהתה הידרדרות משמעותית בהתנהגות לאחרונה. נדרשת בדיקת עומק.</p>

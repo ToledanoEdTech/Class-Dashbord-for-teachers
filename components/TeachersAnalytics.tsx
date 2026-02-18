@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { Student, EventType, isAbsenceEvent, isOtherNegativeEvent } from '../types';
+import { Student, EventType, isAbsenceEvent, isOtherNegativeEvent, PeriodDefinition } from '../types';
+import { startOfDay, endOfDay } from 'date-fns';
 import {
   BarChart,
   Bar,
@@ -14,6 +15,7 @@ import {
 interface TeachersAnalyticsProps {
   students: Student[];
   isAnonymous?: boolean;
+  periodDefinitions?: PeriodDefinition[];
 }
 
 interface TeacherGradeStats {
@@ -33,26 +35,82 @@ interface TeacherBehaviorStats {
   studentCount: number;
 }
 
-const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students }) => {
+const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, periodDefinitions = [] }) => {
+
+  /** סטטיסטיקות כיתתיות לפי תקופה – למען תובנות לפי תקופות */
+  const periodClassStats = useMemo(() => {
+    if (!periodDefinitions.length) return [];
+    return periodDefinitions.map((p) => {
+      const pStart = startOfDay(new Date(p.startDate));
+      const pEnd = endOfDay(new Date(p.endDate));
+      const inRange = (d: Date) => d >= pStart && d <= pEnd;
+      let gradeSum = 0;
+      let gradeCount = 0;
+      let absences = 0;
+      students.forEach((s) => {
+        s.grades.forEach((g) => {
+          if (inRange(g.date)) {
+            gradeSum += g.score;
+            gradeCount += 1;
+          }
+        });
+        s.behaviorEvents.forEach((e) => {
+          if (inRange(e.date) && isAbsenceEvent(e)) absences += 1;
+        });
+      });
+      const avg = gradeCount > 0 ? Math.round((gradeSum / gradeCount) * 10) / 10 : 0;
+      return { name: p.name, ממוצע: avg, חיסורים: absences };
+    });
+  }, [students, periodDefinitions]);
+
+  /** תובנות לפי תקופות: השוואת תקופה אחרונה לקודמת */
+  const periodInsights = useMemo(() => {
+    if (periodClassStats.length < 2) return [];
+    const last = periodClassStats[periodClassStats.length - 1];
+    const prev = periodClassStats[periodClassStats.length - 2];
+    const lines: { type: 'improve' | 'decline'; text: string }[] = [];
+    if (last.ממוצע > prev.ממוצע + 1) {
+      lines.push({ type: 'improve', text: `ממוצע כיתתי עלה בתקופה "${last.name}" (${prev.ממוצע} → ${last.ממוצע}) ביחס ל"${prev.name}".` });
+    } else if (last.ממוצע < prev.ממוצע - 1 && prev.ממוצע > 0) {
+      lines.push({ type: 'decline', text: `ממוצע כיתתי ירד בתקופה "${last.name}" (${prev.ממוצע} → ${last.ממוצע}) ביחס ל"${prev.name}".` });
+    }
+    if (last.חיסורים < prev.חיסורים && prev.חיסורים > 0) {
+      lines.push({ type: 'improve', text: `פחות חיסורים בתקופה "${last.name}" (${last.חיסורים}) ביחס ל"${prev.name}" (${prev.חיסורים}).` });
+    } else if (last.חיסורים > prev.חיסורים) {
+      lines.push({ type: 'decline', text: `יותר חיסורים בתקופה "${last.name}" (${last.חיסורים}) ביחס ל"${prev.name}" (${prev.חיסורים}).` });
+    }
+    return lines;
+  }, [periodClassStats]);
 
   const teacherSubjectPairs = useMemo(() => {
+    const normalizeTeacher = (t: string): string => {
+      const x = (t || '').trim().replace(/\s+/g, ' ');
+      if (!x) return 'ללא מורה';
+      const words = x.split(' ').filter(Boolean);
+      if (words.length >= 3) return words.slice(-2).join(' ');
+      return x;
+    };
+    const normalize = (t: string, s: string) => {
+      const teacher = normalizeTeacher(t) || 'ללא מורה';
+      const subject = (s || '').trim().replace(/\s+/g, ' ') || 'כללי';
+      return { teacher, subject };
+    };
+    const key = (t: string, s: string) => `${t}\0${s}`;
+
     const gradeByPair: Record<string, { sum: number; count: number }> = {};
     const eventsByPair: Record<string, number> = {};
-    const key = (t: string, s: string) => `${t}\0${s}`;
 
     students.forEach((s) => {
       s.grades.forEach((g) => {
-        const t = (g.teacher || 'ללא מורה').trim() || 'ללא מורה';
-        const subj = (g.subject || '').trim() || 'כללי';
-        const k = key(t, subj);
+        const { teacher, subject } = normalize(g.teacher, g.subject);
+        const k = key(teacher, subject);
         if (!gradeByPair[k]) gradeByPair[k] = { sum: 0, count: 0 };
         gradeByPair[k].sum += g.score;
         gradeByPair[k].count += 1;
       });
       s.behaviorEvents.forEach((e) => {
-        const t = (e.teacher || 'ללא מורה').trim() || 'ללא מורה';
-        const subj = (e.subject || '').trim() || 'כללי';
-        const k = key(t, subj);
+        const { teacher, subject } = normalize(e.teacher, e.subject);
+        const k = key(teacher, subject);
         eventsByPair[k] = (eventsByPair[k] ?? 0) + 1;
       });
     });
@@ -71,13 +129,56 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students }) => {
         eventCount: eventsByPair[k] ?? 0,
       });
     });
-    return pairs.sort((a, b) => a.teacher.localeCompare(b.teacher, 'he') || a.subject.localeCompare(b.subject, 'he'));
+
+    // מיזוג: אם למורה יש שורת "כללי" רק עם אירועים (בלי ציונים) ויש לו בדיוק מקצוע אחד מציונים – למזג את האירועים לשורת המקצוע
+    const byTeacher = new Map<string, { subjectsWithGrades: Set<string>; hasGeneralOnlyEvents: boolean }>();
+    pairs.forEach((p) => {
+      if (!byTeacher.has(p.teacher)) {
+        byTeacher.set(p.teacher, { subjectsWithGrades: new Set(), hasGeneralOnlyEvents: false });
+      }
+      const entry = byTeacher.get(p.teacher)!;
+      if (p.gradeCount > 0) entry.subjectsWithGrades.add(p.subject);
+      if (p.eventCount > 0 && p.gradeCount === 0 && p.subject === 'כללי') entry.hasGeneralOnlyEvents = true;
+    });
+
+    const mergeGeneralIntoSubject = new Map<string, string>();
+    byTeacher.forEach(({ subjectsWithGrades, hasGeneralOnlyEvents }, teacher) => {
+      const subjectList = [...subjectsWithGrades].filter((s) => s !== 'כללי').sort((a, b) => a.localeCompare(b, 'he'));
+      if (hasGeneralOnlyEvents && subjectList.length >= 1) {
+        mergeGeneralIntoSubject.set(teacher, subjectList[0]);
+      }
+    });
+
+    const merged: typeof pairs = [];
+    pairs.forEach((p) => {
+      const k = key(p.teacher, p.subject);
+      const targetSubject = mergeGeneralIntoSubject.get(p.teacher);
+      if (p.subject === 'כללי' && targetSubject != null) {
+        return;
+      }
+      let eventCount = p.eventCount;
+      if (targetSubject === p.subject) {
+        const generalKey = key(p.teacher, 'כללי');
+        eventCount += eventsByPair[generalKey] ?? 0;
+      }
+      merged.push({ ...p, eventCount });
+    });
+
+    return merged.sort((a, b) => a.teacher.localeCompare(b.teacher, 'he') || a.subject.localeCompare(b.subject, 'he'));
   }, [students]);
+  const normalizeTeacherForChart = (t: string): string => {
+    const x = (t || '').trim().replace(/\s+/g, ' ');
+    if (!x) return 'ללא מורה';
+    const words = x.split(' ').filter(Boolean);
+    if (words.length >= 3) return words.slice(-2).join(' ');
+    return x;
+  };
+
   const gradeByTeacher = useMemo(() => {
     const byTeacher: Record<string, { sum: number; count: number; studentIds: Set<string> }> = {};
     students.forEach((s) => {
       s.grades.forEach((g) => {
-        const t = (g.teacher || 'ללא מורה').trim() || 'ללא מורה';
+        const t = normalizeTeacherForChart(g.teacher) || 'ללא מורה';
         if (!byTeacher[t]) byTeacher[t] = { sum: 0, count: 0, studentIds: new Set() };
         byTeacher[t].sum += g.score;
         byTeacher[t].count += 1;
@@ -97,7 +198,7 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students }) => {
     const byTeacher: Record<string, { negative: number; positive: number; absence: number; otherNegative: number; studentIds: Set<string> }> = {};
     students.forEach((s) => {
       s.behaviorEvents.forEach((e) => {
-        const t = (e.teacher || 'ללא מורה').trim() || 'ללא מורה';
+        const t = normalizeTeacherForChart(e.teacher) || 'ללא מורה';
         if (!byTeacher[t]) byTeacher[t] = { negative: 0, positive: 0, absence: 0, otherNegative: 0, studentIds: new Set() };
         if (e.category === EventType.NEGATIVE) {
           byTeacher[t].negative += 1;
@@ -162,6 +263,27 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students }) => {
           <p className="text-slate-500 text-sm md:text-base mt-1">השוואת ממוצעי ציונים ואירועי משמעת לפי מורה</p>
         </div>
       </div>
+
+      {/* תובנות לפי תקופות */}
+      {periodInsights.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
+          <h3 className="text-lg font-bold text-slate-800 mb-3">תובנות לפי תקופות</h3>
+          <p className="text-slate-500 text-sm mb-4">השוואת התקופה האחרונה לתקופה הקודמת (ממוצע כיתתי וחיסורים)</p>
+          <ul className="space-y-2">
+            {periodInsights.map((item, idx) => (
+              <li
+                key={idx}
+                className={`flex items-center gap-2 text-sm py-2 px-3 rounded-lg border ${
+                  item.type === 'improve' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'
+                }`}
+              >
+                <span className="shrink-0">{item.type === 'improve' ? '↑' : '↓'}</span>
+                {item.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Chart 1: Average grade per teacher */}
       <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-shadow duration-300">
@@ -229,7 +351,7 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students }) => {
         <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
           <span className="text-primary-500">תיאום מורה–מקצוע</span>
         </h3>
-        <p className="text-slate-500 text-sm mb-4">רק צירופי מורה–מקצוע שבהם קיימים נתונים (ציונים או אירועים)</p>
+        <p className="text-slate-500 text-sm mb-4">שורה לכל צירוף מורה–מקצוע: ממוצע ציון ואירועי משמעת באותו מקצוע. מורה שמלמד מקצוע אחד יופיע בשורה אחת עם שני הנתונים.</p>
         {teacherSubjectPairs.length > 0 ? (
           <div className="overflow-auto max-h-[50vh] border border-slate-200 rounded-xl">
             <table className="w-full border-collapse text-right text-sm min-w-[320px]">

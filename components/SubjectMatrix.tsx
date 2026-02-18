@@ -237,7 +237,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       });
     });
     const list = Array.from(subjectSet).sort((a, b) => a.localeCompare(b, 'he'));
-    const cols = ['ממוצע כללי', 'ממוצע משוקלל', ...list];
+    const cols = ['ממוצע', ...list];
 
     const r: RowData[] = students.map((student, idx) => {
       const subjectListLocal = list;
@@ -258,18 +258,14 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
         const vals = r.map((x) => x.generalAvg).filter((v) => v != null && !isNaN(v));
         return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
       }
-      if (colIdx === 1) {
-        const vals = r.map((x) => x.weightedGeneralAvg).filter((v) => v != null && !isNaN(v));
-        return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
-      }
-      const subjIdx = colIdx - 2;
+      const subjIdx = colIdx - 1;
       const vals = r.map((x) => x.cells[subjIdx]?.avg).filter((v): v is number => v != null);
       return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
     });
 
     const classWeighted: (number | null)[] = cols.map((_, colIdx) => {
-      if (colIdx <= 1) return classAvgs[colIdx];
-      const subjIdx = colIdx - 2;
+      if (colIdx === 0) return classAvgs[0];
+      const subjIdx = colIdx - 1;
       const vals = r.map((x) => x.cells[subjIdx]?.weightedAvg).filter((v): v is number => v != null);
       return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
     });
@@ -285,7 +281,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
 
   const filteredColumns = useMemo(() => {
     if (subjectFilter.length === 0) return columns;
-    return ['ממוצע כללי', 'ממוצע משוקלל', ...columns.slice(2).filter((c) => subjectFilter.includes(c))];
+    return ['ממוצע', ...columns.slice(1).filter((c) => subjectFilter.includes(c))];
   }, [columns, subjectFilter]);
 
   const colIndexInFull = (displayIdx: number): number => {
@@ -307,7 +303,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       filtered = filtered.filter((r) => studentHasGradeInRange(r, gradeRangeFilter));
     }
     if (sortCol !== null) {
-      const fullSortCol = sortCol >= 2 && subjectFilter.length > 0
+      const fullSortCol = sortCol >= 1 && subjectFilter.length > 0
         ? columns.indexOf(filteredColumns[sortCol])
         : sortCol;
       filtered = [...filtered].sort((a, b) => {
@@ -316,11 +312,8 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
         if (fullSortCol === 0) {
           aVal = a.generalAvg;
           bVal = b.generalAvg;
-        } else if (fullSortCol === 1) {
-          aVal = a.weightedGeneralAvg;
-          bVal = b.weightedGeneralAvg;
         } else {
-          const cellIdx = fullSortCol - 2;
+          const cellIdx = fullSortCol - 1;
           aVal = a.cells[cellIdx]?.avg ?? null;
           bVal = b.cells[cellIdx]?.avg ?? null;
         }
@@ -342,8 +335,8 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
   };
 
   const handleCellClick = (row: RowData, colIdx: number) => {
-    if (colIdx === 0 || colIdx === 1) return;
-    const subjIdx = colIndexInFull(colIdx) - 2;
+    if (colIdx === 0) return;
+    const subjIdx = colIndexInFull(colIdx) - 1;
     const cell = row.cells[subjIdx];
     if (!cell || cell.grades.length === 0) return;
     const subject = subjectList[subjIdx];
@@ -366,37 +359,23 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
   const renderCell = (row: RowData, colIdx: number) => {
     const fullColIdx = colIndexInFull(colIdx);
     const classAvg = classAverages[fullColIdx];
-    const isGap = fullColIdx >= 2 && isGapCell(row.cells[fullColIdx - 2], row.generalAvg);
+    const isGap = fullColIdx >= 1 && isGapCell(row.cells[fullColIdx - 1], row.generalAvg);
 
     if (colIdx === 0) {
       return (
         <td
           key={colIdx}
-          className={`matrix-cell px-1.5 sm:px-3 py-1.5 sm:py-2.5 text-center min-w-[44px] sm:min-w-[80px] border-l border-slate-100 dark:border-slate-600 text-xs sm:text-sm ${getCellClass(row.generalAvg)}`}
+          className={`matrix-cell px-1 sm:px-3 py-1 sm:py-2.5 text-center min-w-[36px] sm:min-w-[80px] border-l border-slate-100 dark:border-slate-600 text-[10px] sm:text-sm ${getCellClass(row.generalAvg)}`}
         >
-          <div className="flex items-center justify-center gap-1">
+          <div className="flex items-center justify-center gap-0.5 sm:gap-1">
             {row.generalAvg}
             {renderComparisonIndicator(row.generalAvg, classAvg)}
           </div>
         </td>
       );
     }
-    if (colIdx === 1) {
-      const val = row.weightedGeneralAvg;
-      return (
-        <td
-          key={colIdx}
-          className={`matrix-cell px-1.5 sm:px-3 py-1.5 sm:py-2.5 text-center min-w-[44px] sm:min-w-[80px] border-l border-slate-100 dark:border-slate-600 text-xs sm:text-sm ${getCellClass(val)}`}
-        >
-          <div className="flex items-center justify-center gap-1">
-            {val}
-            {renderComparisonIndicator(val, classAvg)}
-          </div>
-        </td>
-      );
-    }
 
-    const subjIdx = fullColIdx - 2;
+    const subjIdx = fullColIdx - 1;
     const cell = row.cells[subjIdx];
     const displayVal = showWeighted ? cell?.weightedAvg : cell?.avg;
     const hasGrades = cell && cell.grades.length > 0;
@@ -405,7 +384,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       <td
         key={colIdx}
         onClick={() => hasGrades && handleCellClick(row, colIdx)}
-        className={`matrix-cell group relative px-1.5 sm:px-3 py-1.5 sm:py-2.5 text-center min-w-[44px] sm:min-w-[80px] border-l border-slate-100 dark:border-slate-600 text-xs sm:text-sm ${getCellClass(displayVal ?? null)} ${hasGrades ? 'cursor-pointer hover:ring-1 hover:ring-primary-300 dark:hover:ring-primary-500 rounded' : ''} ${isGap ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
+        className={`matrix-cell group relative px-1 sm:px-3 py-1 sm:py-2.5 text-center min-w-[36px] sm:min-w-[80px] border-l border-slate-100 dark:border-slate-600 text-[10px] sm:text-sm ${getCellClass(displayVal ?? null)} ${hasGrades ? 'cursor-pointer hover:ring-1 hover:ring-primary-300 dark:hover:ring-primary-500 rounded' : ''} ${isGap ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
       >
         <div className="flex items-center justify-center gap-1">
           <span>{displayVal === null ? '—' : displayVal}</span>
@@ -532,14 +511,14 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
           <table className="w-full border-collapse text-right min-w-0 matrix-table">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-700/80 border-b border-slate-200 dark:border-slate-600">
-                <th className="sticky top-0 right-0 z-20 bg-slate-100 dark:bg-slate-700 border-l border-slate-200 dark:border-slate-600 px-2 sm:px-4 py-2 sm:py-3 font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap min-w-[80px] sm:min-w-[120px] text-xs sm:text-base shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                <th className="sticky top-0 right-0 z-20 bg-slate-100 dark:bg-slate-700 border-l border-slate-200 dark:border-slate-600 px-1.5 sm:px-4 py-1.5 sm:py-3 font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap min-w-[70px] sm:min-w-[120px] text-[10px] sm:text-base shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
                   שם התלמיד
                 </th>
                 {filteredColumns.map((subj, i) => (
                   <th
                     key={subj}
                     onClick={() => handleSort(i)}
-                    className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-700 px-1.5 sm:px-3 py-2 sm:py-3 font-semibold text-slate-600 dark:text-slate-300 text-[10px] sm:text-sm whitespace-nowrap min-w-[44px] sm:min-w-[90px] border-l border-slate-200 dark:border-slate-600 cursor-pointer hover:bg-slate-200/80 dark:hover:bg-slate-600 transition-colors select-none"
+                    className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-700 px-1 sm:px-3 py-1.5 sm:py-3 font-semibold text-slate-600 dark:text-slate-300 text-[10px] sm:text-sm whitespace-nowrap min-w-[36px] sm:min-w-[90px] border-l border-slate-200 dark:border-slate-600 cursor-pointer hover:bg-slate-200/80 dark:hover:bg-slate-600 transition-colors select-none"
                   >
                     <div className="flex items-center justify-center gap-1">
                       {subj}
@@ -558,7 +537,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
             <tbody>
               {displayRows.map((row) => (
                 <tr key={row.student.id} className="border-b border-slate-100 dark:border-slate-600 hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
-                  <td className="sticky right-0 z-10 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-600 px-2 sm:px-4 py-1.5 sm:py-2.5 font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap text-xs sm:text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                  <td className="sticky right-0 z-10 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-600 px-1.5 sm:px-4 py-1 sm:py-2.5 font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap text-[10px] sm:text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setRadarRow(row)}
@@ -578,18 +557,18 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
               ))}
 
               <tr className="border-t-2 border-slate-300 dark:border-slate-500 bg-slate-50 dark:bg-slate-700/80 font-bold">
-                <td className="sticky right-0 z-10 bg-slate-100 dark:bg-slate-700 border-l border-slate-200 dark:border-slate-600 px-2 sm:px-4 py-2 sm:py-2.5 text-slate-700 dark:text-slate-200 text-xs sm:text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                <td className="sticky right-0 z-10 bg-slate-100 dark:bg-slate-700 border-l border-slate-200 dark:border-slate-600 px-1.5 sm:px-4 py-1.5 sm:py-2.5 text-slate-700 dark:text-slate-200 text-[10px] sm:text-sm shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
                   ממוצע כיתתי
                 </td>
                 {filteredColumns.map((_, colIdx) => {
                   const fullIdx = colIndexInFull(colIdx);
-                  const avg = showWeighted && fullIdx >= 2
+                  const avg = showWeighted && fullIdx >= 1
                     ? classWeightedAverages[fullIdx]
                     : classAverages[fullIdx];
                   return (
                     <td
                       key={colIdx}
-                      className={`matrix-cell px-1.5 sm:px-3 py-2 sm:py-2.5 text-center border-l border-slate-200 dark:border-slate-600 text-xs sm:text-sm ${getCellClass(avg)}`}
+                      className={`matrix-cell px-1 sm:px-3 py-1 sm:py-2.5 text-center min-w-[36px] sm:min-w-[80px] border-l border-slate-200 dark:border-slate-600 text-[10px] sm:text-sm ${getCellClass(avg)}`}
                     >
                       {avg === null ? '—' : avg}
                     </td>
