@@ -8,7 +8,7 @@ import StudentProfile from './components/StudentProfile';
 import SettingsPanel from './components/SettingsPanel';
 import TeachersAnalytics from './components/TeachersAnalytics';
 import SubjectMatrix from './components/SubjectMatrix';
-import { Student, AppState, ClassGroup, RiskSettings, PerClassRiskSettings, PeriodDefinition } from './types';
+import { Student, AppState, ClassGroup, RiskSettings, PerClassRiskSettings, PeriodDefinition, DEFAULT_RISK_SETTINGS } from './types';
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
 import { saveToStorage, loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets } from './utils/storage';
@@ -36,17 +36,25 @@ const Logo: React.FC<{ fallback: React.ReactNode }> = ({ fallback }) => {
 const BRAND_NAME = 'ToledanoEdTech';
 const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
 
+const getEmptyDataState = () => ({
+  classes: [] as ClassGroup[],
+  activeClassId: null as string | null,
+  riskSettings: DEFAULT_RISK_SETTINGS,
+  perClassRiskSettings: {} as PerClassRiskSettings,
+  periodDefinitions: [] as PeriodDefinition[],
+});
+
 const getInitialState = (): AppState => {
-  const { classes, activeClassId, riskSettings, perClassRiskSettings, periodDefinitions } = loadFromStorage();
+  const loaded = loadFromStorage(null);
   return {
     view: 'landing',
     selectedStudentId: null,
-    classes,
-    activeClassId,
+    classes: loaded.classes,
+    activeClassId: loaded.activeClassId,
     isAnonymous: false,
-    riskSettings,
-    perClassRiskSettings: perClassRiskSettings ?? {},
-    periodDefinitions: periodDefinitions ?? [],
+    riskSettings: loaded.riskSettings,
+    perClassRiskSettings: loaded.perClassRiskSettings ?? {},
+    periodDefinitions: loaded.periodDefinitions ?? [],
     loading: false,
   };
 };
@@ -86,6 +94,10 @@ const App: React.FC = () => {
   const previousUserIdRef = useRef<string | null>(null);
   /** True once we've received non-empty data from cloud - allows empty save (user deleted all) */
   const lastCloudHadDataRef = useRef(false);
+  /** Cloud doc timestamp - avoid overwriting with older data when we have recent local adds */
+  const lastCloudUpdatedAtRef = useRef(0);
+  const lastAddClassAtRef = useRef(0);
+  const flushFirestoreSaveRef = useRef<() => void>(() => {});
 
   const activeClass = state.classes.find((c) => c.id === state.activeClassId);
   const effectiveRiskSettings = getEffectiveRiskSettings(state.activeClassId, state.riskSettings, state.perClassRiskSettings);
@@ -104,28 +116,36 @@ const App: React.FC = () => {
     let cancelled = false;
     const unsubscribe = subscribeToFirestore(
       user.uid,
-      (data) => {
+      (data, updatedAt) => {
         if (cancelled) return;
         if (data) {
           lastCloudHadDataRef.current = data.classes.length > 0;
-          setState((prev) => ({
-            ...prev,
-            classes: data.classes,
-            activeClassId: data.activeClassId,
-            riskSettings: data.riskSettings,
-            perClassRiskSettings: data.perClassRiskSettings ?? {},
-            periodDefinitions: data.periodDefinitions ?? [],
-          }));
+          lastCloudUpdatedAtRef.current = updatedAt;
+          setState((prev) => {
+            const recentlyAdded = Date.now() - lastAddClassAtRef.current < 3000;
+            const weHaveMoreClasses = prev.classes.length > data.classes.length;
+            if (recentlyAdded && weHaveMoreClasses) return prev;
+            return {
+              ...prev,
+              classes: data.classes,
+              activeClassId: data.activeClassId,
+              riskSettings: data.riskSettings,
+              perClassRiskSettings: data.perClassRiskSettings ?? {},
+              periodDefinitions: data.periodDefinitions ?? [],
+            };
+          });
           saveToStorage({
             classes: data.classes,
             activeClassId: data.activeClassId,
             riskSettings: data.riskSettings,
             perClassRiskSettings: data.perClassRiskSettings ?? {},
             periodDefinitions: data.periodDefinitions ?? [],
-          });
+          }, user.uid);
           setCloudSyncError(null);
         } else {
           lastCloudHadDataRef.current = false;
+          const empty = getEmptyDataState();
+          setState((prev) => ({ ...prev, ...empty }));
         }
         setCloudLoaded(true);
         setCloudLoadPending(false);
@@ -160,6 +180,10 @@ const App: React.FC = () => {
         setCloudLoaded(false);
       }
       previousUserIdRef.current = currentUserId;
+      const fromLocal = loadFromStorage(currentUserId);
+      if (fromLocal.classes.length > 0 && !cloudLoaded) {
+        setState((prev) => ({ ...prev, ...fromLocal }));
+      }
     }
   }, [user]);
 
@@ -183,6 +207,7 @@ const App: React.FC = () => {
         setCloudSyncError(err?.message?.includes('permission') ? 'שמירה לענן: עדכן כללי Firestore.' : (err?.message ?? 'שגיאה'));
       });
     };
+    flushFirestoreSaveRef.current = flushFirestoreSave;
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') flushFirestoreSave();
       // onSnapshot gives real-time updates - no need to re-fetch when tab becomes visible
@@ -207,7 +232,7 @@ const App: React.FC = () => {
       perClassRiskSettings: state.perClassRiskSettings,
       periodDefinitions: state.periodDefinitions,
     };
-    saveToStorage(payload);
+    saveToStorage(payload, user?.uid ?? undefined);
     if (user?.uid && isFirebaseConfigured() && cloudLoaded) {
       pendingFirestorePayloadRef.current = payload;
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
@@ -224,7 +249,7 @@ const App: React.FC = () => {
             }
           });
         saveToFirestoreTimeoutRef.current = null;
-      }, 800);
+      }, 400);
     }
     return () => {
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
@@ -256,6 +281,8 @@ const App: React.FC = () => {
           students: studentsList,
           lastUpdated: now,
         };
+        lastAddClassAtRef.current = Date.now();
+        lastCloudHadDataRef.current = true;
         setState((prev) => ({
           ...prev,
           view: 'dashboard',
@@ -264,6 +291,7 @@ const App: React.FC = () => {
           activeClassId: newClass.id,
           loading: false,
         }));
+        setTimeout(() => flushFirestoreSaveRef.current(), 450);
       } catch (error) {
         console.error('Error processing files', error);
         alert('שגיאה בעיבוד הקבצים. אנא וודא שהפורמט תקין.');

@@ -3,7 +3,11 @@ import { DEFAULT_RISK_SETTINGS, normalizeRiskSettings } from '../types';
 import type { DashboardWidgetsState } from '../constants/dashboardWidgets';
 import { normalizeDashboardWidgets } from '../constants/dashboardWidgets';
 
-const STORAGE_KEY = 'toledano-edtech-state';
+const STORAGE_KEY_PREFIX = 'toledano-edtech-state';
+
+function getStorageKey(userId?: string | null): string {
+  return userId ? `${STORAGE_KEY_PREFIX}-${userId}` : STORAGE_KEY_PREFIX;
+}
 
 interface PersistedState {
   classes: PersistedClassGroup[];
@@ -67,13 +71,16 @@ function fromPersistedClass(p: PersistedClassGroup): ClassGroup {
   };
 }
 
-export function saveToStorage(payload: {
-  classes: ClassGroup[];
-  activeClassId: string | null;
-  riskSettings: RiskSettings;
-  perClassRiskSettings?: PerClassRiskSettings;
-  periodDefinitions?: PeriodDefinition[];
-}): void {
+export function saveToStorage(
+  payload: {
+    classes: ClassGroup[];
+    activeClassId: string | null;
+    riskSettings: RiskSettings;
+    perClassRiskSettings?: PerClassRiskSettings;
+    periodDefinitions?: PeriodDefinition[];
+  },
+  userId?: string | null
+): void {
   const persisted: PersistedState = {
     classes: payload.classes.map(toPersistedClass),
     activeClassId: payload.activeClassId,
@@ -82,13 +89,13 @@ export function saveToStorage(payload: {
     periodDefinitions: payload.periodDefinitions ?? [],
   };
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+    localStorage.setItem(getStorageKey(userId), JSON.stringify(persisted));
   } catch (e) {
     console.warn('Failed to save state to localStorage', e);
   }
 }
 
-export function loadFromStorage(): {
+export function loadFromStorage(userId?: string | null): {
   classes: ClassGroup[];
   activeClassId: string | null;
   riskSettings: RiskSettings;
@@ -96,7 +103,7 @@ export function loadFromStorage(): {
   periodDefinitions: PeriodDefinition[];
 } {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getStorageKey(userId));
     if (!raw) return getDefaultPersistedState();
     const parsed: PersistedState = JSON.parse(raw);
     const perClass = parsed.perClassRiskSettings ?? {};

@@ -40,22 +40,35 @@ export async function saveToFirestore(
   const persisted = toPersistedState(payload);
   const ref = doc(db, 'users', userId, 'data', FIRESTORE_DOC_KEY);
   const compressed = toFirestoreSafe(persisted);
-  await setDoc(ref, { v: COMPRESSED_VERSION, d: compressed });
+  await setDoc(ref, { v: COMPRESSED_VERSION, d: compressed, t: Date.now() });
 }
 
-function parseFirestoreDoc(raw: { v?: number; d?: string } | PersistedState): {
-  classes: ClassGroup[];
-  activeClassId: string | null;
-  riskSettings: RiskSettings;
-  perClassRiskSettings: PerClassRiskSettings;
-  periodDefinitions: PeriodDefinition[];
+function parseFirestoreDoc(raw: { v?: number; d?: string; t?: number } | PersistedState): {
+  data: {
+    classes: ClassGroup[];
+    activeClassId: string | null;
+    riskSettings: RiskSettings;
+    perClassRiskSettings: PerClassRiskSettings;
+    periodDefinitions: PeriodDefinition[];
+  };
+  updatedAt: number;
 } | null {
   if (!raw) return null;
+  let data: {
+    classes: ClassGroup[];
+    activeClassId: string | null;
+    riskSettings: RiskSettings;
+    perClassRiskSettings: PerClassRiskSettings;
+    periodDefinitions: PeriodDefinition[];
+  };
+  let updatedAt = 0;
   if (typeof (raw as { v?: number }).v === 'number' && typeof (raw as { d?: string }).d === 'string') {
-    const data = fromFirestoreSafe((raw as { d: string }).d);
-    return fromPersistedState(data);
+    data = fromPersistedState(fromFirestoreSafe((raw as { d: string }).d));
+    updatedAt = (raw as { t?: number }).t ?? 0;
+  } else {
+    data = fromPersistedState(raw as PersistedState);
   }
-  return fromPersistedState(raw as PersistedState);
+  return { data, updatedAt };
 }
 
 export async function loadFromFirestore(userId: string): Promise<{
@@ -71,19 +84,23 @@ export async function loadFromFirestore(userId: string): Promise<{
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
   const raw = snap.data();
-  return parseFirestoreDoc(raw as { v?: number; d?: string });
+  const parsed = parseFirestoreDoc(raw as { v?: number; d?: string; t?: number });
+  return parsed?.data ?? null;
 }
 
 /** Subscribe to real-time Firestore updates - syncs across all devices/tabs */
 export function subscribeToFirestore(
   userId: string,
-  onData: (data: {
-    classes: ClassGroup[];
-    activeClassId: string | null;
-    riskSettings: RiskSettings;
-    perClassRiskSettings: PerClassRiskSettings;
-    periodDefinitions: PeriodDefinition[];
-  } | null) => void,
+  onData: (
+    data: {
+      classes: ClassGroup[];
+      activeClassId: string | null;
+      riskSettings: RiskSettings;
+      perClassRiskSettings: PerClassRiskSettings;
+      periodDefinitions: PeriodDefinition[];
+    } | null,
+    updatedAt: number
+  ) => void,
   onError?: (err: Error) => void
 ): () => void {
   const db = getFirebaseDb();
@@ -93,15 +110,15 @@ export function subscribeToFirestore(
     ref,
     (snap) => {
       if (!snap.exists()) {
-        onData(null);
+        onData(null, 0);
         return;
       }
       const raw = snap.data();
-      const parsed = parseFirestoreDoc(raw as { v?: number; d?: string });
-      onData(parsed);
+      const parsed = parseFirestoreDoc(raw as { v?: number; d?: string; t?: number });
+      onData(parsed?.data ?? null, parsed?.updatedAt ?? 0);
     },
     (err) => {
-      onData(null);
+      onData(null, 0);
       onError?.(err);
     }
   );
