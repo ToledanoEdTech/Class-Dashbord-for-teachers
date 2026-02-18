@@ -24,7 +24,7 @@ interface PersistedClassGroup {
   lastUpdated: string;
 }
 
-interface PersistedStudent extends Omit<Student, 'grades' | 'behaviorEvents'> {
+export interface PersistedStudent extends Omit<Student, 'grades' | 'behaviorEvents'> {
   grades: PersistedGrade[];
   behaviorEvents: PersistedBehaviorEvent[];
 }
@@ -37,7 +37,7 @@ interface PersistedBehaviorEvent extends Omit<BehaviorEvent, 'date'> {
   date: string;
 }
 
-function toPersistedStudent(s: Student): PersistedStudent {
+export function toPersistedStudent(s: Student): PersistedStudent {
   return {
     ...s,
     grades: s.grades.map((g) => ({ ...g, date: g.date.toISOString() })),
@@ -45,7 +45,7 @@ function toPersistedStudent(s: Student): PersistedStudent {
   };
 }
 
-function fromPersistedStudent(p: PersistedStudent): Student {
+export function fromPersistedStudent(p: PersistedStudent): Student {
   return {
     ...p,
     grades: p.grades.map((g) => ({ ...g, date: new Date(g.date) })),
@@ -53,7 +53,7 @@ function fromPersistedStudent(p: PersistedStudent): Student {
   };
 }
 
-function toPersistedClass(c: ClassGroup): PersistedClassGroup {
+export function toPersistedClass(c: ClassGroup): PersistedClassGroup {
   return {
     id: c.id,
     name: c.name,
@@ -62,7 +62,7 @@ function toPersistedClass(c: ClassGroup): PersistedClassGroup {
   };
 }
 
-function fromPersistedClass(p: PersistedClassGroup): ClassGroup {
+export function fromPersistedClass(p: PersistedClassGroup): ClassGroup {
   return {
     id: p.id,
     name: p.name,
@@ -173,7 +173,12 @@ export function fromPersistedState(parsed: PersistedState): {
   };
 }
 
-export type { PersistedState };
+export type { PersistedState, PersistedClassGroup };
+
+/** Chunk of students for large-class storage (each chunk < 1MB) */
+export interface PersistedStudentChunk {
+  students: PersistedStudent[];
+}
 
 /* ===== User Preferences ===== */
 
