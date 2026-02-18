@@ -70,6 +70,7 @@ const App: React.FC = () => {
   const [dashboardWidgets, setDashboardWidgets] = useState(() => loadDashboardWidgets());
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [cloudLoadPending, setCloudLoadPending] = useState(false);
+  const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
   const saveToFirestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingFirestorePayloadRef = useRef<{
     classes: ClassGroup[];
@@ -108,9 +109,16 @@ const App: React.FC = () => {
       }
       setCloudLoaded(true);
       setCloudLoadPending(false);
-    }).catch(() => {
+      setCloudSyncError(null);
+    }).catch((err) => {
       setCloudLoaded(true);
       setCloudLoadPending(false);
+      const msg = err?.message ?? String(err);
+      if (msg.includes('permission-denied') || msg.includes('Permission denied')) {
+        setCloudSyncError('אין הרשאה לקרוא מהענן. עדכן את כללי Firestore (ראה FIREBASE-SETUP.md).');
+      } else {
+        setCloudSyncError(msg);
+      }
     });
     return () => { cancelled = true; };
   }, [user?.uid, cloudLoaded]);
@@ -128,7 +136,9 @@ const App: React.FC = () => {
           clearTimeout(saveToFirestoreTimeoutRef.current);
           saveToFirestoreTimeoutRef.current = null;
         }
-        saveToFirestore(user.uid, payload).catch(() => {});
+        saveToFirestore(user.uid, payload).then(() => setCloudSyncError(null)).catch((err) => {
+          setCloudSyncError(err?.message?.includes('permission') ? 'שמירה לענן: עדכן כללי Firestore.' : (err?.message ?? 'שגיאה'));
+        });
       }
     };
     const onVisibilityChange = () => {
@@ -151,7 +161,16 @@ const App: React.FC = () => {
       pendingFirestorePayloadRef.current = payload;
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
       saveToFirestoreTimeoutRef.current = setTimeout(() => {
-        saveToFirestore(user.uid, payload).catch(() => {});
+        saveToFirestore(user.uid, payload)
+          .then(() => setCloudSyncError(null))
+          .catch((err) => {
+            const msg = err?.message ?? String(err);
+            if (msg.includes('permission-denied') || msg.includes('Permission denied')) {
+              setCloudSyncError('שמירה לענן נכשלה: עדכן כללי Firestore ב-Console (ראה FIREBASE-SETUP.md).');
+            } else {
+              setCloudSyncError('שמירה לענן נכשלה: ' + msg);
+            }
+          });
         saveToFirestoreTimeoutRef.current = null;
       }, 800);
     }
@@ -682,6 +701,12 @@ const App: React.FC = () => {
         </nav>
 
         <main className="animate-fade-in flex-1 relative">
+          {cloudSyncError && user && (
+            <div className="mx-4 mt-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-sm flex items-center justify-between gap-2">
+              <span>{cloudSyncError}</span>
+              <button type="button" onClick={() => setCloudSyncError(null)} className="shrink-0 p-1 rounded hover:bg-amber-200/50" aria-label="סגור">×</button>
+            </div>
+          )}
           {cloudLoadPending && (
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/95 dark:bg-slate-900/95">
               <p className="text-slate-600 dark:text-slate-400 font-medium">טוען נתונים מהענן...</p>

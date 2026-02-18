@@ -97,7 +97,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (msg.includes('auth/popup-blocked')) {
         setError('הדפדפן חסם את חלון ההתחברות. נסה לאפשר popups.');
       } else if (msg.includes('auth/unauthorized-domain')) {
-        setError('הדומיין לא מורשה ב-Firebase. ב-Console: Authentication → Settings → הוסף את הדומיין (למשל vercel.app שלך).');
+        const domain = typeof window !== 'undefined' ? window.location.hostname : '';
+        setError(domain
+          ? `הדומיין לא מורשה. ב-Firebase Console: Authentication → Settings → Authorized domains → Add domain. הוסף בדיוק: ${domain}`
+          : 'הדומיין לא מורשה ב-Firebase. ב-Console: Authentication → Settings → Authorized domains → Add domain.');
       } else if (msg.includes('auth/operation-not-allowed')) {
         setError('התחברות עם Google לא מופעלת. ב-Firebase: Authentication → Sign-in method → הפעל Google.');
       } else {
