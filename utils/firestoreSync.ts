@@ -40,6 +40,19 @@ function decompress(compressed: string): unknown {
   return JSON.parse(json);
 }
 
+/** Firestore rejects undefined - strip it from nested objects */
+function toFirestoreValue(obj: unknown): unknown {
+  if (obj === undefined) return null;
+  if (obj === null) return null;
+  if (typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(toFirestoreValue);
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) result[k] = toFirestoreValue(v);
+  }
+  return result;
+}
+
 /** Settings doc - small, no compression needed */
 async function loadSettings(
   db: Firestore,
@@ -194,13 +207,13 @@ export async function saveToFirestore(
   const batch = writeBatch(db);
 
   const settingsRef = doc(db, 'users', userId, 'data', SETTINGS_DOC);
-  batch.set(settingsRef, {
+  batch.set(settingsRef, toFirestoreValue({
     activeClassId: payload.activeClassId,
     riskSettings: payload.riskSettings,
     perClassRiskSettings: payload.perClassRiskSettings ?? {},
     periodDefinitions: payload.periodDefinitions ?? [],
     t: Date.now(),
-  });
+  }) as Record<string, unknown>);
 
   const colRef = collection(db, 'users', userId, 'classes');
   const existingSnap = await getDocs(colRef);
