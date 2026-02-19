@@ -18,7 +18,7 @@ import { deleteClassFromFirestore } from './utils/firestoreSync';
 import { useAuth } from './context/AuthContext';
 import { useCloudSync, type CloudSyncPayload } from './hooks/useCloudSync';
 import { useSidebar } from './hooks/useSidebar';
-import { Menu, X, LogIn, LogOut } from 'lucide-react';
+import { Menu, X, LogIn, LogOut, CloudUpload } from 'lucide-react';
 import { NavIcons, FileIcons } from './constants/icons';
 
 const LOGO_PATH = '/logo.png';
@@ -89,6 +89,7 @@ const App: React.FC = () => {
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [deleteConfirmClassId, setDeleteConfirmClassId] = useState<string | null>(null);
+  const [manualSaveState, setManualSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [darkMode, setDarkMode] = useState(() => loadPreferences().darkMode);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => loadPreferences().fontSize);
   const [dashboardWidgets, setDashboardWidgets] = useState(() => loadDashboardWidgets());
@@ -126,7 +127,7 @@ const App: React.FC = () => {
       return { ...prev, ...nextPayload };
     });
   }, []);
-  const { cloudLoaded, cloudLoadPending, cloudSyncError, setCloudSyncError, markClassAdded, flushSave } = useCloudSync({
+  const { cloudLoaded, cloudLoadPending, cloudSyncError, setCloudSyncError, markClassAdded, flushSave, manualSaveToCloud } = useCloudSync({
     userId: user?.uid,
     payload: cloudSyncPayload,
     preferences: { darkMode, fontSize, dashboardWidgets },
@@ -300,6 +301,13 @@ const App: React.FC = () => {
     setShowStudentLogin(false);
     setShowAuthModal(true);
   }, [signOut]);
+  const handleManualCloudSave = useCallback(async () => {
+    if (!user) return;
+    setManualSaveState('saving');
+    const ok = await manualSaveToCloud();
+    setManualSaveState(ok ? 'saved' : 'error');
+    setTimeout(() => setManualSaveState('idle'), 2500);
+  }, [manualSaveToCloud, user]);
 
   const showSidebar = (state.classes.length > 0 || state.view === 'upload') && state.view !== 'landing';
 
@@ -552,16 +560,37 @@ const App: React.FC = () => {
                     <span className="text-xs font-medium">התחבר</span>
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={handleSwitchUser}
-                    className="p-2 rounded-xl bg-slate-100 text-slate-700 active:bg-slate-200 flex items-center gap-1.5"
-                    aria-label="החלף משתמש"
-                    title={userLabel}
-                  >
-                    <LogOut size={18} />
-                    <span className="text-xs font-medium truncate max-w-[110px]">{userLabel}</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleManualCloudSave}
+                      disabled={manualSaveState === 'saving' || !cloudLoaded}
+                      className="p-2 rounded-xl bg-emerald-100 text-emerald-700 active:bg-emerald-200 flex items-center gap-1.5 disabled:opacity-60"
+                      aria-label="שמור לענן"
+                      title="שמור לענן"
+                    >
+                      <CloudUpload size={18} />
+                      <span className="text-xs font-medium">
+                        {manualSaveState === 'saving'
+                          ? 'שומר...'
+                          : manualSaveState === 'saved'
+                            ? 'נשמר'
+                            : manualSaveState === 'error'
+                              ? 'שגיאה'
+                              : 'שמור'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSwitchUser}
+                      className="p-2 rounded-xl bg-slate-100 text-slate-700 active:bg-slate-200 flex items-center gap-1.5"
+                      aria-label="החלף משתמש"
+                      title={userLabel}
+                    >
+                      <LogOut size={18} />
+                      <span className="text-xs font-medium truncate max-w-[110px]">{userLabel}</span>
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"
@@ -764,16 +793,35 @@ const App: React.FC = () => {
                     התחבר
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={handleSwitchUser}
-                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium text-sm max-w-[320px]"
-                    aria-label="החלף משתמש"
-                    title={userLabel}
-                  >
-                    <LogOut size={18} />
-                    <span className="truncate">{userLabel}</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleManualCloudSave}
+                      disabled={manualSaveState === 'saving' || !cloudLoaded}
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-medium text-sm disabled:opacity-60"
+                      aria-label="שמור לענן"
+                      title="שמור לענן"
+                    >
+                      <CloudUpload size={18} />
+                      {manualSaveState === 'saving'
+                        ? 'שומר...'
+                        : manualSaveState === 'saved'
+                          ? 'נשמר לענן'
+                          : manualSaveState === 'error'
+                            ? 'שגיאת שמירה'
+                            : 'שמור לענן'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSwitchUser}
+                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium text-sm max-w-[320px]"
+                      aria-label="החלף משתמש"
+                      title={userLabel}
+                    >
+                      <LogOut size={18} />
+                      <span className="truncate">{userLabel}</span>
+                    </button>
+                  </div>
                 )}
                 <button
                   type="button"

@@ -36,6 +36,7 @@ export interface UseCloudSyncResult {
   setCloudSyncError: (msg: string | null) => void;
   markClassAdded: () => void;
   flushSave: () => void;
+  manualSaveToCloud: () => Promise<boolean>;
 }
 
 function mergeClassesByLatest(localClasses: ClassGroup[], cloudClasses: ClassGroup[]): ClassGroup[] {
@@ -361,6 +362,31 @@ export function useCloudSync({
     flushFirestoreSaveRef.current();
   };
 
+  const manualSaveToCloud = async (): Promise<boolean> => {
+    if (!userId || !isFirebaseConfigured() || !cloudLoaded) return false;
+    const prefs = loadPreferences();
+    const fullPayload = pendingFirestorePayloadRef.current || {
+      ...payload,
+      preferences: {
+        darkMode,
+        fontSize,
+        dashboardViewMode: (prefs.dashboardViewMode ?? 'table') as 'table' | 'cards',
+        dashboardWidgets,
+      } as UserPreferences,
+    };
+    try {
+      const allowEmpty = lastCloudHadDataRef.current;
+      type FirestorePayload = Parameters<typeof saveToFirestore>[1];
+      await saveToFirestore(userId, fullPayload as FirestorePayload, allowEmpty);
+      setCloudSyncError(null);
+      return true;
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      setCloudSyncError(msg.includes('permission') ? 'שמירה לענן נכשלה (הרשאות).' : `שמירה לענן נכשלה: ${msg}`);
+      return false;
+    }
+  };
+
   return {
     cloudLoaded,
     cloudLoadPending,
@@ -368,5 +394,6 @@ export function useCloudSync({
     setCloudSyncError,
     markClassAdded,
     flushSave,
+    manualSaveToCloud,
   };
 }
