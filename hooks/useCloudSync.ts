@@ -79,7 +79,7 @@ export function useCloudSync({
 
   // Real-time Firestore sync - load + subscribe for updates
   useEffect(() => {
-    if (!userId || !isFirebaseConfigured() || cloudLoaded) return;
+    if (!userId || !isFirebaseConfigured()) return;
     setCloudLoadPending(true);
     let cancelled = false;
     
@@ -184,7 +184,7 @@ export function useCloudSync({
       clearTimeout(timeoutId);
       unsubscribe();
     };
-  }, [userId, cloudLoaded, getEmptyPayload, setPayload, setPreferences]);
+  }, [userId, getEmptyPayload, setPayload, setPreferences]);
 
   // Reset cloudLoaded when user changes
   useEffect(() => {

@@ -431,30 +431,44 @@ export function subscribeToFirestore(
   if (!db) return () => {};
 
   let lastUpdated = 0;
-  let hasEmitted = false;
+  let isLoading = false;
+  let pendingReload = false;
+  let disposed = false;
   const emit = () => {
-    // Prevent multiple simultaneous calls
-    if (hasEmitted) return;
-    hasEmitted = true;
-    
+    if (disposed) return;
+    if (isLoading) {
+      // Queue one follow-up reload to avoid dropping updates from rapid snapshots.
+      pendingReload = true;
+      return;
+    }
+    isLoading = true;
+
     loadFromFirestore(userId)
       .then(
         (data) => {
+          if (disposed) return;
           if (data) lastUpdated = Date.now();
           onData(data, lastUpdated);
-          hasEmitted = false;
         },
         (err) => {
+          if (disposed) return;
           onData(null, 0);
           onError?.(err);
-          hasEmitted = false;
         }
       )
       .catch((err) => {
+        if (disposed) return;
         // Ensure we always emit something, even on unexpected errors
         onData(null, 0);
         onError?.(err instanceof Error ? err : new Error(String(err)));
-        hasEmitted = false;
+      })
+      .finally(() => {
+        if (disposed) return;
+        isLoading = false;
+        if (pendingReload) {
+          pendingReload = false;
+          emit();
+        }
       });
   };
 
@@ -473,9 +487,14 @@ export function subscribeToFirestore(
     () => {}
   );
 
+  // Safety poll: if any snapshot was missed transiently, resync anyway.
+  const pollId = setInterval(() => emit(), 15000);
+
   emit();
 
   return () => {
+    disposed = true;
+    clearInterval(pollId);
     unsubSettings();
     unsubClasses();
   };
