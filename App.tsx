@@ -449,6 +449,17 @@ const App: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
+                  setState((prev) => ({ ...prev, view: 'upload' }));
+                  closeSidebar();
+                }}
+                className="w-full md:hidden text-right flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 hover:bg-slate-50 font-medium transition-colors mt-2"
+              >
+                <NavIcons.Upload size={18} className="shrink-0" />
+                העלאת קבצים
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   setState((prev) => ({ ...prev, view: 'settings' }));
                   closeSidebar();
                 }}
@@ -477,6 +488,21 @@ const App: React.FC = () => {
                   <div className="mb-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
                     <p className="text-[11px] text-slate-500 mb-1">מחובר כעת:</p>
                     <p className="text-xs font-medium text-slate-700 truncate mb-2">{userLabel}</p>
+                    <button
+                      type="button"
+                      onClick={handleManualCloudSave}
+                      disabled={manualSaveState === 'saving' || !cloudLoaded}
+                      className="w-full md:hidden mb-2 px-2 py-1.5 rounded-lg text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 disabled:opacity-60 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <CloudUpload size={14} />
+                      {manualSaveState === 'saving'
+                        ? 'שומר לענן...'
+                        : manualSaveState === 'saved'
+                          ? 'נשמר לענן'
+                          : manualSaveState === 'error'
+                            ? 'שגיאת שמירה'
+                            : 'שמור לענן'}
+                    </button>
                     <div className="flex gap-1.5">
                       <button
                         type="button"
@@ -494,6 +520,18 @@ const App: React.FC = () => {
                       </button>
                     </div>
                   </div>
+                )}
+                {!user && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAuthModal(true);
+                      closeSidebar();
+                    }}
+                    className="w-full md:hidden mb-3 px-3 py-2 rounded-xl bg-primary-100 text-primary-700 hover:bg-primary-200 font-medium text-sm"
+                  >
+                    התחבר
+                  </button>
                 )}
                 <a
                   href="#"
@@ -550,7 +588,7 @@ const App: React.FC = () => {
                   </button>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                {!user ? (
+                {!user && !showSidebar ? (
                   <button
                     type="button"
                     onClick={() => setShowAuthModal(true)}
@@ -560,39 +598,7 @@ const App: React.FC = () => {
                     <LogIn size={18} />
                     <span className="text-xs font-medium">התחבר</span>
                   </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={handleManualCloudSave}
-                      disabled={manualSaveState === 'saving' || !cloudLoaded}
-                      className="p-2 rounded-xl bg-emerald-100 text-emerald-700 active:bg-emerald-200 flex items-center gap-1.5 disabled:opacity-60"
-                      aria-label="שמור לענן"
-                      title="שמור לענן"
-                    >
-                      <CloudUpload size={18} />
-                      <span className="text-xs font-medium">
-                        {manualSaveState === 'saving'
-                          ? 'שומר...'
-                          : manualSaveState === 'saved'
-                            ? 'נשמר'
-                            : manualSaveState === 'error'
-                              ? 'שגיאה'
-                              : 'שמור'}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSwitchUser}
-                      className="p-2 rounded-xl bg-slate-100 text-slate-700 active:bg-slate-200 flex items-center gap-1.5"
-                      aria-label="החלף משתמש"
-                      title={userLabel}
-                    >
-                      <LogOut size={18} />
-                      <span className="text-xs font-medium truncate max-w-[110px]">{userLabel}</span>
-                    </button>
-                  </>
-                )}
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setDarkMode((d) => !d)}
@@ -656,7 +662,7 @@ const App: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, isAnonymous: !prev.isAnonymous }))}
-                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all min-h-[40px] ${
+                      className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all min-h-[40px] ${
                         state.isAnonymous
                           ? 'bg-primary-100 text-primary-700 border border-primary-200 active:bg-primary-200'
                           : 'bg-slate-100 text-slate-600 border border-slate-200 active:bg-slate-200'
@@ -666,15 +672,6 @@ const App: React.FC = () => {
                     >
                       {state.isAnonymous ? <NavIcons.PrivacyOff size={18} /> : <NavIcons.Privacy size={18} />}
                       <span className="text-xs sm:text-sm">{state.isAnonymous ? 'פרטיות' : 'פרטיות'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setState((prev) => ({ ...prev, view: 'upload' }))}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-slate-600 hover:text-primary-600 hover:bg-primary-50/60 active:bg-primary-100 border border-slate-200 transition-all text-sm font-medium min-h-[40px]"
-                      aria-label="העלאת קבצים"
-                    >
-                      <NavIcons.Upload size={18} className="shrink-0" />
-                      <span className="text-xs sm:text-sm">העלה</span>
                     </button>
                   </div>
                 </div>

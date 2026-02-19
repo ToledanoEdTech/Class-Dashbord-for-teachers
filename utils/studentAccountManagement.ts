@@ -1,6 +1,6 @@
 import { getFirebaseAuth, getFirebaseDb, getSecondaryFirebaseAuth } from '../firebase';
 import { createUserWithEmailAndPassword, deleteUser, signOut } from 'firebase/auth';
-import { doc, setDoc, deleteDoc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, getDoc, collection, getDocs, deleteField } from 'firebase/firestore';
 import { Student } from '../types';
 
 export interface StudentAccount {
@@ -9,6 +9,86 @@ export interface StudentAccount {
   displayName: string;
   studentId: string;
   password: string; // Temporary password (only shown once)
+}
+
+const STUDENT_CREDENTIALS_DOC = 'studentCredentials';
+
+interface CredentialVaultItem {
+  uid: string;
+  username: string;
+  password: string;
+  displayName: string;
+  studentId: string;
+  classId: string | null;
+  updatedAt: string;
+}
+
+function credentialVaultKey(studentId: string, classId?: string): string {
+  return classId ? `${classId}::${studentId}` : `default::${studentId}`;
+}
+
+async function upsertCredentialVaultItem(
+  teacherUid: string,
+  studentId: string,
+  account: StudentAccount,
+  classId?: string
+): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  const item: CredentialVaultItem = {
+    uid: account.uid,
+    username: account.username,
+    password: account.password,
+    displayName: account.displayName,
+    studentId: account.studentId,
+    classId: classId ?? null,
+    updatedAt: new Date().toISOString(),
+  };
+  const key = credentialVaultKey(studentId, classId);
+  await setDoc(
+    doc(db, 'users', teacherUid, 'data', STUDENT_CREDENTIALS_DOC),
+    { items: { [key]: item }, updatedAt: new Date().toISOString() },
+    { merge: true }
+  );
+}
+
+async function removeCredentialVaultItem(
+  teacherUid: string,
+  studentId: string,
+  classId?: string
+): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  const key = credentialVaultKey(studentId, classId);
+  await setDoc(
+    doc(db, 'users', teacherUid, 'data', STUDENT_CREDENTIALS_DOC),
+    { items: { [key]: deleteField() }, updatedAt: new Date().toISOString() },
+    { merge: true }
+  );
+}
+
+async function getCredentialVaultMap(teacherUid: string): Promise<Record<string, CredentialVaultItem>> {
+  const db = getFirebaseDb();
+  if (!db) return {};
+  const snap = await getDoc(doc(db, 'users', teacherUid, 'data', STUDENT_CREDENTIALS_DOC));
+  if (!snap.exists() || typeof snap.data()?.items !== 'object') return {};
+  const raw = snap.data()?.items as Record<string, unknown>;
+  const result: Record<string, CredentialVaultItem> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!v || typeof v !== 'object') continue;
+    const item = v as Partial<CredentialVaultItem>;
+    if (typeof item.studentId !== 'string') continue;
+    result[k] = {
+      uid: typeof item.uid === 'string' ? item.uid : '',
+      username: typeof item.username === 'string' ? item.username : '',
+      password: typeof item.password === 'string' ? item.password : '',
+      displayName: typeof item.displayName === 'string' ? item.displayName : '',
+      studentId: item.studentId,
+      classId: typeof item.classId === 'string' ? item.classId : null,
+      updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date(0).toISOString(),
+    };
+  }
+  return result;
 }
 
 /**
@@ -86,7 +166,8 @@ function withUsernameSuffix(base: string, attempt: number): string {
 export async function createStudentAccount(
   student: Student,
   username?: string,
-  password?: string
+  password?: string,
+  options?: { classId?: string }
 ): Promise<StudentAccount> {
   const auth = getFirebaseAuth();
   const secondaryAuth = getSecondaryFirebaseAuth();
@@ -177,20 +258,24 @@ export async function createStudentAccount(
     // Always clear temporary secondary-auth session.
     await signOut(secondaryAuth).catch(() => undefined);
   }
-
-  return {
+  const account = {
     uid,
     username: finalUsername,
     displayName: student.name,
     studentId: student.id,
     password: finalPassword,
   };
+  await upsertCredentialVaultItem(teacherUid, student.id, account, options?.classId);
+  return account;
 }
 
 /**
  * Delete a student account
  */
-export async function deleteStudentAccount(uid: string): Promise<void> {
+export async function deleteStudentAccount(
+  uid: string,
+  options?: { studentId?: string; classId?: string }
+): Promise<void> {
   const auth = getFirebaseAuth();
   const db = getFirebaseDb();
   
@@ -201,6 +286,9 @@ export async function deleteStudentAccount(uid: string): Promise<void> {
   // Delete Firestore document
   const userDocRef = doc(db, 'users', uid);
   await deleteDoc(userDocRef);
+  if (auth.currentUser?.uid && options?.studentId) {
+    await removeCredentialVaultItem(auth.currentUser.uid, options.studentId, options.classId);
+  }
 
   // Note: We cannot delete the Firebase Auth user from client-side
   // The user will remain in Auth but won't have access to Firestore
@@ -215,14 +303,16 @@ export async function deleteStudentAccount(uid: string): Promise<void> {
 export async function resetStudentAccountCredentials(
   student: Student,
   existingAccount: StudentAccount,
-  options?: { username?: string; password?: string }
+  options?: { username?: string; password?: string; classId?: string }
 ): Promise<StudentAccount> {
   const db = getFirebaseDb();
   if (!db) {
     throw new Error('Firebase לא מוגדר');
   }
 
-  const nextAccount = await createStudentAccount(student, options?.username, options?.password);
+  const nextAccount = await createStudentAccount(student, options?.username, options?.password, {
+    classId: options?.classId,
+  });
 
   // Remove previous Firestore mapping doc so the class points to one active account.
   try {
@@ -270,7 +360,10 @@ export async function findUserByUsername(username: string): Promise<{ uid: strin
 /**
  * Get all student accounts for a class
  */
-export async function getStudentAccountsForClass(students: Student[]): Promise<Map<string, StudentAccount>> {
+export async function getStudentAccountsForClass(
+  students: Student[],
+  classId?: string
+): Promise<Map<string, StudentAccount>> {
   const auth = getFirebaseAuth();
   const db = getFirebaseDb();
   if (!auth || !db) return new Map();
@@ -284,9 +377,13 @@ export async function getStudentAccountsForClass(students: Student[]): Promise<M
     const usersRef = collection(db, 'users');
     const usersSnapshot = await getDocs(usersRef);
 
+    const vaultMap = teacherUid ? await getCredentialVaultMap(teacherUid) : {};
     for (const userDoc of usersSnapshot.docs) {
       const userData = userDoc.data();
       if (userData.role === 'student' && studentIds.has(userData.studentId)) {
+        if (teacherUid && userData.teacherUid && userData.teacherUid !== teacherUid) {
+          continue;
+        }
         // Backfill legacy student users created before teacherUid was tracked.
         if (teacherUid && !userData.teacherUid) {
           await setDoc(
@@ -295,12 +392,20 @@ export async function getStudentAccountsForClass(students: Student[]): Promise<M
             { merge: true }
           );
         }
+        const classScopedVaultItem = classId
+          ? vaultMap[credentialVaultKey(userData.studentId, classId)] ?? null
+          : null;
+        const fallbackVaultItem = vaultMap[credentialVaultKey(userData.studentId, undefined)] ?? null;
+        const latestVaultItem = Object.values(vaultMap)
+          .filter((item) => item.studentId === userData.studentId && (!classId || item.classId === classId))
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+        const vaultItem = classScopedVaultItem ?? latestVaultItem ?? fallbackVaultItem;
         accounts.set(userData.studentId, {
           uid: userDoc.id,
-          username: userData.username || '',
-          displayName: userData.displayName || '',
+          username: userData.username || vaultItem?.username || '',
+          displayName: userData.displayName || vaultItem?.displayName || '',
           studentId: userData.studentId,
-          password: '', // Passwords are not stored
+          password: vaultItem?.password || '',
         });
       }
     }

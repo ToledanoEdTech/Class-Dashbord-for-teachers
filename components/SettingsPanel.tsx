@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   RiskSettings,
   DEFAULT_RISK_SETTINGS,
@@ -76,8 +76,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [activeSection, setActiveSection] = useState<'risk' | 'periods' | 'widgets' | 'students'>('risk');
   const [studentAccounts, setStudentAccounts] = useState<Map<string, StudentAccount>>(new Map());
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [busyStudentId, setBusyStudentId] = useState<string | null>(null);
   const [creatingAccount, setCreatingAccount] = useState<string | null>(null);
   const [newAccountCredentials, setNewAccountCredentials] = useState<Map<string, StudentAccount>>(new Map());
+  const lastLoadedAccountsKeyRef = useRef<string | null>(null);
   const credentialsStorageKey = activeClassId ? `toledano-temp-student-creds-${activeClassId}` : 'toledano-temp-student-creds';
 
   const persistTempCredential = (studentId: string, account: StudentAccount | null) => {
@@ -127,28 +129,41 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   // Load student accounts when students change
   useEffect(() => {
-    if (students.length > 0 && activeSection === 'students') {
-      loadStudentAccounts();
-    }
-  }, [students, activeSection]);
+    if (activeSection !== 'students' || students.length === 0) return;
+    const sortedIds = [...students.map((s) => s.id)].sort().join('|');
+    const loadKey = `${activeClassId ?? 'none'}:${sortedIds}`;
+    if (lastLoadedAccountsKeyRef.current === loadKey) return;
+    lastLoadedAccountsKeyRef.current = loadKey;
+    loadStudentAccounts();
+  }, [students, activeSection, activeClassId]);
 
-  const loadStudentAccounts = async () => {
-    setLoadingAccounts(true);
+  useEffect(() => {
+    // Force refresh on class switch when accounts tab is open.
+    if (activeSection === 'students') {
+      lastLoadedAccountsKeyRef.current = null;
+    }
+  }, [activeClassId, activeSection]);
+
+  const loadStudentAccounts = async (showLoader = true) => {
+    if (showLoader) setLoadingAccounts(true);
     try {
-      const accounts = await getStudentAccountsForClass(students);
+      const accounts = await getStudentAccountsForClass(students, activeClassId ?? undefined);
       setStudentAccounts(accounts);
     } catch (error) {
       console.error('Error loading student accounts:', error);
     } finally {
-      setLoadingAccounts(false);
+      if (showLoader) setLoadingAccounts(false);
     }
   };
 
   const handleCreateAccount = async (student: Student) => {
     if (creatingAccount === student.id) return;
     setCreatingAccount(student.id);
+    setBusyStudentId(student.id);
     try {
-      const account = await createStudentAccount(student);
+      const account = await createStudentAccount(student, undefined, undefined, {
+        classId: activeClassId ?? undefined,
+      });
       const newMap = new Map(studentAccounts);
       newMap.set(student.id, account);
       setStudentAccounts(newMap);
@@ -159,6 +174,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       alert(`שגיאה ביצירת חשבון: ${errorMessage}`);
       // Don't logout on error - just show the error
     } finally {
+      setBusyStudentId(null);
       setCreatingAccount(null);
     }
   };
@@ -169,14 +185,20 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     
     if (!confirm('האם אתה בטוח שברצונך למחוק את חשבון התלמיד?')) return;
     
+    setBusyStudentId(studentId);
     try {
-      await deleteStudentAccount(account.uid);
+      await deleteStudentAccount(account.uid, {
+        studentId,
+        classId: activeClassId ?? undefined,
+      });
       const newMap = new Map(studentAccounts);
       newMap.delete(studentId);
       setStudentAccounts(newMap);
       persistTempCredential(studentId, null);
     } catch (error: any) {
       alert(error?.message || 'שגיאה במחיקת חשבון');
+    } finally {
+      setBusyStudentId(null);
     }
   };
 
@@ -186,11 +208,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     if (!confirm('לאפס סיסמה לתלמיד זה? תיווצר סיסמה זמנית חדשה.')) return;
 
     setCreatingAccount(student.id);
+    setBusyStudentId(student.id);
     try {
       const nextPassword = generateTemporaryPassword();
       const updated = await resetStudentAccountCredentials(student, account, {
         username: account.username,
         password: nextPassword,
+        classId: activeClassId ?? undefined,
       });
 
       const accountsMap = new Map(studentAccounts);
@@ -200,6 +224,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     } catch (error: any) {
       alert(error?.message || 'שגיאה באיפוס סיסמה');
     } finally {
+      setBusyStudentId(null);
       setCreatingAccount(null);
     }
   };
@@ -211,10 +236,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     if (!requested) return;
 
     setCreatingAccount(student.id);
+    setBusyStudentId(student.id);
     try {
       const updated = await resetStudentAccountCredentials(student, account, {
         username: requested,
         password: generateTemporaryPassword(),
+        classId: activeClassId ?? undefined,
       });
 
       const accountsMap = new Map(studentAccounts);
@@ -224,6 +251,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     } catch (error: any) {
       alert(error?.message || 'שגיאה באיפוס שם משתמש');
     } finally {
+      setBusyStudentId(null);
       setCreatingAccount(null);
     }
   };
@@ -239,7 +267,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       for (const student of students) {
         if (!newAccounts.has(student.id)) {
           try {
-            const account = await createStudentAccount(student);
+            const account = await createStudentAccount(student, undefined, undefined, {
+              classId: activeClassId ?? undefined,
+            });
             newAccounts.set(student.id, account);
             newCreds.set(student.id, account);
           } catch (error: any) {
@@ -779,7 +809,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     const account = studentAccounts.get(student.id);
                     const newCreds = newAccountCredentials.get(student.id);
                     const hasAccount = !!account;
-                    const isBusy = creatingAccount === student.id || loadingAccounts;
+                    const isBusy = creatingAccount === student.id || busyStudentId === student.id;
 
                     return (
                       <div key={student.id} className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
@@ -869,7 +899,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                         const account = studentAccounts.get(student.id);
                         const newCreds = newAccountCredentials.get(student.id);
                         const hasAccount = !!account;
-                        const isBusy = creatingAccount === student.id || loadingAccounts;
+                        const isBusy = creatingAccount === student.id || busyStudentId === student.id;
                         
                         return (
                           <tr key={student.id} className="hover:bg-slate-50">

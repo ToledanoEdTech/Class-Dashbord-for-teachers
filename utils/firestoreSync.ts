@@ -3,6 +3,7 @@ import {
   getDoc,
   getDocFromServer,
   getDocs,
+  getDocsFromServer,
   collection,
   onSnapshot,
   writeBatch,
@@ -34,6 +35,33 @@ const COMPRESSED_VERSION = 2;
 const FIRESTORE_DOC_KEY = 'appData';
 const MAX_CHUNK_BYTES = 800000;
 const MAX_BATCH_OPS = 400;
+const DELETED_CLASSES_COL = 'deletedClasses';
+
+async function fetchDeletedClassIds(
+  db: Firestore,
+  userId: string,
+  serverOnly = false
+): Promise<Record<string, string>> {
+  const fromSettings: Record<string, string> = {};
+  const settingsRef = doc(db, 'users', userId, 'data', SETTINGS_DOC);
+  const settingsSnap = serverOnly ? await getDocFromServer(settingsRef) : await getDoc(settingsRef);
+  if (settingsSnap.exists() && typeof settingsSnap.data()?.deletedClassIds === 'object') {
+    const raw = settingsSnap.data()?.deletedClassIds as Record<string, unknown>;
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string') fromSettings[k] = v;
+    }
+  }
+
+  const fromCollection: Record<string, string> = {};
+  const deletedRef = collection(db, 'users', userId, DELETED_CLASSES_COL);
+  const deletedSnap = serverOnly ? await getDocsFromServer(deletedRef) : await getDocs(deletedRef);
+  for (const d of deletedSnap.docs) {
+    const raw = d.data() as { deletedAt?: string };
+    fromCollection[d.id] = typeof raw.deletedAt === 'string' ? raw.deletedAt : new Date(0).toISOString();
+  }
+
+  return { ...fromSettings, ...fromCollection };
+}
 
 /** Compress object to string - each doc must be < 1MB */
 function compress(obj: object): string {
@@ -235,7 +263,11 @@ export async function loadFromFirestore(userId: string): Promise<{
     console.log('Loading from Firestore for user:', userId);
     const settings = await loadSettings(db, userId);
     const classes = await loadClasses(db, userId);
-    const deletedClassIds = new Set(Object.keys(settings?.deletedClassIds ?? {}));
+    const deletedClassMap = await fetchDeletedClassIds(db, userId);
+    const deletedClassIds = new Set([
+      ...Object.keys(settings?.deletedClassIds ?? {}),
+      ...Object.keys(deletedClassMap),
+    ]);
     const visibleClasses = deletedClassIds.size
       ? classes.filter((c) => !deletedClassIds.has(c.id))
       : classes;
@@ -348,91 +380,84 @@ export async function saveToFirestore(
   }) as Record<string, unknown>, { merge: true });
 
   const colRef = collection(db, 'users', userId, 'classes');
-  let latestDeletedClassIds: Record<string, string> = {};
   try {
-    const latestSettingsSnap = await getDocFromServer(settingsRef);
-    latestDeletedClassIds =
-      latestSettingsSnap.exists() && typeof latestSettingsSnap.data()?.deletedClassIds === 'object'
-        ? (latestSettingsSnap.data()?.deletedClassIds as Record<string, string>)
-        : {};
-  } catch {
-    const latestSettingsSnap = await getDoc(settingsRef);
-    latestDeletedClassIds =
-      latestSettingsSnap.exists() && typeof latestSettingsSnap.data()?.deletedClassIds === 'object'
-        ? (latestSettingsSnap.data()?.deletedClassIds as Record<string, string>)
-        : {};
-  }
-
-  for (const c of payload.classes) {
-    // Never recreate classes that were actively deleted.
-    if (latestDeletedClassIds[c.id]) continue;
-    const persisted = toPersistedClass(c);
-    const compressed = compress(persisted);
-    const classRef = doc(colRef, c.id);
-    const existingClassSnap = await getDoc(classRef);
-    if (existingClassSnap.exists()) {
-      const existingRaw = existingClassSnap.data() as { lastUpdated?: string; meta?: { lastUpdated?: string } };
-      const existingLastUpdated = existingRaw.lastUpdated || existingRaw.meta?.lastUpdated;
-      if (existingLastUpdated) {
-        const existingTs = new Date(existingLastUpdated).getTime();
-        const incomingTs = c.lastUpdated.getTime();
-        // Prevent stale tabs/devices from overriding newer class data.
-        if (Number.isFinite(existingTs) && existingTs > incomingTs) {
-          continue;
+    const latestDeletedClassIds = await fetchDeletedClassIds(db, userId, true);
+    for (const c of payload.classes) {
+      // Never recreate classes that were actively deleted.
+      if (latestDeletedClassIds[c.id]) continue;
+      const persisted = toPersistedClass(c);
+      const compressed = compress(persisted);
+      const classRef = doc(colRef, c.id);
+      const existingClassSnap = await getDoc(classRef);
+      if (existingClassSnap.exists()) {
+        const existingRaw = existingClassSnap.data() as { lastUpdated?: string; meta?: { lastUpdated?: string } };
+        const existingLastUpdated = existingRaw.lastUpdated || existingRaw.meta?.lastUpdated;
+        if (existingLastUpdated) {
+          const existingTs = new Date(existingLastUpdated).getTime();
+          const incomingTs = c.lastUpdated.getTime();
+          // Prevent stale tabs/devices from overriding newer class data.
+          if (Number.isFinite(existingTs) && existingTs > incomingTs) {
+            continue;
+          }
         }
       }
-    }
 
-    if (compressed.length <= MAX_CHUNK_BYTES) {
-      await queueSet(classRef, {
-        v: COMPRESSED_VERSION,
-        d: compressed,
-        lastUpdated: c.lastUpdated.toISOString(),
-        t: Date.now(),
-      });
-    } else {
-      const persistedStudents = persisted.students;
-      const chunks: { students: PersistedStudent[] }[] = [];
-      let currentChunk: PersistedStudent[] = [];
-      for (const s of persistedStudents) {
-        currentChunk.push(s);
-        const compressedChunk = compress({ students: currentChunk });
-        if (compressedChunk.length > MAX_CHUNK_BYTES && currentChunk.length > 1) {
-          currentChunk.pop();
-          chunks.push({ students: [...currentChunk] });
-          currentChunk = [s];
-        }
-      }
-      if (currentChunk.length > 0) chunks.push({ students: currentChunk });
-
-      await queueSet(classRef, {
-        meta: {
-          id: c.id,
-          name: c.name,
+      if (compressed.length <= MAX_CHUNK_BYTES) {
+        await queueSet(classRef, {
+          v: COMPRESSED_VERSION,
+          d: compressed,
           lastUpdated: c.lastUpdated.toISOString(),
-        },
-        lastUpdated: c.lastUpdated.toISOString(),
-        chunkCount: chunks.length,
-        t: Date.now(),
-      });
-
-      const chunksRef = collection(db, 'users', userId, 'classes', c.id, 'chunks');
-      const existingChunks = await getDocs(chunksRef);
-      for (let i = 0; i < chunks.length; i++) {
-        const chunkCompressed = compress(chunks[i]);
-        if (chunkCompressed.length > MAX_CHUNK_BYTES) {
-          throw new Error(
-            `תלמיד בודד בכיתה "${c.name}" גדול מדי. נסה להקטין נתונים (ציונים/אירועים).`
-          );
+          t: Date.now(),
+        });
+      } else {
+        const persistedStudents = persisted.students;
+        const chunks: { students: PersistedStudent[] }[] = [];
+        let currentChunk: PersistedStudent[] = [];
+        for (const s of persistedStudents) {
+          currentChunk.push(s);
+          const compressedChunk = compress({ students: currentChunk });
+          if (compressedChunk.length > MAX_CHUNK_BYTES && currentChunk.length > 1) {
+            currentChunk.pop();
+            chunks.push({ students: [...currentChunk] });
+            currentChunk = [s];
+          }
         }
-        await queueSet(doc(chunksRef, String(i)), { d: chunkCompressed });
+        if (currentChunk.length > 0) chunks.push({ students: currentChunk });
+
+        await queueSet(classRef, {
+          meta: {
+            id: c.id,
+            name: c.name,
+            lastUpdated: c.lastUpdated.toISOString(),
+          },
+          lastUpdated: c.lastUpdated.toISOString(),
+          chunkCount: chunks.length,
+          t: Date.now(),
+        });
+
+        const chunksRef = collection(db, 'users', userId, 'classes', c.id, 'chunks');
+        const existingChunks = await getDocs(chunksRef);
+        for (let i = 0; i < chunks.length; i++) {
+          const chunkCompressed = compress(chunks[i]);
+          if (chunkCompressed.length > MAX_CHUNK_BYTES) {
+            throw new Error(
+              `תלמיד בודד בכיתה "${c.name}" גדול מדי. נסה להקטין נתונים (ציונים/אירועים).`
+            );
+          }
+          await queueSet(doc(chunksRef, String(i)), { d: chunkCompressed });
+        }
+        for (let i = chunks.length; i < existingChunks.docs.length; i++) {
+          await queueDelete(doc(chunksRef, String(i)));
+        }
       }
-      for (let i = chunks.length; i < existingChunks.docs.length; i++) {
-        await queueDelete(doc(chunksRef, String(i)));
-      }
+      // Important: Do not auto-delete classes that are missing from this payload.
+      // This prevents stale tabs/devices from wiping classes.
     }
-    // Important: Do not auto-delete classes that are missing from this payload.
-    // This prevents stale tabs/devices from wiping classes.
+  } catch (error: any) {
+    throw new Error(
+      error?.message ||
+        'שמירה לענן נכשלה כי לא ניתן לאמת רשימת מחיקות עדכנית מהשרת. נסה שוב בעוד כמה שניות.'
+    );
   }
 
   await commitBatch();
@@ -448,8 +473,17 @@ export async function deleteClassFromFirestore(userId: string, classId: string):
   const classRef = doc(db, 'users', userId, 'classes', classId);
   const chunksRef = collection(db, 'users', userId, 'classes', classId, 'chunks');
   const settingsRef = doc(db, 'users', userId, 'data', SETTINGS_DOC);
+  const deletedClassRef = doc(db, 'users', userId, DELETED_CLASSES_COL, classId);
   const chunksSnap = await getDocs(chunksRef);
   const batch = writeBatch(db);
+  batch.set(
+    deletedClassRef,
+    {
+      deletedAt: new Date().toISOString(),
+      t: Date.now(),
+    },
+    { merge: true }
+  );
   batch.set(
     settingsRef,
     {
