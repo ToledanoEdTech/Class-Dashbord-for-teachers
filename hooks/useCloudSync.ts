@@ -324,7 +324,7 @@ export function useCloudSync({
             }
           });
         saveToFirestoreTimeoutRef.current = null;
-      }, 2500);
+      }, 4000);
     }
     return () => {
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
@@ -363,7 +363,7 @@ export function useCloudSync({
           const msg = err?.message ?? String(err);
           setCloudSyncError(msg.includes('permission') ? 'שמירה לענן נכשלה (הרשאות).' : `שמירה לענן נכשלה: ${msg}`);
         });
-    }, 60000);
+    }, 120000);
 
     return () => clearInterval(intervalId);
   }, [userId, cloudLoaded, payload, darkMode, fontSize, dashboardWidgets]);

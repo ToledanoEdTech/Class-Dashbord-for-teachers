@@ -886,41 +886,68 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     הורד רשימה לאקסל
                   </button>
                 </div>
-                <div className="md:hidden space-y-3">
+                <p className="text-slate-600 text-sm mb-3">
+                  רשימת תלמידים עם שם משתמש וסיסמה. להעתקה: לחץ על אייקון ההעתקה.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {students.map((student) => {
                     const account = studentAccounts.get(student.id);
                     const newCreds = newAccountCredentials.get(student.id);
                     const hasAccount = !!account;
                     const isBusy = creatingAccount === student.id || busyStudentId === student.id;
+                    const username = newCreds?.username || account?.username || '-';
+                    const password = newCreds?.password || account?.password || null;
 
                     return (
-                      <div key={student.id} className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div>
-                            <p className="text-sm font-bold text-slate-800">{student.name}</p>
+                      <div key={student.id} className="rounded-xl border border-slate-200 p-4 bg-white shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-800 truncate">{student.name}</p>
                             <p className="text-xs text-slate-500">{student.id}</p>
                           </div>
-                          <span className={`text-xs font-medium px-2 py-1 rounded-full ${hasAccount ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                          <span className={`shrink-0 text-xs font-medium px-2 py-1 rounded-full ${hasAccount ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
                             {hasAccount ? 'יש חשבון' : 'אין חשבון'}
                           </span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                        <div className="space-y-2 text-xs mb-3">
                           <div>
-                            <p className="text-slate-500 mb-1">שם משתמש</p>
-                            <code className="bg-white border border-slate-200 px-2 py-1 rounded block truncate">
-                              {(newCreds?.username || account?.username || '-')}
-                            </code>
+                            <p className="text-slate-500 mb-0.5">שם משתמש</p>
+                            <div className="flex items-center gap-1 min-w-0">
+                              <code className="flex-1 bg-slate-100 px-2 py-1.5 rounded truncate text-slate-800 font-mono">{username}</code>
+                              {username !== '-' && (
+                                <button
+                                  type="button"
+                                  onClick={() => navigator.clipboard.writeText(username)}
+                                  className="shrink-0 p-1.5 rounded hover:bg-slate-200"
+                                  title="העתק"
+                                >
+                                  <Copy size={14} className="text-slate-500" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <div>
-                            <p className="text-slate-500 mb-1">סיסמה זמנית</p>
-                            <code className="bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded block truncate">
-                              {(newCreds?.password || account?.password || '(לא זמין – אפס סיסמה לשמירת סיסמה חדשה)')}
-                            </code>
+                            <p className="text-slate-500 mb-0.5">סיסמה זמנית</p>
+                            <div className="flex items-center gap-1 min-w-0">
+                              <code className="flex-1 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded truncate text-amber-800 font-mono">
+                                {password ?? '(לא זמין – אפס סיסמה)'}
+                              </code>
+                              {password && (
+                                <button
+                                  type="button"
+                                  onClick={() => navigator.clipboard.writeText(password)}
+                                  className="shrink-0 p-1.5 rounded hover:bg-slate-200"
+                                  title="העתק"
+                                >
+                                  <Copy size={14} className="text-slate-500" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
                           {!hasAccount ? (
                             <button
                               type="button"
@@ -962,133 +989,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                       </div>
                     );
                   })}
-                </div>
-
-                <p className="text-slate-600 text-sm mb-2">
-                  רשימת תלמידים עם שם משתמש וסיסמה. להעתקה: לחץ על אייקון ההעתקה ליד הערך.
-                </p>
-                <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50">
-                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">שם תלמיד</th>
-                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">ת.ז</th>
-                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">שם משתמש</th>
-                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">סיסמה זמנית</th>
-                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">פעולות</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {students.map((student) => {
-                        const account = studentAccounts.get(student.id);
-                        const newCreds = newAccountCredentials.get(student.id);
-                        const hasAccount = !!account;
-                        const isBusy = creatingAccount === student.id || busyStudentId === student.id;
-                        
-                        return (
-                          <tr key={student.id} className="hover:bg-slate-50">
-                            <td className="py-3 px-4 text-sm text-slate-800">{student.name}</td>
-                            <td className="py-3 px-4 text-sm text-slate-600">{student.id}</td>
-                            <td className="py-3 px-4 text-sm">
-                              {newCreds ? (
-                                <div className="flex items-center gap-2">
-                                  <code className="bg-slate-100 px-2 py-1 rounded text-xs font-mono">{newCreds.username}</code>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(newCreds.username);
-                                    }}
-                                    className="p-1 rounded hover:bg-slate-200"
-                                    title="העתק"
-                                  >
-                                    <Copy size={14} className="text-slate-500" />
-                                  </button>
-                                </div>
-                              ) : account ? (
-                                <code className="bg-slate-100 px-2 py-1 rounded text-xs font-mono">{account.username}</code>
-                              ) : (
-                                <span className="text-slate-400">-</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 text-sm">
-                              {newCreds ? (
-                                <div className="flex items-center gap-2">
-                                  <code className="bg-amber-50 px-2 py-1 rounded text-xs font-mono text-amber-700 border border-amber-200">{newCreds.password}</code>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(newCreds.password);
-                                    }}
-                                    className="p-1 rounded hover:bg-slate-200"
-                                    title="העתק"
-                                  >
-                                    <Copy size={14} className="text-slate-500" />
-                                  </button>
-                                </div>
-                              ) : account?.password ? (
-                                <div className="flex items-center gap-2">
-                                  <code className="bg-amber-50 px-2 py-1 rounded text-xs font-mono text-amber-700 border border-amber-200">{account.password}</code>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(account.password);
-                                    }}
-                                    className="p-1 rounded hover:bg-slate-200"
-                                    title="העתק"
-                                  >
-                                    <Copy size={14} className="text-slate-500" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <span className="text-slate-400" title="אפס סיסמה כדי ליצור סיסמה חדשה שנשמרת">(לא זמין – אפס סיסמה)</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 text-sm bg-white">
-                              <div className="flex items-center gap-2">
-                                {!hasAccount ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCreateAccount(student)}
-                                    disabled={isBusy || !getSecondaryFirebaseAuth()}
-                                    className="px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
-                                  >
-                                    {isBusy ? 'יוצר...' : 'צור חשבון'}
-                                  </button>
-                                ) : (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleResetPassword(student)}
-                                      disabled={isBusy || !getSecondaryFirebaseAuth()}
-                                      className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
-                                    >
-                                      אפס סיסמה
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleResetUsername(student)}
-                                      disabled={isBusy || !getSecondaryFirebaseAuth()}
-                                      className="px-3 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
-                                    >
-                                      אפס שם משתמש
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteAccount(student.id)}
-                                      disabled={isBusy}
-                                      className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
-                                    >
-                                      מחק חשבון
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
                 </div>
               </>
             )}

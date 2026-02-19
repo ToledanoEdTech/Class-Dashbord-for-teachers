@@ -525,10 +525,33 @@ export function subscribeToFirestore(
   let isLoading = false;
   let pendingReload = false;
   let disposed = false;
+  let emitTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  let hasEmittedOnce = false;
+  const EMIT_DEBOUNCE_MS = 600;
   const emit = () => {
     if (disposed) return;
+    if (!hasEmittedOnce) {
+      hasEmittedOnce = true;
+      doEmit();
+      return;
+    }
+    if (emitTimeoutId) {
+      pendingReload = true;
+      return;
+    }
+    emitTimeoutId = setTimeout(() => {
+      emitTimeoutId = null;
+      if (disposed) return;
+      if (isLoading) {
+        pendingReload = true;
+        return;
+      }
+      doEmit();
+    }, EMIT_DEBOUNCE_MS);
+  };
+  const doEmit = () => {
+    if (disposed) return;
     if (isLoading) {
-      // Queue one follow-up reload to avoid dropping updates from rapid snapshots.
       pendingReload = true;
       return;
     }
@@ -558,7 +581,7 @@ export function subscribeToFirestore(
         isLoading = false;
         if (pendingReload) {
           pendingReload = false;
-          emit();
+          doEmit();
         }
       });
   };
@@ -578,13 +601,14 @@ export function subscribeToFirestore(
     () => {}
   );
 
-  // Safety poll: if any snapshot was missed transiently, resync anyway.
-  const pollId = setInterval(() => emit(), 15000);
+  // Safety poll: resync occasionally (reduced frequency to avoid load in Settings/students).
+  const pollId = setInterval(() => emit(), 90000);
 
   emit();
 
   return () => {
     disposed = true;
+    if (emitTimeoutId) clearTimeout(emitTimeoutId);
     clearInterval(pollId);
     unsubSettings();
     unsubClasses();
