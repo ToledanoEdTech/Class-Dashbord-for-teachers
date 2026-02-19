@@ -30,6 +30,29 @@ function credentialVaultKey(studentId: string, classId?: string): string {
   return classId ? `${classId}::${studentId}` : `default::${studentId}`;
 }
 
+/** Retry Firestore write when hitting resource-exhausted (too many queued writes). */
+function isResourceExhausted(e: any): boolean {
+  const msg = String(e?.message ?? e?.code ?? '');
+  return msg.includes('resource-exhausted') || msg.includes('Write stream exhausted') || msg.includes('RESOURCE_EXHAUSTED');
+}
+
+async function withFirestoreRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  await delay(800);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (attempt < 2 && isResourceExhausted(e)) {
+        await delay(2000 * (attempt + 1));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error(label + ': נכשל אחרי ניסיונות חוזרים.');
+}
+
 async function upsertCredentialVaultItem(
   teacherUid: string,
   studentId: string,
@@ -282,19 +305,21 @@ export async function createStudentAccount(
   const usedPrimaryAuth = userCredential.user.uid && getFirebaseAuth()?.currentUser?.uid === uid;
 
   try {
-    const userDocRef = doc(db, 'users', uid);
-    const userDocData: Record<string, unknown> = {
-      role: 'student',
-      studentId: student.id,
-      username: finalUsername,
-      displayName: student.name,
-      teacherUid,
-      createdAt: new Date().toISOString(),
-    };
-    if (usedPrimaryAuth) {
-      userDocData[TEMPORARY_PASSWORD_FIELD] = finalPassword;
-    }
-    await setDoc(userDocRef, userDocData);
+    await withFirestoreRetry(async () => {
+      const userDocRef = doc(db, 'users', uid);
+      const userDocData: Record<string, unknown> = {
+        role: 'student',
+        studentId: student.id,
+        username: finalUsername,
+        displayName: student.name,
+        teacherUid,
+        createdAt: new Date().toISOString(),
+      };
+      if (usedPrimaryAuth) {
+        userDocData[TEMPORARY_PASSWORD_FIELD] = finalPassword;
+      }
+      await setDoc(userDocRef, userDocData);
+    }, 'שמירת פרטי תלמיד');
   } catch (error: any) {
     try {
       await deleteUser(userCredential.user);
@@ -305,6 +330,9 @@ export async function createStudentAccount(
       throw new Error(
         'אין הרשאה ליצור מסמך ב-Firestore. ב-Console: Firestore → Rules – וודא שמורים יכולים ליצור מסמכים ב-users (isCurrentUserTeacher()).'
       );
+    }
+    if (isResourceExhausted(error)) {
+      throw new Error('הענן עמוס מדי. נסה שוב בעוד דקה.');
     }
     throw new Error('שמירת פרטי התלמיד נכשלה: ' + (error?.message ?? String(error)));
   }
@@ -323,11 +351,17 @@ export async function createStudentAccount(
   }
 
   try {
-    await upsertCredentialVaultItem(teacherUid, student.id, account, options?.classId);
+    await withFirestoreRetry(
+      () => upsertCredentialVaultItem(teacherUid, student.id, account, options?.classId),
+      'שמירת סיסמה בהגדרות'
+    );
   } catch (error: any) {
     await signOut(secondaryAuth).catch(() => undefined);
     if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
       throw new Error('שמירת סיסמה בהגדרות נכשלה (הרשאות). עדכן כללי Firestore ל-users/{uid}/data.');
+    }
+    if (isResourceExhausted(error)) {
+      throw new Error('הענן עמוס מדי. נסה שוב בעוד דקה (פחות פעולות ברקע).');
     }
     throw new Error('שמירת סיסמה בהגדרות נכשלה: ' + (error?.message ?? String(error)));
   }

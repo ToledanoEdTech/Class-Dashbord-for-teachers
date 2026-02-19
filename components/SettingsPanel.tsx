@@ -22,7 +22,6 @@ import {
   deleteStudentAccount,
   resetStudentAccountCredentials,
   getStudentAccountsForClass,
-  exportStudentAccountsToExcel,
   generateTemporaryPassword,
   type StudentAccount,
 } from '../utils/studentAccountManagement';
@@ -82,6 +81,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [creatingAccount, setCreatingAccount] = useState<string | null>(null);
   const [newAccountCredentials, setNewAccountCredentials] = useState<Map<string, StudentAccount>>(new Map());
   const [studentSectionError, setStudentSectionError] = useState<string | null>(null);
+  const [createAllProgress, setCreateAllProgress] = useState<{ done: number; total: number } | null>(null);
   const lastLoadedAccountsKeyRef = useRef<string | null>(null);
   const credentialsStorageKey = activeClassId ? `toledano-temp-student-creds-${activeClassId}` : 'toledano-temp-student-creds';
   const { user } = useAuth();
@@ -271,58 +271,82 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   };
 
   const handleCreateAllAccounts = async () => {
-    if (!confirm('האם אתה בטוח שברצונך ליצור חשבונות לכל התלמידים?')) return;
+    const toCreate = students.filter((s) => !studentAccounts.has(s.id));
+    if (toCreate.length === 0) {
+      alert('לכל התלמידים כבר יש חשבון.');
+      return;
+    }
+    if (!confirm(`ליצור חשבון ל-${toCreate.length} תלמידים? הפעולה יכולה לקחת כמה דקות (המתנה בין כל חשבון למניעת עומס).`)) return;
 
     setStudentSectionError(null);
     setLoadingAccounts(true);
+    setCreateAllProgress({ done: 0, total: toCreate.length });
     const newCreds = new Map(newAccountCredentials);
     const newAccounts = new Map(studentAccounts);
     const errors: string[] = [];
+    const delayMs = 2200;
 
     try {
-      for (const student of students) {
-        if (!newAccounts.has(student.id)) {
-          try {
-            const account = await createStudentAccount(student, undefined, undefined, {
-              classId: activeClassId ?? undefined,
-            });
-            newAccounts.set(student.id, account);
-            newCreds.set(student.id, account);
-          } catch (error: any) {
-            const msg = error?.message ?? String(error);
-            console.error(`Failed to create account for ${student.name}:`, error);
-            errors.push(`${student.name} (${student.id}): ${msg}`);
-          }
+      for (let i = 0; i < toCreate.length; i++) {
+        const student = toCreate[i];
+        setCreateAllProgress({ done: i, total: toCreate.length });
+        try {
+          const account = await createStudentAccount(student, undefined, undefined, {
+            classId: activeClassId ?? undefined,
+          });
+          newAccounts.set(student.id, account);
+          newCreds.set(student.id, account);
+        } catch (error: any) {
+          const msg = error?.message ?? String(error);
+          console.error(`Failed to create account for ${student.name}:`, error);
+          errors.push(`${student.name} (${student.id}): ${msg}`);
+        }
+        if (i < toCreate.length - 1) {
+          await new Promise((r) => setTimeout(r, delayMs));
         }
       }
-      setStudentAccounts(newAccounts);
-      setNewAccountCredentials(newCreds);
+      setCreateAllProgress({ done: toCreate.length, total: toCreate.length });
+      setStudentAccounts(new Map(newAccounts));
+      setNewAccountCredentials(new Map(newCreds));
       try {
         localStorage.setItem(credentialsStorageKey, JSON.stringify(Object.fromEntries(newCreds)));
       } catch (e) {
         console.warn('Failed to persist bulk credentials locally:', e);
       }
+      const created = toCreate.length - errors.length;
       if (errors.length > 0) {
-        const created = students.filter((s) => newAccounts.has(s.id)).length;
-        const errMsg = `נוצרו ${created} חשבונות. ${errors.length} נכשלו:\n\n` +
+        const errMsg =
+          `נוצרו ${created} חשבונות. ${errors.length} נכשלו:\n\n` +
           errors.slice(0, 5).join('\n') +
           (errors.length > 5 ? `\n... ועוד ${errors.length - 5}` : '');
         setStudentSectionError(errors[0]);
         alert(errMsg);
+      } else {
+        alert(`נוצרו ${created} חשבונות בהצלחה.`);
       }
     } finally {
       setLoadingAccounts(false);
+      setCreateAllProgress(null);
     }
   };
 
   const handleExportPasswords = () => {
-    const accountsArray = Array.from(studentAccounts.values());
-    const exportData = exportStudentAccountsToExcel(accountsArray);
-    
-    const ws = XLSX.utils.json_to_sheet(exportData);
+    const rows = students.map((student) => {
+      const account = studentAccounts.get(student.id);
+      const newCreds = newAccountCredentials.get(student.id);
+      const username = newCreds?.username ?? account?.username ?? '';
+      const password = newCreds?.password ?? account?.password ?? '';
+      return {
+        'שם תלמיד': student.name,
+        'ת.ז': student.id,
+        'שם משתמש': username || '(אין חשבון)',
+        'סיסמה זמנית': password || '(אין)',
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'חשבונות תלמידים');
-    XLSX.writeFile(wb, `student-accounts-${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `חשבונות-תלמידים-${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const draftSettings: RiskSettings = useMemo(
@@ -801,7 +825,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
               ניהול חשבונות תלמידים
             </h2>
             <p className="text-slate-600 text-sm mt-1">
-              צור חשבונות התחברות לתלמידים כדי שיוכלו לראות את הפרופיל שלהם בלבד.
+              צור חשבונות התחברות לתלמידים כדי שיוכלו לראות את הפרופיל שלהם בלבד. להלן רשימת שמות משתמש וסיסמאות – ניתן להעתיק או להוריד לאקסל.
             </p>
           </div>
           <div className="p-5 md:p-6 space-y-4">
@@ -838,7 +862,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     className="px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     <Plus size={18} />
-                    צור חשבונות לכל התלמידים
+                    {createAllProgress
+                      ? `יוצר חשבונות... (${createAllProgress.done}/${createAllProgress.total})`
+                      : 'צור חשבונות לכל התלמידים'}
                   </button>
                   <button
                     type="button"
@@ -850,16 +876,15 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     <RefreshCw size={18} />
                     רענן רשימה
                   </button>
-                  {studentAccounts.size > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleExportPasswords}
-                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-medium transition-colors flex items-center gap-2"
-                    >
-                      <Download size={18} />
-                      ייצא רשימת סיסמאות
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={handleExportPasswords}
+                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-medium transition-colors flex items-center gap-2"
+                    title="הורד לאקסל: שם תלמיד, ת.ז, שם משתמש, סיסמה"
+                  >
+                    <Download size={18} />
+                    הורד רשימה לאקסל
+                  </button>
                 </div>
                 <div className="md:hidden space-y-3">
                   {students.map((student) => {
@@ -939,16 +964,18 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   })}
                 </div>
 
-                <div className="hidden md:block overflow-x-auto">
+                <p className="text-slate-600 text-sm mb-2">
+                  רשימת תלמידים עם שם משתמש וסיסמה. להעתקה: לחץ על אייקון ההעתקה ליד הערך.
+                </p>
+                <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
                   <table className="w-full">
                     <thead>
-                      <tr className="border-b border-slate-200">
+                      <tr className="border-b border-slate-200 bg-slate-50">
                         <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">שם תלמיד</th>
                         <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">ת.ז</th>
                         <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">שם משתמש</th>
                         <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">סיסמה זמנית</th>
-                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">יש חשבון</th>
-                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700 sticky left-0 bg-white z-10">פעולות</th>
+                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">פעולות</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1016,20 +1043,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                 <span className="text-slate-400" title="אפס סיסמה כדי ליצור סיסמה חדשה שנשמרת">(לא זמין – אפס סיסמה)</span>
                               )}
                             </td>
-                            <td className="py-3 px-4 text-sm">
-                              {hasAccount ? (
-                                <span className="inline-flex items-center gap-1 text-emerald-600">
-                                  <Check size={16} />
-                                  כן
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-slate-400">
-                                  <X size={16} />
-                                  לא
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 text-sm sticky left-0 bg-white">
+                            <td className="py-3 px-4 text-sm bg-white">
                               <div className="flex items-center gap-2">
                                 {!hasAccount ? (
                                   <button
