@@ -5,6 +5,7 @@ import {
   collection,
   onSnapshot,
   writeBatch,
+  type DocumentReference,
   type Firestore,
 } from 'firebase/firestore';
 import LZString from 'lz-string';
@@ -30,6 +31,7 @@ const SETTINGS_DOC = 'settings';
 const COMPRESSED_VERSION = 2;
 const FIRESTORE_DOC_KEY = 'appData';
 const MAX_CHUNK_BYTES = 800000;
+const MAX_BATCH_OPS = 400;
 
 /** Compress object to string - each doc must be < 1MB */
 function compress(obj: object): string {
@@ -232,6 +234,17 @@ export async function loadFromFirestore(userId: string): Promise<{
         preferences: settings.preferences,
       };
     }
+
+    // If classes exist but settings doc is missing, still return cloud classes with safe defaults.
+    if (classes.length > 0) {
+      return {
+        classes,
+        activeClassId: classes[0]?.id ?? null,
+        riskSettings: normalizeRiskSettings(undefined),
+        perClassRiskSettings: {},
+        periodDefinitions: [],
+      };
+    }
     
     // Try legacy format
     const legacy = await loadLegacyDoc(db, userId);
@@ -272,11 +285,28 @@ export async function saveToFirestore(
     if (existing && existing.classes.length > 0) return;
   }
 
-  const batch = writeBatch(db);
+  let batch = writeBatch(db);
+  let batchOps = 0;
+  const commitBatch = async () => {
+    if (batchOps === 0) return;
+    await batch.commit();
+    batch = writeBatch(db);
+    batchOps = 0;
+  };
+  const queueSet = async (ref: DocumentReference, data: Record<string, unknown>) => {
+    batch.set(ref, data);
+    batchOps++;
+    if (batchOps >= MAX_BATCH_OPS) await commitBatch();
+  };
+  const queueDelete = async (ref: DocumentReference) => {
+    batch.delete(ref);
+    batchOps++;
+    if (batchOps >= MAX_BATCH_OPS) await commitBatch();
+  };
 
   const prefs = payload.preferences;
   const settingsRef = doc(db, 'users', userId, 'data', SETTINGS_DOC);
-  batch.set(settingsRef, toFirestoreValue({
+  await queueSet(settingsRef, toFirestoreValue({
     activeClassId: payload.activeClassId,
     riskSettings: payload.riskSettings,
     perClassRiskSettings: payload.perClassRiskSettings ?? {},
@@ -294,9 +324,27 @@ export async function saveToFirestore(
     const persisted = toPersistedClass(c);
     const compressed = compress(persisted);
     const classRef = doc(colRef, c.id);
+    const existingClassSnap = await getDoc(classRef);
+    if (existingClassSnap.exists()) {
+      const existingRaw = existingClassSnap.data() as { lastUpdated?: string; meta?: { lastUpdated?: string } };
+      const existingLastUpdated = existingRaw.lastUpdated || existingRaw.meta?.lastUpdated;
+      if (existingLastUpdated) {
+        const existingTs = new Date(existingLastUpdated).getTime();
+        const incomingTs = c.lastUpdated.getTime();
+        // Prevent stale tabs/devices from overriding newer class data.
+        if (Number.isFinite(existingTs) && existingTs > incomingTs) {
+          continue;
+        }
+      }
+    }
 
     if (compressed.length <= MAX_CHUNK_BYTES) {
-      batch.set(classRef, { v: COMPRESSED_VERSION, d: compressed, t: Date.now() });
+      await queueSet(classRef, {
+        v: COMPRESSED_VERSION,
+        d: compressed,
+        lastUpdated: c.lastUpdated.toISOString(),
+        t: Date.now(),
+      });
     } else {
       const persistedStudents = persisted.students;
       const chunks: { students: PersistedStudent[] }[] = [];
@@ -312,12 +360,13 @@ export async function saveToFirestore(
       }
       if (currentChunk.length > 0) chunks.push({ students: currentChunk });
 
-      batch.set(classRef, {
+      await queueSet(classRef, {
         meta: {
           id: c.id,
           name: c.name,
           lastUpdated: c.lastUpdated.toISOString(),
         },
+        lastUpdated: c.lastUpdated.toISOString(),
         chunkCount: chunks.length,
         t: Date.now(),
       });
@@ -331,17 +380,17 @@ export async function saveToFirestore(
             `תלמיד בודד בכיתה "${c.name}" גדול מדי. נסה להקטין נתונים (ציונים/אירועים).`
           );
         }
-        batch.set(doc(chunksRef, String(i)), { d: chunkCompressed });
+        await queueSet(doc(chunksRef, String(i)), { d: chunkCompressed });
       }
       for (let i = chunks.length; i < existingChunks.docs.length; i++) {
-        batch.delete(doc(chunksRef, String(i)));
+        await queueDelete(doc(chunksRef, String(i)));
       }
     }
     // Important: Do not auto-delete classes that are missing from this payload.
     // This prevents stale tabs/devices from wiping classes.
   }
 
-  await batch.commit();
+  await commitBatch();
 }
 
 /**

@@ -78,6 +78,22 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState<string | null>(null);
   const [newAccountCredentials, setNewAccountCredentials] = useState<Map<string, StudentAccount>>(new Map());
+  const credentialsStorageKey = activeClassId ? `toledano-temp-student-creds-${activeClassId}` : 'toledano-temp-student-creds';
+
+  const persistTempCredential = (studentId: string, account: StudentAccount | null) => {
+    setNewAccountCredentials((prev) => {
+      const next = new Map(prev);
+      if (account) next.set(studentId, account);
+      else next.delete(studentId);
+      try {
+        const asObject = Object.fromEntries(next);
+        localStorage.setItem(credentialsStorageKey, JSON.stringify(asObject));
+      } catch (e) {
+        console.warn('Failed to persist temporary credentials locally:', e);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setMinGradeThreshold(riskSettings.minGradeThreshold);
@@ -93,6 +109,21 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setPeriods(periodDefinitions);
     setWidgets(dashboardWidgets);
   }, [riskSettings, activeClassId, perClassRiskSettings, periodDefinitions, dashboardWidgets]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(credentialsStorageKey);
+      if (!raw) {
+        setNewAccountCredentials(new Map());
+        return;
+      }
+      const parsed = JSON.parse(raw) as Record<string, StudentAccount>;
+      setNewAccountCredentials(new Map(Object.entries(parsed)));
+    } catch (e) {
+      console.warn('Failed to load temporary credentials from local storage:', e);
+      setNewAccountCredentials(new Map());
+    }
+  }, [credentialsStorageKey]);
 
   // Load student accounts when students change
   useEffect(() => {
@@ -121,11 +152,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       const newMap = new Map(studentAccounts);
       newMap.set(student.id, account);
       setStudentAccounts(newMap);
-      
-      // Store credentials for display
-      const credsMap = new Map(newAccountCredentials);
-      credsMap.set(student.id, account);
-      setNewAccountCredentials(credsMap);
+      persistTempCredential(student.id, account);
     } catch (error: any) {
       console.error('Error creating student account:', error);
       const errorMessage = error?.message || error?.code || 'שגיאה ביצירת חשבון';
@@ -147,9 +174,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       const newMap = new Map(studentAccounts);
       newMap.delete(studentId);
       setStudentAccounts(newMap);
-      const credsMap = new Map(newAccountCredentials);
-      credsMap.delete(studentId);
-      setNewAccountCredentials(credsMap);
+      persistTempCredential(studentId, null);
     } catch (error: any) {
       alert(error?.message || 'שגיאה במחיקת חשבון');
     }
@@ -171,10 +196,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       const accountsMap = new Map(studentAccounts);
       accountsMap.set(student.id, updated);
       setStudentAccounts(accountsMap);
-
-      const credsMap = new Map(newAccountCredentials);
-      credsMap.set(student.id, updated);
-      setNewAccountCredentials(credsMap);
+      persistTempCredential(student.id, updated);
     } catch (error: any) {
       alert(error?.message || 'שגיאה באיפוס סיסמה');
     } finally {
@@ -198,10 +220,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       const accountsMap = new Map(studentAccounts);
       accountsMap.set(student.id, updated);
       setStudentAccounts(accountsMap);
-
-      const credsMap = new Map(newAccountCredentials);
-      credsMap.set(student.id, updated);
-      setNewAccountCredentials(credsMap);
+      persistTempCredential(student.id, updated);
     } catch (error: any) {
       alert(error?.message || 'שגיאה באיפוס שם משתמש');
     } finally {
@@ -230,6 +249,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       }
       setStudentAccounts(newAccounts);
       setNewAccountCredentials(newCreds);
+      try {
+        localStorage.setItem(credentialsStorageKey, JSON.stringify(Object.fromEntries(newCreds)));
+      } catch (e) {
+        console.warn('Failed to persist bulk credentials locally:', e);
+      }
     } finally {
       setLoadingAccounts(false);
     }
@@ -779,7 +803,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                           <div>
                             <p className="text-slate-500 mb-1">סיסמה זמנית</p>
                             <code className="bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded block truncate">
-                              {(newCreds?.password || '(לא זמין)')}
+                              {(newCreds?.password || account?.password || '(לא זמין)')}
                             </code>
                           </div>
                         </div>
@@ -888,7 +912,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                   </button>
                                 </div>
                               ) : (
-                                <span className="text-slate-400">(לא זמין)</span>
+                                account?.password ? (
+                                  <code className="bg-amber-50 px-2 py-1 rounded text-xs font-mono text-amber-700 border border-amber-200">{account.password}</code>
+                                ) : (
+                                  <span className="text-slate-400">(לא זמין)</span>
+                                )
                               )}
                             </td>
                             <td className="py-3 px-4 text-sm">
