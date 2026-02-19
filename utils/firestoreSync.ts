@@ -67,9 +67,13 @@ async function loadSettings(
   periodDefinitions: PeriodDefinition[];
   preferences?: UserPreferences;
 } | null> {
-  const ref = doc(db, 'users', userId, 'data', SETTINGS_DOC);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return null;
+  try {
+    const ref = doc(db, 'users', userId, 'data', SETTINGS_DOC);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      console.log('Settings document does not exist for user:', userId);
+      return null;
+    }
   const raw = snap.data() as {
     activeClassId?: string | null;
     riskSettings?: RiskSettings;
@@ -102,6 +106,13 @@ async function loadSettings(
     periodDefinitions: Array.isArray(raw.periodDefinitions) ? raw.periodDefinitions : [],
     preferences,
   };
+  } catch (error: any) {
+    console.error('Error loading settings:', error);
+    if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
+      throw new Error('אין הרשאה לקרוא הגדרות מהענן. עדכן את כללי Firestore.');
+    }
+    return null;
+  }
 }
 
 /** Load one class - supports both single-doc and chunked format */
@@ -146,18 +157,27 @@ async function loadOneClass(
 }
 
 async function loadClasses(db: Firestore, userId: string): Promise<ClassGroup[]> {
-  const colRef = collection(db, 'users', userId, 'classes');
-  const snapshot = await getDocs(colRef);
-  const classes: ClassGroup[] = [];
-  for (const docSnap of snapshot.docs) {
-    const raw = docSnap.data();
-    if (raw?.d || raw?.meta) {
-      const c = await loadOneClass(db, userId, docSnap.id, raw);
-      if (c) classes.push(c);
+  try {
+    const colRef = collection(db, 'users', userId, 'classes');
+    const snapshot = await getDocs(colRef);
+    console.log('Found', snapshot.docs.length, 'class documents');
+    const classes: ClassGroup[] = [];
+    for (const docSnap of snapshot.docs) {
+      const raw = docSnap.data();
+      if (raw?.d || raw?.meta) {
+        const c = await loadOneClass(db, userId, docSnap.id, raw);
+        if (c) classes.push(c);
+      }
     }
+    classes.sort((a, b) => a.lastUpdated.getTime() - b.lastUpdated.getTime());
+    return classes;
+  } catch (error: any) {
+    console.error('Error loading classes:', error);
+    if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
+      throw new Error('אין הרשאה לקרוא כיתות מהענן. עדכן את כללי Firestore.');
+    }
+    throw error;
   }
-  classes.sort((a, b) => a.lastUpdated.getTime() - b.lastUpdated.getTime());
-  return classes;
 }
 
 /** Fallback: load from legacy single doc (for migration) */
@@ -191,20 +211,46 @@ export async function loadFromFirestore(userId: string): Promise<{
   preferences?: UserPreferences;
 } | null> {
   const db = getFirebaseDb();
-  if (!db) return null;
-  const settings = await loadSettings(db, userId);
-  const classes = await loadClasses(db, userId);
-  if (settings) {
-    return {
-      classes,
-      activeClassId: settings.activeClassId,
-      riskSettings: settings.riskSettings,
-      perClassRiskSettings: settings.perClassRiskSettings,
-      periodDefinitions: settings.periodDefinitions,
-      preferences: settings.preferences,
-    };
+  if (!db) {
+    console.warn('Firestore DB not available');
+    return null;
   }
-  return loadLegacyDoc(db, userId);
+  
+  try {
+    console.log('Loading from Firestore for user:', userId);
+    const settings = await loadSettings(db, userId);
+    const classes = await loadClasses(db, userId);
+    console.log('Loaded settings:', !!settings, 'classes:', classes.length);
+    
+    if (settings) {
+      return {
+        classes,
+        activeClassId: settings.activeClassId,
+        riskSettings: settings.riskSettings,
+        perClassRiskSettings: settings.perClassRiskSettings,
+        periodDefinitions: settings.periodDefinitions,
+        preferences: settings.preferences,
+      };
+    }
+    
+    // Try legacy format
+    const legacy = await loadLegacyDoc(db, userId);
+    if (legacy) {
+      console.log('Loaded from legacy format');
+      return legacy;
+    }
+    
+    // Return empty state if nothing found
+    console.log('No data found in Firestore, returning empty state');
+    return null;
+  } catch (error: any) {
+    console.error('Error loading from Firestore:', error);
+    // Check if it's a permission error
+    if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
+      throw new Error('אין הרשאה לקרוא מהענן. עדכן את כללי Firestore ב-Console.');
+    }
+    throw error;
+  }
 }
 
 export async function saveToFirestore(
@@ -243,8 +289,6 @@ export async function saveToFirestore(
   }) as Record<string, unknown>);
 
   const colRef = collection(db, 'users', userId, 'classes');
-  const existingSnap = await getDocs(colRef);
-  const existingIds = new Set(existingSnap.docs.map((d) => d.id));
 
   for (const c of payload.classes) {
     const persisted = toPersistedClass(c);
@@ -293,13 +337,28 @@ export async function saveToFirestore(
         batch.delete(doc(chunksRef, String(i)));
       }
     }
-    existingIds.delete(c.id);
+    // Important: Do not auto-delete classes that are missing from this payload.
+    // This prevents stale tabs/devices from wiping classes.
   }
 
-  for (const id of existingIds) {
-    batch.delete(doc(colRef, id));
-  }
+  await batch.commit();
+}
 
+/**
+ * Explicit class deletion API.
+ * Classes are deleted from cloud only via active user action.
+ */
+export async function deleteClassFromFirestore(userId: string, classId: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) return;
+  const classRef = doc(db, 'users', userId, 'classes', classId);
+  const chunksRef = collection(db, 'users', userId, 'classes', classId, 'chunks');
+  const chunksSnap = await getDocs(chunksRef);
+  const batch = writeBatch(db);
+  for (const chunk of chunksSnap.docs) {
+    batch.delete(doc(chunksRef, chunk.id));
+  }
+  batch.delete(classRef);
   await batch.commit();
 }
 
@@ -323,17 +382,31 @@ export function subscribeToFirestore(
   if (!db) return () => {};
 
   let lastUpdated = 0;
+  let hasEmitted = false;
   const emit = () => {
-    loadFromFirestore(userId).then(
-      (data) => {
-        if (data) lastUpdated = Date.now();
-        onData(data, lastUpdated);
-      },
-      (err) => {
+    // Prevent multiple simultaneous calls
+    if (hasEmitted) return;
+    hasEmitted = true;
+    
+    loadFromFirestore(userId)
+      .then(
+        (data) => {
+          if (data) lastUpdated = Date.now();
+          onData(data, lastUpdated);
+          hasEmitted = false;
+        },
+        (err) => {
+          onData(null, 0);
+          onError?.(err);
+          hasEmitted = false;
+        }
+      )
+      .catch((err) => {
+        // Ensure we always emit something, even on unexpected errors
         onData(null, 0);
-        onError?.(err);
-      }
-    );
+        onError?.(err instanceof Error ? err : new Error(String(err)));
+        hasEmitted = false;
+      });
   };
 
   const unsubSettings = onSnapshot(

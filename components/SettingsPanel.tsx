@@ -10,13 +10,23 @@ import {
   normalizeRiskSettings,
 } from '../types';
 import { calculateStudentStats } from '../utils/processing';
-import { ArrowRight, Sliders, Copy, Calendar, Plus, Trash2, LayoutGrid } from 'lucide-react';
+import { ArrowRight, Sliders, Copy, Calendar, Plus, Trash2, LayoutGrid, Users, Download, Check, X } from 'lucide-react';
 import {
   DASHBOARD_WIDGET_IDS,
   DASHBOARD_WIDGET_LABELS,
   type DashboardWidgetsState,
   type DashboardWidgetId,
 } from '../constants/dashboardWidgets';
+import {
+  createStudentAccount,
+  deleteStudentAccount,
+  resetStudentAccountCredentials,
+  getStudentAccountsForClass,
+  exportStudentAccountsToExcel,
+  generateTemporaryPassword,
+  type StudentAccount,
+} from '../utils/studentAccountManagement';
+import * as XLSX from 'xlsx';
 
 interface SettingsPanelProps {
   riskSettings: RiskSettings;
@@ -63,7 +73,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [useForThisClassOnly, setUseForThisClassOnly] = useState(!!(activeClassId && perClassRiskSettings[activeClassId]));
   const [periods, setPeriods] = useState<PeriodDefinition[]>(periodDefinitions);
   const [widgets, setWidgets] = useState<DashboardWidgetsState>(dashboardWidgets);
-  const [activeSection, setActiveSection] = useState<'risk' | 'periods' | 'widgets'>('risk');
+  const [activeSection, setActiveSection] = useState<'risk' | 'periods' | 'widgets' | 'students'>('risk');
+  const [studentAccounts, setStudentAccounts] = useState<Map<string, StudentAccount>>(new Map());
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState<string | null>(null);
+  const [newAccountCredentials, setNewAccountCredentials] = useState<Map<string, StudentAccount>>(new Map());
 
   useEffect(() => {
     setMinGradeThreshold(riskSettings.minGradeThreshold);
@@ -79,6 +93,157 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setPeriods(periodDefinitions);
     setWidgets(dashboardWidgets);
   }, [riskSettings, activeClassId, perClassRiskSettings, periodDefinitions, dashboardWidgets]);
+
+  // Load student accounts when students change
+  useEffect(() => {
+    if (students.length > 0 && activeSection === 'students') {
+      loadStudentAccounts();
+    }
+  }, [students, activeSection]);
+
+  const loadStudentAccounts = async () => {
+    setLoadingAccounts(true);
+    try {
+      const accounts = await getStudentAccountsForClass(students);
+      setStudentAccounts(accounts);
+    } catch (error) {
+      console.error('Error loading student accounts:', error);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+
+  const handleCreateAccount = async (student: Student) => {
+    if (creatingAccount === student.id) return;
+    setCreatingAccount(student.id);
+    try {
+      const account = await createStudentAccount(student);
+      const newMap = new Map(studentAccounts);
+      newMap.set(student.id, account);
+      setStudentAccounts(newMap);
+      
+      // Store credentials for display
+      const credsMap = new Map(newAccountCredentials);
+      credsMap.set(student.id, account);
+      setNewAccountCredentials(credsMap);
+    } catch (error: any) {
+      console.error('Error creating student account:', error);
+      const errorMessage = error?.message || error?.code || 'שגיאה ביצירת חשבון';
+      alert(`שגיאה ביצירת חשבון: ${errorMessage}`);
+      // Don't logout on error - just show the error
+    } finally {
+      setCreatingAccount(null);
+    }
+  };
+
+  const handleDeleteAccount = async (studentId: string) => {
+    const account = studentAccounts.get(studentId);
+    if (!account) return;
+    
+    if (!confirm('האם אתה בטוח שברצונך למחוק את חשבון התלמיד?')) return;
+    
+    try {
+      await deleteStudentAccount(account.uid);
+      const newMap = new Map(studentAccounts);
+      newMap.delete(studentId);
+      setStudentAccounts(newMap);
+      const credsMap = new Map(newAccountCredentials);
+      credsMap.delete(studentId);
+      setNewAccountCredentials(credsMap);
+    } catch (error: any) {
+      alert(error?.message || 'שגיאה במחיקת חשבון');
+    }
+  };
+
+  const handleResetPassword = async (student: Student) => {
+    const account = studentAccounts.get(student.id);
+    if (!account) return;
+    if (!confirm('לאפס סיסמה לתלמיד זה? תיווצר סיסמה זמנית חדשה.')) return;
+
+    setCreatingAccount(student.id);
+    try {
+      const nextPassword = generateTemporaryPassword();
+      const updated = await resetStudentAccountCredentials(student, account, {
+        username: account.username,
+        password: nextPassword,
+      });
+
+      const accountsMap = new Map(studentAccounts);
+      accountsMap.set(student.id, updated);
+      setStudentAccounts(accountsMap);
+
+      const credsMap = new Map(newAccountCredentials);
+      credsMap.set(student.id, updated);
+      setNewAccountCredentials(credsMap);
+    } catch (error: any) {
+      alert(error?.message || 'שגיאה באיפוס סיסמה');
+    } finally {
+      setCreatingAccount(null);
+    }
+  };
+
+  const handleResetUsername = async (student: Student) => {
+    const account = studentAccounts.get(student.id);
+    if (!account) return;
+    const requested = prompt('הזן שם משתמש חדש:', account.username);
+    if (!requested) return;
+
+    setCreatingAccount(student.id);
+    try {
+      const updated = await resetStudentAccountCredentials(student, account, {
+        username: requested,
+        password: generateTemporaryPassword(),
+      });
+
+      const accountsMap = new Map(studentAccounts);
+      accountsMap.set(student.id, updated);
+      setStudentAccounts(accountsMap);
+
+      const credsMap = new Map(newAccountCredentials);
+      credsMap.set(student.id, updated);
+      setNewAccountCredentials(credsMap);
+    } catch (error: any) {
+      alert(error?.message || 'שגיאה באיפוס שם משתמש');
+    } finally {
+      setCreatingAccount(null);
+    }
+  };
+
+  const handleCreateAllAccounts = async () => {
+    if (!confirm('האם אתה בטוח שברצונך ליצור חשבונות לכל התלמידים?')) return;
+    
+    setLoadingAccounts(true);
+    const newCreds = new Map(newAccountCredentials);
+    const newAccounts = new Map(studentAccounts);
+    
+    try {
+      for (const student of students) {
+        if (!newAccounts.has(student.id)) {
+          try {
+            const account = await createStudentAccount(student);
+            newAccounts.set(student.id, account);
+            newCreds.set(student.id, account);
+          } catch (error: any) {
+            console.error(`Failed to create account for ${student.name}:`, error);
+          }
+        }
+      }
+      setStudentAccounts(newAccounts);
+      setNewAccountCredentials(newCreds);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+
+  const handleExportPasswords = () => {
+    const accountsArray = Array.from(studentAccounts.values());
+    const exportData = exportStudentAccountsToExcel(accountsArray);
+    
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'חשבונות תלמידים');
+    XLSX.writeFile(wb, `student-accounts-${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
 
   const draftSettings: RiskSettings = useMemo(
     () =>
@@ -210,6 +375,17 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         >
           <LayoutGrid size={16} className="inline-block ml-1.5 align-middle" />
           רכיבי דשבורד
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveSection('students');
+            loadStudentAccounts();
+          }}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === 'students' ? 'bg-white text-primary-700 shadow' : 'text-slate-600 hover:text-slate-800'}`}
+        >
+          <Users size={16} className="inline-block ml-1.5 align-middle" />
+          ניהול חשבונות תלמידים
         </button>
       </div>
 
@@ -533,6 +709,250 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             >
               שמור רכיבי דשבורד
             </button>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'students' && (
+        <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 overflow-hidden">
+          <div className="p-5 md:p-6 border-b border-slate-100 bg-gradient-to-br from-primary-50/50 to-white">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <Users size={22} className="text-primary-500" />
+              ניהול חשבונות תלמידים
+            </h2>
+            <p className="text-slate-600 text-sm mt-1">
+              צור חשבונות התחברות לתלמידים כדי שיוכלו לראות את הפרופיל שלהם בלבד.
+            </p>
+          </div>
+          <div className="p-5 md:p-6 space-y-4">
+            {students.length === 0 ? (
+              <p className="text-slate-500 text-center py-8">אין תלמידים בכיתה זו</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <button
+                    type="button"
+                    onClick={handleCreateAllAccounts}
+                    disabled={loadingAccounts}
+                    className="px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <Plus size={18} />
+                    צור חשבונות לכל התלמידים
+                  </button>
+                  {studentAccounts.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleExportPasswords}
+                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-medium transition-colors flex items-center gap-2"
+                    >
+                      <Download size={18} />
+                      ייצא רשימת סיסמאות
+                    </button>
+                  )}
+                </div>
+                <div className="md:hidden space-y-3">
+                  {students.map((student) => {
+                    const account = studentAccounts.get(student.id);
+                    const newCreds = newAccountCredentials.get(student.id);
+                    const hasAccount = !!account;
+                    const isBusy = creatingAccount === student.id || loadingAccounts;
+
+                    return (
+                      <div key={student.id} className="rounded-xl border border-slate-200 p-3 bg-slate-50/40">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">{student.name}</p>
+                            <p className="text-xs text-slate-500">{student.id}</p>
+                          </div>
+                          <span className={`text-xs font-medium px-2 py-1 rounded-full ${hasAccount ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                            {hasAccount ? 'יש חשבון' : 'אין חשבון'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                          <div>
+                            <p className="text-slate-500 mb-1">שם משתמש</p>
+                            <code className="bg-white border border-slate-200 px-2 py-1 rounded block truncate">
+                              {(newCreds?.username || account?.username || '-')}
+                            </code>
+                          </div>
+                          <div>
+                            <p className="text-slate-500 mb-1">סיסמה זמנית</p>
+                            <code className="bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded block truncate">
+                              {(newCreds?.password || '(לא זמין)')}
+                            </code>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {!hasAccount ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCreateAccount(student)}
+                              disabled={isBusy}
+                              className="px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                            >
+                              {isBusy ? 'יוצר...' : 'צור חשבון'}
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleResetPassword(student)}
+                                disabled={isBusy}
+                                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                              >
+                                אפס סיסמה
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResetUsername(student)}
+                                disabled={isBusy}
+                                className="px-3 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                              >
+                                אפס שם משתמש
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAccount(student.id)}
+                                disabled={isBusy}
+                                className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                              >
+                                מחק חשבון
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-200">
+                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">שם תלמיד</th>
+                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">ת.ז</th>
+                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">שם משתמש</th>
+                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">סיסמה זמנית</th>
+                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700">יש חשבון</th>
+                        <th className="text-right py-3 px-4 text-sm font-bold text-slate-700 sticky left-0 bg-white z-10">פעולות</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {students.map((student) => {
+                        const account = studentAccounts.get(student.id);
+                        const newCreds = newAccountCredentials.get(student.id);
+                        const hasAccount = !!account;
+                        const isBusy = creatingAccount === student.id || loadingAccounts;
+                        
+                        return (
+                          <tr key={student.id} className="hover:bg-slate-50">
+                            <td className="py-3 px-4 text-sm text-slate-800">{student.name}</td>
+                            <td className="py-3 px-4 text-sm text-slate-600">{student.id}</td>
+                            <td className="py-3 px-4 text-sm">
+                              {newCreds ? (
+                                <div className="flex items-center gap-2">
+                                  <code className="bg-slate-100 px-2 py-1 rounded text-xs font-mono">{newCreds.username}</code>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(newCreds.username);
+                                    }}
+                                    className="p-1 rounded hover:bg-slate-200"
+                                    title="העתק"
+                                  >
+                                    <Copy size={14} className="text-slate-500" />
+                                  </button>
+                                </div>
+                              ) : account ? (
+                                <code className="bg-slate-100 px-2 py-1 rounded text-xs font-mono">{account.username}</code>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-sm">
+                              {newCreds ? (
+                                <div className="flex items-center gap-2">
+                                  <code className="bg-amber-50 px-2 py-1 rounded text-xs font-mono text-amber-700 border border-amber-200">{newCreds.password}</code>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(newCreds.password);
+                                    }}
+                                    className="p-1 rounded hover:bg-slate-200"
+                                    title="העתק"
+                                  >
+                                    <Copy size={14} className="text-slate-500" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">(לא זמין)</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-sm">
+                              {hasAccount ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-600">
+                                  <Check size={16} />
+                                  כן
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-slate-400">
+                                  <X size={16} />
+                                  לא
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-sm sticky left-0 bg-white">
+                              <div className="flex items-center gap-2">
+                                {!hasAccount ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCreateAccount(student)}
+                                    disabled={isBusy}
+                                    className="px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                                  >
+                                    {isBusy ? 'יוצר...' : 'צור חשבון'}
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleResetPassword(student)}
+                                      disabled={isBusy}
+                                      className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                                    >
+                                      אפס סיסמה
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleResetUsername(student)}
+                                      disabled={isBusy}
+                                      className="px-3 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                                    >
+                                      אפס שם משתמש
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteAccount(student.id)}
+                                      disabled={isBusy}
+                                      className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                                    >
+                                      מחק חשבון
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

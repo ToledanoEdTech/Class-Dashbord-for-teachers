@@ -1,17 +1,57 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isCurrentUserStudent() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student';
+    }
+
+    // If the role document is missing, treat user as teacher (legacy accounts).
+    function isCurrentUserTeacher() {
+      return isSignedIn() && !isCurrentUserStudent();
+    }
+    
+    match /users/{userId} {
+      // Teachers can manage all user docs (needed for student account management).
+      // Users can always access their own doc.
+      allow read: if isSignedIn() &&
+                    (request.auth.uid == userId || isCurrentUserTeacher());
+      
+      allow create: if isSignedIn() &&
+                      (request.auth.uid == userId || isCurrentUserTeacher());
+      
+      allow update: if isSignedIn() &&
+                      (request.auth.uid == userId || isCurrentUserTeacher());
+      
+      allow delete: if isSignedIn() &&
+                      (request.auth.uid == userId || isCurrentUserTeacher());
+    }
+    
     match /users/{userId}/data/{docId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Teacher private app data/settings.
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
+    
     match /users/{userId}/classes/{classId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Students can read teacher classes to access their own card in app logic.
+      allow read: if isSignedIn() &&
+                     (request.auth.uid == userId || isCurrentUserStudent());
+      allow write: if isSignedIn() && request.auth.uid == userId;
     }
+    
     match /users/{userId}/classes/{classId}/chunks/{chunkId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isSignedIn() &&
+                     (request.auth.uid == userId || isCurrentUserStudent());
+      allow write: if isSignedIn() && request.auth.uid == userId;
     }
+    
     match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
   }
 }

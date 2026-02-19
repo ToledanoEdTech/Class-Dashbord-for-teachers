@@ -89,9 +89,53 @@ export function saveToStorage(
     periodDefinitions: payload.periodDefinitions ?? [],
   };
   try {
-    localStorage.setItem(getStorageKey(userId), JSON.stringify(persisted));
-  } catch (e) {
-    console.warn('Failed to save state to localStorage', e);
+    const jsonString = JSON.stringify(persisted);
+    // Check size before saving (localStorage limit is usually ~5-10MB)
+    // If too large, try to save only essential data
+    if (jsonString.length > 4 * 1024 * 1024) { // 4MB threshold
+      console.warn('Data too large for localStorage, saving minimal state only');
+      const minimalState: PersistedState = {
+        classes: [], // Don't save classes if too large
+        activeClassId: payload.activeClassId,
+        riskSettings: payload.riskSettings,
+        perClassRiskSettings: payload.perClassRiskSettings ?? {},
+        periodDefinitions: payload.periodDefinitions ?? [],
+      };
+      localStorage.setItem(getStorageKey(userId), JSON.stringify(minimalState));
+      return;
+    }
+    localStorage.setItem(getStorageKey(userId), jsonString);
+  } catch (e: any) {
+    // If quota exceeded, try to clear old data and save minimal state
+    if (e?.name === 'QuotaExceededError' || e?.message?.includes('quota')) {
+      console.warn('localStorage quota exceeded, clearing old data and saving minimal state');
+      try {
+        // Clear old localStorage entries
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('toledano-edtech-') && key !== getStorageKey(userId)) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        
+        // Try saving minimal state
+        const minimalState: PersistedState = {
+          classes: [], // Don't save classes if quota exceeded
+          activeClassId: payload.activeClassId,
+          riskSettings: payload.riskSettings,
+          perClassRiskSettings: payload.perClassRiskSettings ?? {},
+          periodDefinitions: payload.periodDefinitions ?? [],
+        };
+        localStorage.setItem(getStorageKey(userId), JSON.stringify(minimalState));
+      } catch (e2) {
+        console.warn('Failed to save even minimal state to localStorage', e2);
+        // Don't throw - let the app continue without localStorage
+      }
+    } else {
+      console.warn('Failed to save state to localStorage', e);
+    }
   }
 }
 
@@ -199,9 +243,16 @@ export const DEFAULT_PREFS: UserPreferences = {
 
 export function savePreferences(prefs: UserPreferences): void {
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  } catch (e) {
-    console.warn('Failed to save preferences', e);
+    const jsonString = JSON.stringify(prefs);
+    localStorage.setItem(PREFS_KEY, jsonString);
+  } catch (e: any) {
+    // If quota exceeded, try to clear some space
+    if (e?.name === 'QuotaExceededError' || e?.message?.includes('quota')) {
+      console.warn('localStorage quota exceeded for preferences, skipping save');
+      // Don't throw - preferences are less critical than main data
+    } else {
+      console.warn('Failed to save preferences', e);
+    }
   }
 }
 

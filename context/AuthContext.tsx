@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type { User } from 'firebase/auth';
-import { getFirebaseAuth, isFirebaseConfigured } from '../firebase';
+import { getFirebaseAuth, isFirebaseConfigured, getFirebaseDb } from '../firebase';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -9,9 +9,13 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+
+export type UserRole = 'teacher' | 'student' | null;
 
 interface AuthContextValue {
   user: User | null;
+  userRole: UserRole;
   loading: boolean;
   isConfigured: boolean;
   signIn: (email: string, password: string) => Promise<void>;
@@ -26,22 +30,62 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [userRole, setUserRole] = useState<UserRole>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isConfigured = isFirebaseConfigured();
   const auth = getFirebaseAuth();
+  const db = getFirebaseDb();
+
+  // Load user role from Firestore
+  const loadUserRole = useCallback(async (uid: string, email?: string | null): Promise<UserRole> => {
+    if (!db) return null;
+    try {
+      const userDocRef = doc(db, 'users', uid);
+      const userDoc = await getDoc(userDocRef);
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        if (data.role !== 'student') {
+          await setDoc(userDocRef, {
+            role: 'teacher',
+            email: email ?? data.email ?? null,
+            lastLoginAt: new Date().toISOString(),
+          }, { merge: true });
+        }
+        return data.role === 'student' ? 'student' : 'teacher';
+      }
+
+      // Create a stable teacher profile for legacy users / first login.
+      await setDoc(userDocRef, {
+        role: 'teacher',
+        email: email ?? null,
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+      }, { merge: true });
+      return 'teacher';
+    } catch (err) {
+      console.error('Error loading user role:', err);
+      return 'teacher'; // Default to teacher on error
+    }
+  }, [db]);
 
   useEffect(() => {
     if (!auth) {
       setLoading(false);
       return;
     }
-    const unsubscribe = onAuthStateChanged(auth, (u: User | null) => {
+    const unsubscribe = onAuthStateChanged(auth, async (u: User | null) => {
       setUser(u);
+      if (u) {
+        const role = await loadUserRole(u.uid, u.email);
+        setUserRole(role);
+      } else {
+        setUserRole(null);
+      }
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [auth]);
+  }, [auth, loadUserRole]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -64,12 +108,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = useCallback(
     async (email: string, password: string) => {
       setError(null);
-      if (!auth) {
+      if (!auth || !db) {
         setError('חיבור לענן לא מוגדר. באתר Vercel: הוסף משתני VITE_FIREBASE_* ב-Settings → Environment Variables ובצע Redeploy. ראה VERCEL-SETUP.md');
         return;
       }
       try {
-        await createUserWithEmailAndPassword(auth, email.trim(), password);
+        const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        const uid = userCredential.user.uid;
+        
+        // Set teacher role for new users (unless it's a student email)
+        if (!email.includes('@student.toledanoedtech.local')) {
+          const userDocRef = doc(db, 'users', uid);
+          await setDoc(userDocRef, {
+            role: 'teacher',
+            email: email.trim(),
+            createdAt: new Date().toISOString(),
+          });
+        }
       } catch (e: unknown) {
         const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'שגיאת הרשמה';
         if (msg.includes('auth/email-already-in-use')) setError('האימייל כבר רשום. נסה להתחבר.');
@@ -79,18 +134,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw e;
       }
     },
-    [auth]
+    [auth, db]
   );
 
   const signInWithGoogle = useCallback(async () => {
     setError(null);
-    if (!auth) {
+    if (!auth || !db) {
       setError('חיבור לענן לא מוגדר. באתר Vercel: הוסף משתני VITE_FIREBASE_* ב-Settings → Environment Variables ובצע Redeploy. ראה VERCEL-SETUP.md');
       return;
     }
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const userCredential = await signInWithPopup(auth, provider);
+      const uid = userCredential.user.uid;
+      
+      // Set teacher role for Google sign-in if user doesn't exist
+      const userDocRef = doc(db, 'users', uid);
+      const userDoc = await getDoc(userDocRef);
+      if (!userDoc.exists()) {
+        await setDoc(userDocRef, {
+          role: 'teacher',
+          email: userCredential.user.email,
+          displayName: userCredential.user.displayName,
+          createdAt: new Date().toISOString(),
+        });
+      }
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'שגיאת התחברות עם Google';
       if (msg.includes('auth/popup-closed-by-user')) {
@@ -115,7 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       throw e;
     }
-  }, [auth]);
+  }, [auth, db]);
 
   const signOut = useCallback(async () => {
     setError(null);
@@ -127,6 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value: AuthContextValue = {
     user,
+    userRole,
     loading,
     isConfigured,
     signIn,

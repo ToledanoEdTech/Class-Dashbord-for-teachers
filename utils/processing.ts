@@ -72,6 +72,26 @@ const normalizeTeacherName = (raw: string): string => {
   return t;
 };
 
+/**
+ * Clean subject labels that include trailing group/teacher fragments
+ * such as "היסטוריה הרב", "אנגלית א2" and keep only the real subject.
+ */
+const normalizeSubjectName = (raw: string): string => {
+  const clean = (raw || '').trim().replace(/\s+/g, ' ');
+  if (!clean) return 'כללי';
+  const words = clean.split(' ').filter(Boolean);
+  if (words.length <= 1) return clean;
+
+  const last = words[words.length - 1];
+  const isTeacherTail = /^(הרב|רב|המורה|מר|גב')$/.test(last);
+  const isGroupTail = /^[א-ת]\d{0,2}$/i.test(last) || /^[a-z]\d{1,2}$/i.test(last);
+
+  if (isTeacherTail || isGroupTail) {
+    return words.slice(0, -1).join(' ') || 'כללי';
+  }
+  return clean;
+};
+
 const parseDate = (dateVal: any): Date | null => {
   if (!dateVal) return null;
   
@@ -219,7 +239,7 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
 
     const rawSubject = row[col.subject];
     const s = String(rawSubject ?? '').trim();
-    const subjectFinal = s && !/^\d+$/.test(s) ? s : 'כללי';
+    const subjectFinal = s && !/^\d+$/.test(s) ? normalizeSubjectName(s) : 'כללי';
     const rawTeacher = (row[col.teacher] ?? '') as string;
     const teacherNormalized = normalizeTeacherName(rawTeacher) || rawTeacher.trim();
 
@@ -281,7 +301,7 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
     }
 
     headerMeta[c] = {
-      subject: subject || "כללי",
+      subject: normalizeSubjectName(subject || 'כללי'),
       teacher: teacher.trim(),
       assignment: assignment,
       date: dateMatch ? parseDate(dateMatch[0])! : new Date(),

@@ -12,6 +12,7 @@ const LOGO_PATH = '/logo.png';
 interface LandingPageProps {
   onStart: () => void;
   onOpenAuth?: () => void;
+  onOpenStudentLogin?: () => void;
 }
 
 const LandingLogo: React.FC = () => {
@@ -102,7 +103,7 @@ const PreviewCarousel: React.FC<{ images: PreviewImage[] }> = ({ images }) => {
   );
 };
 
-const LandingPage: React.FC<LandingPageProps> = ({ onStart, onOpenAuth }) => {
+const LandingPage: React.FC<LandingPageProps> = ({ onStart, onOpenAuth, onOpenStudentLogin }) => {
   const { user, isConfigured, signOut } = useAuth();
   const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
 
@@ -242,6 +243,15 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onOpenAuth }) => {
                   <LogIn size={16} />
                   התחבר (Google או אימייל+סיסמה) – לשמירת נתונים בענן
                 </button>
+                {onOpenStudentLogin && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenStudentLogin()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors"
+                  >
+                    התחברות תלמיד
+                  </button>
+                )}
                 {!isConfigured && (
                   <button
                     type="button"

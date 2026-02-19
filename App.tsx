@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import LandingPage from './components/LandingPage';
 import FileUpload from './components/FileUpload';
 import LoginSignup from './components/LoginSignup';
+import StudentLogin from './components/StudentLogin';
+import StudentDashboard from './components/StudentDashboard';
 import FirebaseConfigDialog from './components/FirebaseConfigDialog';
 import Dashboard from './components/Dashboard';
 import StudentProfile from './components/StudentProfile';
@@ -12,10 +14,11 @@ import { Student, AppState, ClassGroup, RiskSettings, PerClassRiskSettings, Peri
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
 import { loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets } from './utils/storage';
+import { deleteClassFromFirestore } from './utils/firestoreSync';
 import { useAuth } from './context/AuthContext';
 import { useCloudSync, type CloudSyncPayload } from './hooks/useCloudSync';
 import { useSidebar } from './hooks/useSidebar';
-import { Menu, X, LogIn } from 'lucide-react';
+import { Menu, X, LogIn, LogOut } from 'lucide-react';
 import { NavIcons, FileIcons } from './constants/icons';
 
 const LOGO_PATH = '/logo.png';
@@ -69,8 +72,9 @@ function getEffectiveRiskSettings(
 }
 
 const App: React.FC = () => {
-  const { user } = useAuth();
+  const { user, userRole, loading: authLoading, signOut } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showStudentLogin, setShowStudentLogin] = useState(false);
   const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
   const [state, setState] = useState<AppState>(getInitialState);
   const { sidebarOpen, closeSidebar, openSidebar } = useSidebar();
@@ -80,6 +84,19 @@ const App: React.FC = () => {
   const [darkMode, setDarkMode] = useState(() => loadPreferences().darkMode);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => loadPreferences().fontSize);
   const [dashboardWidgets, setDashboardWidgets] = useState(() => loadDashboardWidgets());
+
+  // Handle student routing - redirect students to student dashboard
+  useEffect(() => {
+    if (!authLoading && user && userRole === 'student') {
+      // Student is logged in - ensure they're on student dashboard
+      // This will be handled by rendering StudentDashboard component
+    } else if (!authLoading && user && userRole === 'teacher') {
+      // Teacher is logged in - ensure they're not on student routes
+      if (showStudentLogin) {
+        setShowStudentLogin(false);
+      }
+    }
+  }, [user, userRole, authLoading, showStudentLogin]);
 
   const cloudSyncPayload: CloudSyncPayload = {
     classes: state.classes,
@@ -246,6 +263,12 @@ const App: React.FC = () => {
   }, []);
 
   const handleDeleteClass = useCallback((classId: string) => {
+    if (user?.uid) {
+      deleteClassFromFirestore(user.uid, classId).catch((error) => {
+        console.error('Failed deleting class from Firestore:', error);
+        setCloudSyncError('מחיקת הכיתה בענן נכשלה.');
+      });
+    }
     setState((prev) => {
       const nextClasses = prev.classes.filter((c) => c.id !== classId);
       let nextActiveId = prev.activeClassId;
@@ -257,9 +280,54 @@ const App: React.FC = () => {
       return { ...prev, classes: nextClasses, activeClassId: nextActiveId, view: nextView, selectedStudentId: null };
     });
     setDeleteConfirmClassId(null);
-  }, []);
+  }, [setCloudSyncError, user?.uid]);
+
+  const userLabel = user?.email ?? 'משתמש מחובר';
+  const handleSignOut = useCallback(async () => {
+    await signOut();
+    setShowStudentLogin(false);
+  }, [signOut]);
+  const handleSwitchUser = useCallback(async () => {
+    await signOut();
+    setShowStudentLogin(false);
+    setShowAuthModal(true);
+  }, [signOut]);
 
   const showSidebar = (state.classes.length > 0 || state.view === 'upload') && state.view !== 'landing';
+
+  // Show loading while auth is initializing
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-primary-50/30 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-600">טוען...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show student dashboard if student is logged in
+  if (user && userRole === 'student') {
+    return (
+      <StudentDashboard
+        onLogout={() => {
+          setShowStudentLogin(false);
+        }}
+      />
+    );
+  }
+
+  // Show student login if requested
+  if (showStudentLogin && !user) {
+    return (
+      <StudentLogin
+        onBackToTeacher={() => {
+          setShowStudentLogin(false);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-primary-50/30 font-sans text-slate-900 flex">
@@ -388,6 +456,28 @@ const App: React.FC = () => {
                 </div>
               </div>
               <div className="px-3 py-3 mt-auto border-t border-slate-100">
+                {user && (
+                  <div className="mb-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                    <p className="text-[11px] text-slate-500 mb-1">מחובר כעת:</p>
+                    <p className="text-xs font-medium text-slate-700 truncate mb-2">{userLabel}</p>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleSignOut}
+                        className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-200 transition-colors"
+                      >
+                        התנתק
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSwitchUser}
+                        className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 transition-colors"
+                      >
+                        החלף משתמש
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <a
                   href="#"
                   onClick={(e) => { e.preventDefault(); setState((prev) => ({ ...prev, view: 'landing' })); closeSidebar(); }}
@@ -443,7 +533,7 @@ const App: React.FC = () => {
                   </button>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                {!user && (
+                {!user ? (
                   <button
                     type="button"
                     onClick={() => setShowAuthModal(true)}
@@ -452,6 +542,17 @@ const App: React.FC = () => {
                   >
                     <LogIn size={18} />
                     <span className="text-xs font-medium">התחבר</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSwitchUser}
+                    className="p-2 rounded-xl bg-slate-100 text-slate-700 active:bg-slate-200 flex items-center gap-1.5"
+                    aria-label="החלף משתמש"
+                    title={userLabel}
+                  >
+                    <LogOut size={18} />
+                    <span className="text-xs font-medium truncate max-w-[110px]">{userLabel}</span>
                   </button>
                 )}
                 <button
@@ -644,7 +745,7 @@ const App: React.FC = () => {
                     </div>
                   </>
                 )}
-                {!user && (
+                {!user ? (
                   <button
                     type="button"
                     onClick={() => setShowAuthModal(true)}
@@ -653,6 +754,17 @@ const App: React.FC = () => {
                   >
                     <LogIn size={18} />
                     התחבר
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSwitchUser}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium text-sm max-w-[320px]"
+                    aria-label="החלף משתמש"
+                    title={userLabel}
+                  >
+                    <LogOut size={18} />
+                    <span className="truncate">{userLabel}</span>
                   </button>
                 )}
                 <button
@@ -687,14 +799,18 @@ const App: React.FC = () => {
               <button type="button" onClick={() => setCloudSyncError(null)} className="shrink-0 p-1 rounded hover:bg-amber-200/50" aria-label="סגור">×</button>
             </div>
           )}
-          {cloudLoadPending && (
+          {cloudLoadPending && user && (
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/95 dark:bg-slate-900/95">
-              <p className="text-slate-600 dark:text-slate-400 font-medium">טוען נתונים מהענן...</p>
+              <div className="text-center">
+                <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-slate-600 dark:text-slate-400 font-medium">טוען נתונים מהענן...</p>
+              </div>
             </div>
           )}
           {state.view === 'landing' && (
             <LandingPage
               onOpenAuth={() => setShowAuthModal(true)}
+              onOpenStudentLogin={() => setShowStudentLogin(true)}
               onStart={() => {
                 setState((prev) => {
                   if (prev.classes.length > 0) {

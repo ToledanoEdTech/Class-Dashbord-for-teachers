@@ -14,33 +14,35 @@ import {
 // --- Test fixtures ---
 
 function makeGrade(overrides: Partial<Grade> & { score: number; date: Date }): Grade {
+  const { date, score, weight, ...rest } = overrides;
   return {
     studentId: '1',
     studentName: 'Test Student',
     subject: 'Math',
     teacher: 'Teacher',
     assignment: 'Test',
-    date: overrides.date,
-    score: overrides.score,
-    weight: overrides.weight ?? 1,
-    ...overrides,
+    date,
+    score,
+    weight: weight ?? 1,
+    ...rest,
   };
 }
 
 function makeEvent(overrides: Partial<BehaviorEvent> & { date: Date; category: EventType }): BehaviorEvent {
+  const { date, category, ...rest } = overrides;
   return {
     id: 'evt-1',
     studentId: '1',
     studentName: 'Test',
-    date: overrides.date,
+    date,
     type: 'event',
-    category: overrides.category,
+    category,
     teacher: 'T',
     subject: 'Math',
     lessonNumber: 1,
     justification: '',
     comment: '',
-    ...overrides,
+    ...rest,
   };
 }
 

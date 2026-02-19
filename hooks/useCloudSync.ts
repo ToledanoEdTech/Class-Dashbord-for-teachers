@@ -38,6 +38,22 @@ export interface UseCloudSyncResult {
   flushSave: () => void;
 }
 
+function mergeClassesByLatest(localClasses: ClassGroup[], cloudClasses: ClassGroup[]): ClassGroup[] {
+  const merged = new Map<string, ClassGroup>();
+  for (const c of cloudClasses) merged.set(c.id, c);
+  for (const c of localClasses) {
+    const existing = merged.get(c.id);
+    if (!existing) {
+      merged.set(c.id, c);
+      continue;
+    }
+    const existingTs = existing.lastUpdated?.getTime?.() ?? 0;
+    const currentTs = c.lastUpdated?.getTime?.() ?? 0;
+    if (currentTs >= existingTs) merged.set(c.id, c);
+  }
+  return Array.from(merged.values()).sort((a, b) => a.lastUpdated.getTime() - b.lastUpdated.getTime());
+}
+
 export function useCloudSync({
   userId,
   payload,
@@ -51,7 +67,7 @@ export function useCloudSync({
   const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
 
   const saveToFirestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingFirestorePayloadRef = useRef<CloudSyncPayload & { preferences?: CloudSyncPreferences } | null>(null);
+  const pendingFirestorePayloadRef = useRef<CloudSyncPayload & { preferences?: UserPreferences } | null>(null);
   const previousUserIdRef = useRef<string | null>(null);
   const lastCloudHadDataRef = useRef(false);
   const lastCloudUpdatedAtRef = useRef(0);
@@ -65,36 +81,66 @@ export function useCloudSync({
     if (!userId || !isFirebaseConfigured() || cloudLoaded) return;
     setCloudLoadPending(true);
     let cancelled = false;
+    
+    // Timeout to ensure loading always completes
+    const timeoutId = setTimeout(() => {
+      if (!cancelled) {
+        console.warn('Cloud sync timeout - marking as loaded');
+        setCloudLoaded(true);
+        setCloudLoadPending(false);
+        // Load from local storage as fallback
+        const fromLocal = loadFromStorage(userId);
+        if (fromLocal.classes.length > 0) {
+          setPayload((prev) => ({ ...prev, ...fromLocal }));
+        }
+      }
+    }, 10000); // 10 second timeout
+    
     const unsubscribe = subscribeToFirestore(
       userId,
       (data, updatedAt) => {
         if (cancelled) return;
+        clearTimeout(timeoutId); // Clear timeout on successful load
         if (data) {
           lastCloudHadDataRef.current = data.classes.length > 0;
           lastCloudUpdatedAtRef.current = updatedAt;
           setPayload((prev) => {
             const recentlyAdded = Date.now() - lastAddClassAtRef.current < 3000;
-            const weHaveMoreClasses = prev.classes.length > data.classes.length;
-            if (recentlyAdded && weHaveMoreClasses) return prev;
+            const mergedClasses = mergeClassesByLatest(prev.classes, data.classes);
+            const weHaveMoreClasses = mergedClasses.length > data.classes.length;
+            if (recentlyAdded && weHaveMoreClasses) {
+              return { ...prev, classes: mergedClasses };
+            }
             return {
               ...prev,
-              classes: data.classes,
-              activeClassId: data.activeClassId,
-              riskSettings: data.riskSettings,
-              perClassRiskSettings: data.perClassRiskSettings ?? {},
-              periodDefinitions: data.periodDefinitions ?? [],
+              classes: mergedClasses,
+              activeClassId:
+                data.activeClassId && mergedClasses.some((c) => c.id === data.activeClassId)
+                  ? data.activeClassId
+                  : prev.activeClassId && mergedClasses.some((c) => c.id === prev.activeClassId)
+                    ? prev.activeClassId
+                    : mergedClasses[0]?.id ?? null,
+              riskSettings: data.riskSettings ?? prev.riskSettings,
+              perClassRiskSettings: data.perClassRiskSettings ?? prev.perClassRiskSettings ?? {},
+              periodDefinitions: data.periodDefinitions ?? prev.periodDefinitions ?? [],
             };
           });
-          saveToStorage(
-            {
-              classes: data.classes,
-              activeClassId: data.activeClassId,
-              riskSettings: data.riskSettings,
-              perClassRiskSettings: data.perClassRiskSettings ?? {},
-              periodDefinitions: data.periodDefinitions ?? [],
-            },
-            userId
-          );
+          // Try to save to localStorage, but don't block if it fails
+          try {
+            saveToStorage(
+              {
+                classes: data.classes,
+                activeClassId: data.activeClassId,
+                riskSettings: data.riskSettings,
+                perClassRiskSettings: data.perClassRiskSettings ?? {},
+                periodDefinitions: data.periodDefinitions ?? [],
+              },
+              userId
+            );
+          } catch (e) {
+            // localStorage quota exceeded - continue anyway, data is in Firestore
+            console.warn('Could not save to localStorage (quota exceeded), continuing with cloud data', e);
+          }
           if (data.preferences) {
             setPreferences({
               darkMode: data.preferences.darkMode,
@@ -103,37 +149,57 @@ export function useCloudSync({
                 ? normalizeDashboardWidgets(data.preferences.dashboardWidgets)
                 : loadDashboardWidgets(),
             });
-            savePreferences(data.preferences);
+            try {
+              savePreferences(data.preferences);
+            } catch (e) {
+              console.warn('Could not save preferences to localStorage', e);
+            }
           }
           setCloudSyncError(null);
         } else {
+          // Keep current state; if local has data, periodic/debounced save will push it to cloud.
           lastCloudHadDataRef.current = false;
-          setPayload(() => getEmptyPayload());
         }
+        // Always mark as loaded, even if localStorage save failed
         setCloudLoaded(true);
         setCloudLoadPending(false);
       },
       (err) => {
         if (cancelled) return;
+        clearTimeout(timeoutId); // Clear timeout on error
         setCloudLoaded(true);
         setCloudLoadPending(false);
         const msg = err?.message ?? String(err);
         setCloudSyncError(msg.includes('permission') ? 'אין הרשאה לקרוא מהענן. עדכן את כללי Firestore.' : msg);
+        // Load from local storage as fallback
+        const fromLocal = loadFromStorage(userId);
+        if (fromLocal.classes.length > 0) {
+          setPayload((prev) => ({ ...prev, ...fromLocal }));
+        }
       }
     );
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
       unsubscribe();
     };
   }, [userId, cloudLoaded, getEmptyPayload, setPayload, setPreferences]);
 
   // Reset cloudLoaded when user changes
   useEffect(() => {
-    if (!userId) {
-      setCloudLoaded(false);
+    if (!userId || !isFirebaseConfigured()) {
+      // If no user or Firebase not configured, mark as loaded immediately
+      setCloudLoaded(true);
       setCloudLoadPending(false);
       previousUserIdRef.current = null;
       lastCloudHadDataRef.current = false;
+      // Load from local storage if available
+      if (userId) {
+        const fromLocal = loadFromStorage(userId);
+        if (fromLocal.classes.length > 0) {
+          setPayload((prev) => ({ ...prev, ...fromLocal }));
+        }
+      }
     } else {
       const currentUserId = userId;
       if (previousUserIdRef.current !== null && previousUserIdRef.current !== currentUserId) {
@@ -210,16 +276,22 @@ export function useCloudSync({
         dashboardWidgets,
       },
     };
-    saveToStorage(
-      {
-        classes: payload.classes,
-        activeClassId: payload.activeClassId,
-        riskSettings: payload.riskSettings,
-        perClassRiskSettings: payload.perClassRiskSettings,
-        periodDefinitions: payload.periodDefinitions,
-      },
-      userId ?? undefined
-    );
+    // Try to save to localStorage, but don't block if it fails
+    try {
+      saveToStorage(
+        {
+          classes: payload.classes,
+          activeClassId: payload.activeClassId,
+          riskSettings: payload.riskSettings,
+          perClassRiskSettings: payload.perClassRiskSettings,
+          periodDefinitions: payload.periodDefinitions,
+        },
+        userId ?? undefined
+      );
+    } catch (e) {
+      // localStorage quota exceeded - continue anyway, data is in Firestore
+      console.warn('Could not save to localStorage (quota exceeded), continuing', e);
+    }
     if (userId && isFirebaseConfigured() && cloudLoaded) {
       pendingFirestorePayloadRef.current = fullPayload;
       if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
@@ -253,6 +325,32 @@ export function useCloudSync({
     fontSize,
     dashboardWidgets,
   ]);
+
+  // Periodic cloud persistence as additional safety net (multi-tab/device reliability).
+  useEffect(() => {
+    if (!userId || !isFirebaseConfigured() || !cloudLoaded) return;
+    const intervalId = setInterval(() => {
+      const prefs = loadPreferences();
+      const periodicPayload = pendingFirestorePayloadRef.current || {
+        ...payload,
+        preferences: {
+          darkMode,
+          fontSize,
+          dashboardViewMode: (prefs.dashboardViewMode ?? 'table') as 'table' | 'cards',
+          dashboardWidgets,
+        } as UserPreferences,
+      };
+      const allowEmpty = lastCloudHadDataRef.current;
+      saveToFirestore(userId, periodicPayload, allowEmpty)
+        .then(() => setCloudSyncError(null))
+        .catch((err) => {
+          const msg = err?.message ?? String(err);
+          setCloudSyncError(msg.includes('permission') ? 'שמירה לענן נכשלה (הרשאות).' : `שמירה לענן נכשלה: ${msg}`);
+        });
+    }, 15000);
+
+    return () => clearInterval(intervalId);
+  }, [userId, cloudLoaded, payload, darkMode, fontSize, dashboardWidgets]);
 
   const markClassAdded = () => {
     lastAddClassAtRef.current = Date.now();

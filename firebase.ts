@@ -1,4 +1,4 @@
-import { initializeApp, type FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { FIREBASE_CONFIG_PASTE } from './firebase-config.paste';
@@ -57,6 +57,8 @@ export function setFirebaseConfigInStorage(config: FirebaseConfigRecord): void {
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
+let secondaryAuthApp: FirebaseApp | null = null;
+let secondaryAuth: Auth | null = null;
 
 export function getFirebaseApp(): FirebaseApp | null {
   const config = getFirebaseConfig();
@@ -74,6 +76,23 @@ export function getFirebaseAuth(): Auth | null {
     auth = getAuth(firebaseApp);
   }
   return auth;
+}
+
+/**
+ * Secondary Auth instance used for admin-like operations (e.g. creating student users)
+ * without switching the currently signed-in teacher session in the primary auth instance.
+ */
+export function getSecondaryFirebaseAuth(): Auth | null {
+  const config = getFirebaseConfig();
+  if (!config?.apiKey || config.apiKey === 'your-api-key') return null;
+  if (!secondaryAuthApp) {
+    const existing = getApps().find((a) => a.name === 'secondary-auth-app');
+    secondaryAuthApp = existing ?? initializeApp(config, 'secondary-auth-app');
+  }
+  if (!secondaryAuth) {
+    secondaryAuth = getAuth(secondaryAuthApp);
+  }
+  return secondaryAuth;
 }
 
 export function getFirebaseDb(): Firestore | null {
