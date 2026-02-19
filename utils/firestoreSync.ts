@@ -1,10 +1,12 @@
 import {
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   collection,
   onSnapshot,
   writeBatch,
+  type SetOptions,
   type DocumentReference,
   type Firestore,
 } from 'firebase/firestore';
@@ -312,8 +314,16 @@ export async function saveToFirestore(
     batch = writeBatch(db);
     batchOps = 0;
   };
-  const queueSet = async (ref: DocumentReference, data: Record<string, unknown>) => {
-    batch.set(ref, data);
+  const queueSet = async (
+    ref: DocumentReference,
+    data: Record<string, unknown>,
+    options?: SetOptions
+  ) => {
+    if (options) {
+      batch.set(ref, data, options);
+    } else {
+      batch.set(ref, data);
+    }
     batchOps++;
     if (batchOps >= MAX_BATCH_OPS) await commitBatch();
   };
@@ -325,11 +335,6 @@ export async function saveToFirestore(
 
   const prefs = payload.preferences;
   const settingsRef = doc(db, 'users', userId, 'data', SETTINGS_DOC);
-  const settingsSnap = await getDoc(settingsRef);
-  const existingDeletedClassIds =
-    settingsSnap.exists() && typeof settingsSnap.data()?.deletedClassIds === 'object'
-      ? (settingsSnap.data()?.deletedClassIds as Record<string, string>)
-      : {};
   await queueSet(settingsRef, toFirestoreValue({
     activeClassId: payload.activeClassId,
     riskSettings: payload.riskSettings,
@@ -339,17 +344,28 @@ export async function saveToFirestore(
     fontSize: prefs?.fontSize,
     dashboardViewMode: prefs?.dashboardViewMode,
     dashboardWidgets: prefs?.dashboardWidgets,
-    deletedClassIds: existingDeletedClassIds,
     t: Date.now(),
-  }) as Record<string, unknown>);
+  }) as Record<string, unknown>, { merge: true });
 
   const colRef = collection(db, 'users', userId, 'classes');
+  let latestDeletedClassIds: Record<string, string> = {};
+  try {
+    const latestSettingsSnap = await getDocFromServer(settingsRef);
+    latestDeletedClassIds =
+      latestSettingsSnap.exists() && typeof latestSettingsSnap.data()?.deletedClassIds === 'object'
+        ? (latestSettingsSnap.data()?.deletedClassIds as Record<string, string>)
+        : {};
+  } catch {
+    const latestSettingsSnap = await getDoc(settingsRef);
+    latestDeletedClassIds =
+      latestSettingsSnap.exists() && typeof latestSettingsSnap.data()?.deletedClassIds === 'object'
+        ? (latestSettingsSnap.data()?.deletedClassIds as Record<string, string>)
+        : {};
+  }
 
   for (const c of payload.classes) {
     // Never recreate classes that were actively deleted.
-    if (existingDeletedClassIds[c.id]) {
-      continue;
-    }
+    if (latestDeletedClassIds[c.id]) continue;
     const persisted = toPersistedClass(c);
     const compressed = compress(persisted);
     const classRef = doc(colRef, c.id);
