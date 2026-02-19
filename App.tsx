@@ -127,16 +127,17 @@ const App: React.FC = () => {
       return { ...prev, ...nextPayload };
     });
   }, []);
+  const setCloudPreferences = useCallback((p: Partial<{ darkMode: boolean; fontSize: 'small' | 'medium' | 'large'; dashboardWidgets: typeof dashboardWidgets }>) => {
+    if (p.darkMode !== undefined) setDarkMode(p.darkMode);
+    if (p.fontSize !== undefined) setFontSize(p.fontSize);
+    if (p.dashboardWidgets !== undefined) setDashboardWidgets(p.dashboardWidgets);
+  }, []);
   const { cloudLoaded, cloudLoadPending, cloudSyncError, setCloudSyncError, markClassAdded, flushSave, manualSaveToCloud } = useCloudSync({
     userId: user?.uid,
     payload: cloudSyncPayload,
     preferences: { darkMode, fontSize, dashboardWidgets },
     setPayload: setCloudSyncPayload,
-    setPreferences: (p) => {
-      if (p.darkMode !== undefined) setDarkMode(p.darkMode);
-      if (p.fontSize !== undefined) setFontSize(p.fontSize);
-      if (p.dashboardWidgets !== undefined) setDashboardWidgets(p.dashboardWidgets);
-    },
+    setPreferences: setCloudPreferences,
     getEmptyPayload: getEmptyDataState,
   });
 
