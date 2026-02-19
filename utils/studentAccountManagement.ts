@@ -201,13 +201,6 @@ export async function createStudentAccount(
       throw new Error(`שם משתמש לא תקין: ${finalUsername}. נסה שם אחר.`);
     }
 
-    // Block duplicates that still exist in Firestore.
-    const existingUser = await findUserByUsername(finalUsername);
-    if (existingUser) {
-      lastCreateError = new Error(`שם המשתמש ${finalUsername} כבר קיים`);
-      continue;
-    }
-
     try {
       userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, finalPassword);
       lastCreateError = null;
@@ -215,15 +208,21 @@ export async function createStudentAccount(
     } catch (error: any) {
       lastCreateError = error;
       if (error?.code === 'auth/email-already-in-use') {
-        // Could be a previously deleted Firestore account that still exists in Auth.
-        // Retry with a suffixed username automatically.
         continue;
       }
       if (error?.code === 'auth/invalid-email') {
         throw new Error(`אימייל לא תקין: ${email}. שם המשתמש "${finalUsername}" לא תקין.`);
       }
       if (error?.code === 'auth/weak-password') {
-        throw new Error('הסיסמה חלשה מדי. נסה שוב.');
+        throw new Error('הסיסמה חלשה מדי (לפחות 6 תווים). נסה שוב.');
+      }
+      if (error?.code === 'auth/operation-not-allowed') {
+        throw new Error(
+          'ב-Firebase Console: Authentication → Sign-in method → הפעל "Email/Password" (סמן את האפשרות הראשונה).'
+        );
+      }
+      if (error?.code === 'auth/network-request-failed') {
+        throw new Error('שגיאת רשת. בדוק חיבור לאינטרנט ונסה שוב.');
       }
       throw error;
     }
@@ -241,7 +240,6 @@ export async function createStudentAccount(
   }
   const uid = userCredential.user.uid;
 
-  // Create user document in Firestore
   try {
     const userDocRef = doc(db, 'users', uid);
     await setDoc(userDocRef, {
@@ -253,29 +251,38 @@ export async function createStudentAccount(
       createdAt: new Date().toISOString(),
     });
   } catch (error: any) {
-    // Roll back auth account if Firestore metadata write fails.
     try {
       await deleteUser(userCredential.user);
     } catch (rollbackError) {
       console.error('Failed rolling back student auth user after Firestore failure:', rollbackError);
     }
-    console.error('Error saving student user document to Firestore:', error);
     if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
-      throw new Error('אין הרשאה ליצור מסמך משתמש ב-Firestore. עדכן את כללי Firestore (users collection) ופרסם אותם.');
+      throw new Error(
+        'אין הרשאה ליצור מסמך ב-Firestore. ב-Console: Firestore → Rules – וודא שמורים יכולים ליצור מסמכים ב-users (isCurrentUserTeacher()).'
+      );
     }
-    throw new Error('יצירת חשבון נכשלה בזמן שמירת פרטי התלמיד: ' + (error?.message ?? String(error)));
-  } finally {
-    // Always clear temporary secondary-auth session.
-    await signOut(secondaryAuth).catch(() => undefined);
+    throw new Error('שמירת פרטי התלמיד נכשלה: ' + (error?.message ?? String(error)));
   }
-  const account = {
+
+  const account: StudentAccount = {
     uid,
     username: finalUsername,
     displayName: student.name,
     studentId: student.id,
     password: finalPassword,
   };
-  await upsertCredentialVaultItem(teacherUid, student.id, account, options?.classId);
+
+  try {
+    await upsertCredentialVaultItem(teacherUid, student.id, account, options?.classId);
+  } catch (error: any) {
+    await signOut(secondaryAuth).catch(() => undefined);
+    if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
+      throw new Error('שמירת סיסמה בהגדרות נכשלה (הרשאות). עדכן כללי Firestore ל-users/{uid}/data.');
+    }
+    throw new Error('שמירת סיסמה בהגדרות נכשלה: ' + (error?.message ?? String(error)));
+  }
+
+  await signOut(secondaryAuth).catch(() => undefined);
   return account;
 }
 

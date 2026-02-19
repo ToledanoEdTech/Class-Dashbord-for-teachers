@@ -79,10 +79,13 @@ export function getFirebaseAuth(): Auth | null {
 }
 
 /**
- * Secondary Auth instance used for admin-like operations (e.g. creating student users)
- * without switching the currently signed-in teacher session in the primary auth instance.
+ * Secondary Auth instance used for creating student users (Email/Password)
+ * without signing out the teacher from the primary auth instance.
+ * Must use the same project as the primary app.
  */
 export function getSecondaryFirebaseAuth(): Auth | null {
+  const primaryApp = getFirebaseApp();
+  if (!primaryApp) return null;
   const config = getFirebaseConfig();
   if (!config?.apiKey || config.apiKey === 'your-api-key') return null;
   if (!secondaryAuthApp) {

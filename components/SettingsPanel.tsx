@@ -26,6 +26,8 @@ import {
   generateTemporaryPassword,
   type StudentAccount,
 } from '../utils/studentAccountManagement';
+import { getSecondaryFirebaseAuth, isFirebaseConfigured } from '../firebase';
+import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
 
 interface SettingsPanelProps {
@@ -79,8 +81,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [busyStudentId, setBusyStudentId] = useState<string | null>(null);
   const [creatingAccount, setCreatingAccount] = useState<string | null>(null);
   const [newAccountCredentials, setNewAccountCredentials] = useState<Map<string, StudentAccount>>(new Map());
+  const [studentSectionError, setStudentSectionError] = useState<string | null>(null);
   const lastLoadedAccountsKeyRef = useRef<string | null>(null);
   const credentialsStorageKey = activeClassId ? `toledano-temp-student-creds-${activeClassId}` : 'toledano-temp-student-creds';
+  const { user } = useAuth();
 
   const persistTempCredential = (studentId: string, account: StudentAccount | null) => {
     setNewAccountCredentials((prev) => {
@@ -160,6 +164,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   const handleCreateAccount = async (student: Student) => {
     if (creatingAccount === student.id) return;
+    setStudentSectionError(null);
     setCreatingAccount(student.id);
     setBusyStudentId(student.id);
     try {
@@ -173,8 +178,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     } catch (error: any) {
       console.error('Error creating student account:', error);
       const errorMessage = error?.message || error?.code || 'שגיאה ביצירת חשבון';
+      setStudentSectionError(errorMessage);
       alert(`שגיאה ביצירת חשבון: ${errorMessage}`);
-      // Don't logout on error - just show the error
     } finally {
       setBusyStudentId(null);
       setCreatingAccount(null);
@@ -209,6 +214,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     if (!account) return;
     if (!confirm('לאפס סיסמה לתלמיד זה? תיווצר סיסמה זמנית חדשה.')) return;
 
+    setStudentSectionError(null);
     setCreatingAccount(student.id);
     setBusyStudentId(student.id);
     try {
@@ -224,7 +230,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       setStudentAccounts(accountsMap);
       persistTempCredential(student.id, updated);
     } catch (error: any) {
-      alert(error?.message || 'שגיאה באיפוס סיסמה');
+      const msg = error?.message || 'שגיאה באיפוס סיסמה';
+      setStudentSectionError(msg);
+      alert(msg);
     } finally {
       setBusyStudentId(null);
       setCreatingAccount(null);
@@ -237,6 +245,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     const requested = prompt('הזן שם משתמש חדש:', account.username);
     if (!requested) return;
 
+    setStudentSectionError(null);
     setCreatingAccount(student.id);
     setBusyStudentId(student.id);
     try {
@@ -251,7 +260,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       setStudentAccounts(accountsMap);
       persistTempCredential(student.id, updated);
     } catch (error: any) {
-      alert(error?.message || 'שגיאה באיפוס שם משתמש');
+      const msg = error?.message || 'שגיאה באיפוס שם משתמש';
+      setStudentSectionError(msg);
+      alert(msg);
     } finally {
       setBusyStudentId(null);
       setCreatingAccount(null);
@@ -261,6 +272,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const handleCreateAllAccounts = async () => {
     if (!confirm('האם אתה בטוח שברצונך ליצור חשבונות לכל התלמידים?')) return;
 
+    setStudentSectionError(null);
     setLoadingAccounts(true);
     const newCreds = new Map(newAccountCredentials);
     const newAccounts = new Map(studentAccounts);
@@ -291,11 +303,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
       }
       if (errors.length > 0) {
         const created = students.filter((s) => newAccounts.has(s.id)).length;
-        alert(
-          `נוצרו ${created} חשבונות. ${errors.length} נכשלו:\n\n` +
-            errors.slice(0, 5).join('\n') +
-            (errors.length > 5 ? `\n... ועוד ${errors.length - 5}` : '')
-        );
+        const errMsg = `נוצרו ${created} חשבונות. ${errors.length} נכשלו:\n\n` +
+          errors.slice(0, 5).join('\n') +
+          (errors.length > 5 ? `\n... ועוד ${errors.length - 5}` : '');
+        setStudentSectionError(errors[0]);
+        alert(errMsg);
       }
     } finally {
       setLoadingAccounts(false);
@@ -792,6 +804,27 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             </p>
           </div>
           <div className="p-5 md:p-6 space-y-4">
+            {!isFirebaseConfigured() && (
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                <strong>Firebase לא מוגדר.</strong> הגדר חיבור Firebase (הגדרות / קובץ .env) כדי ליצור חשבונות תלמידים.
+              </div>
+            )}
+            {isFirebaseConfigured() && !user && (
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                <strong>אין משתמש מחובר.</strong> התחבר כמורה כדי ליצור ולנהל חשבונות תלמידים.
+              </div>
+            )}
+            {isFirebaseConfigured() && user && !getSecondaryFirebaseAuth() && (
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                <strong>מערכת יצירת חשבונות לא זמינה.</strong> וודא שהגדרות Firebase תקינות. ב-Firebase Console: Authentication → Sign-in method → הפעל &quot;Email/Password&quot;.
+              </div>
+            )}
+            {studentSectionError && (
+              <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-start justify-between gap-2">
+                <span>{studentSectionError}</span>
+                <button type="button" onClick={() => setStudentSectionError(null)} className="shrink-0 p-1 rounded hover:bg-red-100" aria-label="סגור">×</button>
+              </div>
+            )}
             {students.length === 0 ? (
               <p className="text-slate-500 text-center py-8">אין תלמידים בכיתה זו</p>
             ) : (
@@ -800,7 +833,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   <button
                     type="button"
                     onClick={handleCreateAllAccounts}
-                    disabled={loadingAccounts}
+                    disabled={loadingAccounts || !isFirebaseConfigured() || !user || !getSecondaryFirebaseAuth()}
                     className="px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
                     <Plus size={18} />
@@ -866,7 +899,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             <button
                               type="button"
                               onClick={() => handleCreateAccount(student)}
-                              disabled={isBusy}
+                              disabled={isBusy || !getSecondaryFirebaseAuth()}
                               className="px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
                             >
                               {isBusy ? 'יוצר...' : 'צור חשבון'}
@@ -876,7 +909,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleResetPassword(student)}
-                                disabled={isBusy}
+                                disabled={isBusy || !getSecondaryFirebaseAuth()}
                                 className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
                               >
                                 אפס סיסמה
@@ -884,7 +917,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleResetUsername(student)}
-                                disabled={isBusy}
+                                disabled={isBusy || !getSecondaryFirebaseAuth()}
                                 className="px-3 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
                               >
                                 אפס שם משתמש
@@ -1001,7 +1034,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => handleCreateAccount(student)}
-                                    disabled={isBusy}
+                                    disabled={isBusy || !getSecondaryFirebaseAuth()}
                                     className="px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
                                   >
                                     {isBusy ? 'יוצר...' : 'צור חשבון'}
@@ -1011,7 +1044,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => handleResetPassword(student)}
-                                      disabled={isBusy}
+                                      disabled={isBusy || !getSecondaryFirebaseAuth()}
                                       className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
                                     >
                                       אפס סיסמה
@@ -1019,7 +1052,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => handleResetUsername(student)}
-                                      disabled={isBusy}
+                                      disabled={isBusy || !getSecondaryFirebaseAuth()}
                                       className="px-3 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium transition-colors disabled:opacity-50"
                                     >
                                       אפס שם משתמש
