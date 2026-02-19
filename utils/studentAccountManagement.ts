@@ -1,5 +1,8 @@
 import { getFirebaseAuth, getFirebaseDb, getSecondaryFirebaseAuth } from '../firebase';
 import { createUserWithEmailAndPassword, deleteUser, signOut } from 'firebase/auth';
+
+/** When creation with secondary Auth fails (e.g. 400), create with primary Auth and store password in user doc. */
+const TEMPORARY_PASSWORD_FIELD = 'temporaryPassword';
 import { doc, setDoc, deleteDoc, getDoc, collection, getDocs, deleteField } from 'firebase/firestore';
 import { Student } from '../types';
 
@@ -207,6 +210,17 @@ export async function createStudentAccount(
       break;
     } catch (error: any) {
       lastCreateError = error;
+      // Log full error for 400 / identitytoolkit debugging (F12 console)
+      const errCode = error?.code ?? '';
+      const errMsg = error?.message ?? String(error);
+      console.error('[חשבון תלמיד] שגיאת Auth:', {
+        code: errCode,
+        message: errMsg,
+        email: email.substring(0, 30) + '...',
+        passwordLength: finalPassword?.length,
+        serverResponse: (error as any)?.serverResponse,
+      });
+
       if (error?.code === 'auth/email-already-in-use') {
         continue;
       }
@@ -224,32 +238,57 @@ export async function createStudentAccount(
       if (error?.code === 'auth/network-request-failed') {
         throw new Error('שגיאת רשת. בדוק חיבור לאינטרנט ונסה שוב.');
       }
+      if (error?.code === 'auth/invalid-argument' || errMsg.includes('400') || errMsg.includes('BAD_REQUEST')) {
+        throw new Error(
+          `שגיאת Firebase Auth (400): ${errMsg}. וודא ש-Email/Password מופעל ב-Console והאימייל לא תפוס.`
+        );
+      }
+      if (error?.code === 'auth/too-many-requests') {
+        throw new Error('יותר מדי ניסיונות. נסה שוב בעוד כמה דקות.');
+      }
       throw error;
     }
   }
 
   if (!userCredential) {
-    if (lastCreateError?.code === 'auth/email-already-in-use') {
-      throw new Error('לא ניתן ליצור חשבון עם שם המשתמש המקורי כי הוא כבר קיים במערכת ההתחברות. נסה שוב או בחר שם משתמש אחר.');
+    const errMsg = lastCreateError?.message ?? String(lastCreateError);
+    const is400 = (lastCreateError?.message ?? '').includes('400') || lastCreateError?.code === 'auth/invalid-argument';
+    if (is400 && auth && auth.currentUser) {
+      try {
+        const email = `${finalUsername}@student.toledanoedtech.local`;
+        userCredential = await createUserWithEmailAndPassword(auth, email, finalPassword);
+        console.warn('[חשבון תלמיד] נוצר עם Auth ראשי (המורה יתנתק – התחבר מחדש). שגיאת 400 עם Auth משני נעקפה.');
+      } catch (primaryErr: any) {
+        console.error('[חשבון תלמיד] גם יצירה עם Auth ראשי נכשלה:', primaryErr?.code, primaryErr?.message);
+      }
     }
-    if (lastCreateError?.code === 'auth/operation-not-allowed') {
-      throw new Error('התחברות באימייל/סיסמה לא מופעלת ב-Firebase. ב-Console: Authentication > Sign-in method > הפעל Email/Password.');
+    if (!userCredential) {
+      if (lastCreateError?.code === 'auth/email-already-in-use') {
+        throw new Error('לא ניתן ליצור חשבון עם שם המשתמש המקורי כי הוא כבר קיים במערכת ההתחברות. נסה שוב או בחר שם משתמש אחר.');
+      }
+      if (lastCreateError?.code === 'auth/operation-not-allowed') {
+        throw new Error('התחברות באימייל/סיסמה לא מופעלת ב-Firebase. ב-Console: Authentication > Sign-in method > הפעל Email/Password.');
+      }
+      throw lastCreateError instanceof Error ? lastCreateError : new Error('נכשל ביצירת חשבון תלמיד: ' + errMsg);
     }
-    const msg = lastCreateError?.message ?? String(lastCreateError);
-    throw lastCreateError instanceof Error ? lastCreateError : new Error('נכשל ביצירת חשבון תלמיד: ' + msg);
   }
   const uid = userCredential.user.uid;
+  const usedPrimaryAuth = userCredential.user.uid && getFirebaseAuth()?.currentUser?.uid === uid;
 
   try {
     const userDocRef = doc(db, 'users', uid);
-    await setDoc(userDocRef, {
+    const userDocData: Record<string, unknown> = {
       role: 'student',
       studentId: student.id,
       username: finalUsername,
       displayName: student.name,
       teacherUid,
       createdAt: new Date().toISOString(),
-    });
+    };
+    if (usedPrimaryAuth) {
+      userDocData[TEMPORARY_PASSWORD_FIELD] = finalPassword;
+    }
+    await setDoc(userDocRef, userDocData);
   } catch (error: any) {
     try {
       await deleteUser(userCredential.user);
@@ -271,6 +310,11 @@ export async function createStudentAccount(
     studentId: student.id,
     password: finalPassword,
   };
+
+  if (usedPrimaryAuth) {
+    await signOut(auth).catch(() => undefined);
+    return account;
+  }
 
   try {
     await upsertCredentialVaultItem(teacherUid, student.id, account, options?.classId);
@@ -422,12 +466,15 @@ export async function getStudentAccountsForClass(
           .filter((item) => item.studentId === userData.studentId && (!classId || item.classId === classId))
           .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
         const vaultItem = classScopedVaultItem ?? latestVaultItem ?? fallbackVaultItem;
+        const storedPassword =
+          vaultItem?.password ||
+          (typeof userData[TEMPORARY_PASSWORD_FIELD] === 'string' ? userData[TEMPORARY_PASSWORD_FIELD] : '');
         accounts.set(userData.studentId, {
           uid: userDoc.id,
           username: userData.username || vaultItem?.username || '',
           displayName: userData.displayName || vaultItem?.displayName || '',
           studentId: userData.studentId,
-          password: vaultItem?.password || '',
+          password: storedPassword as string,
         });
       }
     }
