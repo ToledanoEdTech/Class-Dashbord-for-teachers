@@ -156,11 +156,13 @@ function sanitizeUsername(raw: string, fallbackStudentId: string): string {
   return username.substring(0, 50);
 }
 
-/** Returns a unique username so we avoid auth/email-already-in-use (no random collision). */
+/** Always returns a unique username to avoid auth/email-already-in-use (first attempt included). */
 function withUsernameSuffix(base: string, attempt: number): string {
-  if (attempt <= 0) return base;
-  const unique = `${attempt}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  const maxBaseLength = Math.max(1, 45 - unique.length);
+  const unique =
+    attempt <= 0
+      ? `${Date.now().toString(36).slice(-8)}_${Math.random().toString(36).slice(2, 8)}`
+      : `${attempt}_${Date.now().toString(36).slice(-8)}_${Math.random().toString(36).slice(2, 8)}`;
+  const maxBaseLength = Math.max(1, 45 - unique.length - 1);
   return `${base.substring(0, maxBaseLength)}_${unique}`;
 }
 
