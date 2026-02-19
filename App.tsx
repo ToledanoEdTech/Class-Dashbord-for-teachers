@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import LandingPage from './components/LandingPage';
 import FileUpload from './components/FileUpload';
 import LoginSignup from './components/LoginSignup';
@@ -11,11 +11,10 @@ import SubjectMatrix from './components/SubjectMatrix';
 import { Student, AppState, ClassGroup, RiskSettings, PerClassRiskSettings, PeriodDefinition, DEFAULT_RISK_SETTINGS } from './types';
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
-import { saveToStorage, loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets } from './utils/storage';
-import { normalizeDashboardWidgets } from './constants/dashboardWidgets';
+import { loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets } from './utils/storage';
 import { useAuth } from './context/AuthContext';
-import { loadFromFirestore, saveToFirestore, subscribeToFirestore } from './utils/firestoreSync';
-import { isFirebaseConfigured } from './firebase';
+import { useCloudSync, type CloudSyncPayload } from './hooks/useCloudSync';
+import { useSidebar } from './hooks/useSidebar';
 import { Menu, X, LogIn } from 'lucide-react';
 import { NavIcons, FileIcons } from './constants/icons';
 
@@ -74,32 +73,46 @@ const App: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
   const [state, setState] = useState<AppState>(getInitialState);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { sidebarOpen, closeSidebar, openSidebar } = useSidebar();
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [deleteConfirmClassId, setDeleteConfirmClassId] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(() => loadPreferences().darkMode);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => loadPreferences().fontSize);
   const [dashboardWidgets, setDashboardWidgets] = useState(() => loadDashboardWidgets());
-  const [cloudLoaded, setCloudLoaded] = useState(false);
-  const [cloudLoadPending, setCloudLoadPending] = useState(false);
-  const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
-  const saveToFirestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingFirestorePayloadRef = useRef<{
-    classes: ClassGroup[];
-    activeClassId: string | null;
-    riskSettings: RiskSettings;
-    perClassRiskSettings: PerClassRiskSettings;
-    periodDefinitions: PeriodDefinition[];
-    preferences?: { darkMode: boolean; fontSize: 'small' | 'medium' | 'large'; dashboardViewMode: 'table' | 'cards'; dashboardWidgets?: Record<string, boolean> };
-  } | null>(null);
-  const previousUserIdRef = useRef<string | null>(null);
-  /** True once we've received non-empty data from cloud - allows empty save (user deleted all) */
-  const lastCloudHadDataRef = useRef(false);
-  /** Cloud doc timestamp - avoid overwriting with older data when we have recent local adds */
-  const lastCloudUpdatedAtRef = useRef(0);
-  const lastAddClassAtRef = useRef(0);
-  const flushFirestoreSaveRef = useRef<() => void>(() => {});
+
+  const cloudSyncPayload: CloudSyncPayload = {
+    classes: state.classes,
+    activeClassId: state.activeClassId,
+    riskSettings: state.riskSettings,
+    perClassRiskSettings: state.perClassRiskSettings,
+    periodDefinitions: state.periodDefinitions,
+  };
+  const setCloudSyncPayload = useCallback((update: React.SetStateAction<CloudSyncPayload>) => {
+    setState((prev) => {
+      const prevPayload: CloudSyncPayload = {
+        classes: prev.classes,
+        activeClassId: prev.activeClassId,
+        riskSettings: prev.riskSettings,
+        perClassRiskSettings: prev.perClassRiskSettings,
+        periodDefinitions: prev.periodDefinitions,
+      };
+      const nextPayload = typeof update === 'function' ? update(prevPayload) : update;
+      return { ...prev, ...nextPayload };
+    });
+  }, []);
+  const { cloudLoaded, cloudLoadPending, cloudSyncError, setCloudSyncError, markClassAdded, flushSave } = useCloudSync({
+    userId: user?.uid,
+    payload: cloudSyncPayload,
+    preferences: { darkMode, fontSize, dashboardWidgets },
+    setPayload: setCloudSyncPayload,
+    setPreferences: (p) => {
+      if (p.darkMode !== undefined) setDarkMode(p.darkMode);
+      if (p.fontSize !== undefined) setFontSize(p.fontSize);
+      if (p.dashboardWidgets !== undefined) setDashboardWidgets(p.dashboardWidgets);
+    },
+    getEmptyPayload: getEmptyDataState,
+  });
 
   const activeClass = state.classes.find((c) => c.id === state.activeClassId);
   const effectiveRiskSettings = getEffectiveRiskSettings(state.activeClassId, state.riskSettings, state.perClassRiskSettings);
@@ -110,167 +123,6 @@ const App: React.FC = () => {
       : 0;
   const selectedStudent = students.find((s) => s.id === state.selectedStudentId);
   const selectedStudentIndex = state.selectedStudentId ? students.findIndex((s) => s.id === state.selectedStudentId) : -1;
-
-  // Real-time Firestore sync - load + subscribe for updates from any device/tab
-  useEffect(() => {
-    if (!user?.uid || !isFirebaseConfigured() || cloudLoaded) return;
-    setCloudLoadPending(true);
-    let cancelled = false;
-    const unsubscribe = subscribeToFirestore(
-      user.uid,
-      (data, updatedAt) => {
-        if (cancelled) return;
-        if (data) {
-          lastCloudHadDataRef.current = data.classes.length > 0;
-          lastCloudUpdatedAtRef.current = updatedAt;
-          setState((prev) => {
-            const recentlyAdded = Date.now() - lastAddClassAtRef.current < 3000;
-            const weHaveMoreClasses = prev.classes.length > data.classes.length;
-            if (recentlyAdded && weHaveMoreClasses) return prev;
-            return {
-              ...prev,
-              classes: data.classes,
-              activeClassId: data.activeClassId,
-              riskSettings: data.riskSettings,
-              perClassRiskSettings: data.perClassRiskSettings ?? {},
-              periodDefinitions: data.periodDefinitions ?? [],
-            };
-          });
-          saveToStorage({
-            classes: data.classes,
-            activeClassId: data.activeClassId,
-            riskSettings: data.riskSettings,
-            perClassRiskSettings: data.perClassRiskSettings ?? {},
-            periodDefinitions: data.periodDefinitions ?? [],
-          }, user.uid);
-          if (data.preferences) {
-            setDarkMode(data.preferences.darkMode);
-            setFontSize(data.preferences.fontSize);
-            setDashboardWidgets(data.preferences.dashboardWidgets ? normalizeDashboardWidgets(data.preferences.dashboardWidgets) : loadDashboardWidgets());
-            savePreferences(data.preferences);
-          }
-          setCloudSyncError(null);
-        } else {
-          lastCloudHadDataRef.current = false;
-          const empty = getEmptyDataState();
-          setState((prev) => ({ ...prev, ...empty }));
-        }
-        setCloudLoaded(true);
-        setCloudLoadPending(false);
-      },
-      (err) => {
-        if (cancelled) return;
-        setCloudLoaded(true);
-        setCloudLoadPending(false);
-        const msg = err?.message ?? String(err);
-        setCloudSyncError(msg.includes('permission') ? 'אין הרשאה לקרוא מהענן. עדכן את כללי Firestore.' : msg);
-      }
-    );
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [user?.uid, cloudLoaded]);
-
-  // Reset cloudLoaded when user changes (logs out or different user logs in)
-  useEffect(() => {
-    if (!user) {
-      setCloudLoaded(false);
-      setCloudLoadPending(false);
-      previousUserIdRef.current = null;
-      lastCloudHadDataRef.current = false;
-    } else if (user.uid) {
-      // Reset cloudLoaded when user ID changes (different user logged in)
-      // This ensures we reload data for the new user
-      const currentUserId = user.uid;
-      if (previousUserIdRef.current !== null && previousUserIdRef.current !== currentUserId) {
-        // Different user logged in - reset to load their data
-        setCloudLoaded(false);
-      }
-      previousUserIdRef.current = currentUserId;
-      const fromLocal = loadFromStorage(currentUserId);
-      if (fromLocal.classes.length > 0 && !cloudLoaded) {
-        setState((prev) => ({ ...prev, ...fromLocal }));
-      }
-    }
-  }, [user]);
-
-  // שמירה לענן כשעוזבים את הדף (סגירת טאב/מעבר)
-  useEffect(() => {
-    const flushFirestoreSave = () => {
-      if (!user?.uid || !isFirebaseConfigured() || !cloudLoaded) return;
-      const prefs = loadPreferences();
-      const payload = pendingFirestorePayloadRef.current || {
-        classes: state.classes,
-        activeClassId: state.activeClassId,
-        riskSettings: state.riskSettings,
-        perClassRiskSettings: state.perClassRiskSettings,
-        periodDefinitions: state.periodDefinitions,
-        preferences: { darkMode, fontSize, dashboardViewMode: prefs.dashboardViewMode ?? 'table', dashboardWidgets },
-      };
-      if (saveToFirestoreTimeoutRef.current) {
-        clearTimeout(saveToFirestoreTimeoutRef.current);
-        saveToFirestoreTimeoutRef.current = null;
-      }
-      const allowEmpty = lastCloudHadDataRef.current;
-      saveToFirestore(user.uid, payload, allowEmpty).then(() => setCloudSyncError(null)).catch((err) => {
-        setCloudSyncError(err?.message?.includes('permission') ? 'שמירה לענן: עדכן כללי Firestore.' : (err?.message ?? 'שגיאה'));
-      });
-    };
-    flushFirestoreSaveRef.current = flushFirestoreSave;
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushFirestoreSave();
-      // onSnapshot gives real-time updates - no need to re-fetch when tab becomes visible
-    };
-    const onBeforeUnload = () => {
-      // Try to save synchronously before unload
-      flushFirestoreSave();
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('beforeunload', onBeforeUnload);
-    };
-  }, [user?.uid, cloudLoaded, state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions, darkMode, fontSize, dashboardWidgets]);
-
-  useEffect(() => {
-    const payload = {
-      classes: state.classes,
-      activeClassId: state.activeClassId,
-      riskSettings: state.riskSettings,
-      perClassRiskSettings: state.perClassRiskSettings,
-      periodDefinitions: state.periodDefinitions,
-      preferences: {
-        darkMode,
-        fontSize,
-        dashboardViewMode: 'table' as const,
-        dashboardWidgets,
-      },
-    };
-    saveToStorage({ ...payload, preferences: undefined } as Parameters<typeof saveToStorage>[0], user?.uid ?? undefined);
-    if (user?.uid && isFirebaseConfigured() && cloudLoaded) {
-      pendingFirestorePayloadRef.current = payload;
-      if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
-      saveToFirestoreTimeoutRef.current = setTimeout(() => {
-        const allowEmpty = lastCloudHadDataRef.current;
-        saveToFirestore(user.uid, payload, allowEmpty)
-          .then(() => setCloudSyncError(null))
-          .catch((err) => {
-            const msg = err?.message ?? String(err);
-            if (msg.includes('permission-denied') || msg.includes('Permission denied')) {
-              setCloudSyncError('שמירה לענן נכשלה: עדכן כללי Firestore ב-Console (ראה FIREBASE-SETUP.md).');
-            } else {
-              setCloudSyncError('שמירה לענן נכשלה: ' + msg);
-            }
-          });
-        saveToFirestoreTimeoutRef.current = null;
-      }, 400);
-    }
-    return () => {
-      if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
-    };
-  }, [state.classes, state.activeClassId, state.riskSettings, state.perClassRiskSettings, state.periodDefinitions, user?.uid, cloudLoaded, darkMode, fontSize, dashboardWidgets]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -297,8 +149,7 @@ const App: React.FC = () => {
           students: studentsList,
           lastUpdated: now,
         };
-        lastAddClassAtRef.current = Date.now();
-        lastCloudHadDataRef.current = true;
+        markClassAdded();
         setState((prev) => ({
           ...prev,
           view: 'dashboard',
@@ -307,7 +158,7 @@ const App: React.FC = () => {
           activeClassId: newClass.id,
           loading: false,
         }));
-        setTimeout(() => flushFirestoreSaveRef.current(), 450);
+        setTimeout(() => flushSave(), 450);
       } catch (error) {
         console.error('Error processing files', error);
         alert('שגיאה בעיבוד הקבצים. אנא וודא שהפורמט תקין.');
@@ -324,8 +175,8 @@ const App: React.FC = () => {
       view: 'dashboard',
       selectedStudentId: null,
     }));
-    setSidebarOpen(false);
-  }, []);
+    closeSidebar();
+  }, [closeSidebar]);
 
   const handleSelectStudent = useCallback((id: string) => {
     setState((prev) => ({ ...prev, view: 'student', selectedStudentId: id }));
@@ -417,7 +268,7 @@ const App: React.FC = () => {
         <>
           <div
             className={`fixed inset-0 z-40 bg-black/20 md:hidden ${sidebarOpen ? '' : 'pointer-events-none opacity-0'}`}
-            onClick={() => setSidebarOpen(false)}
+            onClick={closeSidebar}
             aria-hidden="true"
           />
           <aside
@@ -428,7 +279,7 @@ const App: React.FC = () => {
               <span className="font-bold text-slate-700">כיתות</span>
               <button
                 type="button"
-                onClick={() => setSidebarOpen(false)}
+                onClick={closeSidebar}
                 className="md:hidden p-2 rounded-lg hover:bg-slate-100 text-slate-500"
                 aria-label="סגור תפריט"
               >
@@ -503,7 +354,7 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setState((prev) => ({ ...prev, view: 'upload' }));
-                  setSidebarOpen(false);
+                  closeSidebar();
                 }}
                 className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-xl text-primary-600 hover:bg-primary-50 font-medium transition-colors border border-dashed border-primary-200"
               >
@@ -514,7 +365,7 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setState((prev) => ({ ...prev, view: 'settings' }));
-                  setSidebarOpen(false);
+                  closeSidebar();
                 }}
                 className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 hover:bg-slate-50 font-medium transition-colors mt-2"
               >
@@ -539,7 +390,7 @@ const App: React.FC = () => {
               <div className="px-3 py-3 mt-auto border-t border-slate-100">
                 <a
                   href="#"
-                  onClick={(e) => { e.preventDefault(); setState((prev) => ({ ...prev, view: 'landing' })); setSidebarOpen(false); }}
+                  onClick={(e) => { e.preventDefault(); setState((prev) => ({ ...prev, view: 'landing' })); closeSidebar(); }}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-primary-50/50 transition-colors group"
                 >
                   <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center shrink-0">
@@ -568,7 +419,7 @@ const App: React.FC = () => {
                   {showSidebar && (
                     <button
                       type="button"
-                      onClick={() => setSidebarOpen(true)}
+                      onClick={openSidebar}
                       className="p-2 rounded-xl hover:bg-slate-100 active:bg-slate-200 text-slate-600 transition-colors shrink-0"
                       aria-label="תפריט"
                     >
@@ -697,7 +548,7 @@ const App: React.FC = () => {
                 {showSidebar && (
                   <button
                     type="button"
-                    onClick={() => setSidebarOpen(true)}
+                    onClick={openSidebar}
                     className="md:hidden p-2 rounded-xl hover:bg-slate-100 text-slate-600"
                     aria-label="תפריט"
                   >

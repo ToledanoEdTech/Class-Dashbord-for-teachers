@@ -1,9 +1,27 @@
-/* טיפוגרפיה וכללי בסיס - Tailwind נטען מ-CDN ב-index.html */
+/* Tailwind - local build (tree-shaking via PostCSS) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom utilities (moved from index.html) */
+.glass {
+  background-color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* טיפוגרפיה וכללי בסיס */
 html { scroll-behavior: smooth; }
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: #1e293b;
+  font-family: 'Heebo', sans-serif;
 }
 
 /* Focus לנגישות */
