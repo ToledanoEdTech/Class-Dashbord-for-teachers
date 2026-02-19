@@ -68,6 +68,7 @@ async function loadSettings(
   perClassRiskSettings: PerClassRiskSettings;
   periodDefinitions: PeriodDefinition[];
   preferences?: UserPreferences;
+  deletedClassIds: Record<string, string>;
 } | null> {
   try {
     const ref = doc(db, 'users', userId, 'data', SETTINGS_DOC);
@@ -85,6 +86,7 @@ async function loadSettings(
     fontSize?: 'small' | 'medium' | 'large';
     dashboardViewMode?: 'table' | 'cards';
     dashboardWidgets?: Record<string, boolean>;
+    deletedClassIds?: Record<string, string>;
   };
   const perClass = raw.perClassRiskSettings ?? {};
   const normalizedPerClass: PerClassRiskSettings = {};
@@ -101,12 +103,21 @@ async function loadSettings(
         dashboardWidgets: raw.dashboardWidgets ? normalizeDashboardWidgets(raw.dashboardWidgets) : undefined,
       }
     : undefined;
+  const deletedClassIds: Record<string, string> =
+    raw.deletedClassIds && typeof raw.deletedClassIds === 'object'
+      ? Object.fromEntries(
+          Object.entries(raw.deletedClassIds).filter(
+            ([k, v]) => typeof k === 'string' && typeof v === 'string'
+          )
+        )
+      : {};
   return {
     activeClassId: raw.activeClassId ?? null,
     riskSettings: normalizeRiskSettings(raw.riskSettings),
     perClassRiskSettings: normalizedPerClass,
     periodDefinitions: Array.isArray(raw.periodDefinitions) ? raw.periodDefinitions : [],
     preferences,
+    deletedClassIds,
   };
   } catch (error: any) {
     console.error('Error loading settings:', error);
@@ -222,12 +233,20 @@ export async function loadFromFirestore(userId: string): Promise<{
     console.log('Loading from Firestore for user:', userId);
     const settings = await loadSettings(db, userId);
     const classes = await loadClasses(db, userId);
+    const deletedClassIds = new Set(Object.keys(settings?.deletedClassIds ?? {}));
+    const visibleClasses = deletedClassIds.size
+      ? classes.filter((c) => !deletedClassIds.has(c.id))
+      : classes;
     console.log('Loaded settings:', !!settings, 'classes:', classes.length);
     
     if (settings) {
+      const nextActiveClassId =
+        settings.activeClassId && visibleClasses.some((c) => c.id === settings.activeClassId)
+          ? settings.activeClassId
+          : visibleClasses[0]?.id ?? null;
       return {
-        classes,
-        activeClassId: settings.activeClassId,
+        classes: visibleClasses,
+        activeClassId: nextActiveClassId,
         riskSettings: settings.riskSettings,
         perClassRiskSettings: settings.perClassRiskSettings,
         periodDefinitions: settings.periodDefinitions,
@@ -236,10 +255,10 @@ export async function loadFromFirestore(userId: string): Promise<{
     }
 
     // If classes exist but settings doc is missing, still return cloud classes with safe defaults.
-    if (classes.length > 0) {
+    if (visibleClasses.length > 0) {
       return {
-        classes,
-        activeClassId: classes[0]?.id ?? null,
+        classes: visibleClasses,
+        activeClassId: visibleClasses[0]?.id ?? null,
         riskSettings: normalizeRiskSettings(undefined),
         perClassRiskSettings: {},
         periodDefinitions: [],
@@ -306,6 +325,11 @@ export async function saveToFirestore(
 
   const prefs = payload.preferences;
   const settingsRef = doc(db, 'users', userId, 'data', SETTINGS_DOC);
+  const settingsSnap = await getDoc(settingsRef);
+  const existingDeletedClassIds =
+    settingsSnap.exists() && typeof settingsSnap.data()?.deletedClassIds === 'object'
+      ? (settingsSnap.data()?.deletedClassIds as Record<string, string>)
+      : {};
   await queueSet(settingsRef, toFirestoreValue({
     activeClassId: payload.activeClassId,
     riskSettings: payload.riskSettings,
@@ -315,12 +339,17 @@ export async function saveToFirestore(
     fontSize: prefs?.fontSize,
     dashboardViewMode: prefs?.dashboardViewMode,
     dashboardWidgets: prefs?.dashboardWidgets,
+    deletedClassIds: existingDeletedClassIds,
     t: Date.now(),
   }) as Record<string, unknown>);
 
   const colRef = collection(db, 'users', userId, 'classes');
 
   for (const c of payload.classes) {
+    // Never recreate classes that were actively deleted.
+    if (existingDeletedClassIds[c.id]) {
+      continue;
+    }
     const persisted = toPersistedClass(c);
     const compressed = compress(persisted);
     const classRef = doc(colRef, c.id);
@@ -402,8 +431,19 @@ export async function deleteClassFromFirestore(userId: string, classId: string):
   if (!db) return;
   const classRef = doc(db, 'users', userId, 'classes', classId);
   const chunksRef = collection(db, 'users', userId, 'classes', classId, 'chunks');
+  const settingsRef = doc(db, 'users', userId, 'data', SETTINGS_DOC);
   const chunksSnap = await getDocs(chunksRef);
   const batch = writeBatch(db);
+  batch.set(
+    settingsRef,
+    {
+      deletedClassIds: {
+        [classId]: new Date().toISOString(),
+      },
+      t: Date.now(),
+    },
+    { merge: true }
+  );
   for (const chunk of chunksSnap.docs) {
     batch.delete(doc(chunksRef, chunk.id));
   }

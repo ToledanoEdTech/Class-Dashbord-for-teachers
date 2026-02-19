@@ -55,6 +55,10 @@ function mergeClassesByLatest(localClasses: ClassGroup[], cloudClasses: ClassGro
   return Array.from(merged.values()).sort((a, b) => a.lastUpdated.getTime() - b.lastUpdated.getTime());
 }
 
+function sortClassesByUpdatedAt(classes: ClassGroup[]): ClassGroup[] {
+  return [...classes].sort((a, b) => a.lastUpdated.getTime() - b.lastUpdated.getTime());
+}
+
 export function useCloudSync({
   userId,
   payload,
@@ -107,20 +111,18 @@ export function useCloudSync({
           lastCloudUpdatedAtRef.current = updatedAt;
           setPayload((prev) => {
             const recentlyAdded = Date.now() - lastAddClassAtRef.current < 3000;
-            const mergedClasses = mergeClassesByLatest(prev.classes, data.classes);
-            const weHaveMoreClasses = mergedClasses.length > data.classes.length;
-            if (recentlyAdded && weHaveMoreClasses) {
-              return { ...prev, classes: mergedClasses };
-            }
+            const cloudClasses = sortClassesByUpdatedAt(data.classes);
+            const mergedClasses = mergeClassesByLatest(prev.classes, cloudClasses);
+            const classesToUse = recentlyAdded ? mergedClasses : cloudClasses;
             return {
               ...prev,
-              classes: mergedClasses,
+              classes: classesToUse,
               activeClassId:
-                data.activeClassId && mergedClasses.some((c) => c.id === data.activeClassId)
+                data.activeClassId && classesToUse.some((c) => c.id === data.activeClassId)
                   ? data.activeClassId
-                  : prev.activeClassId && mergedClasses.some((c) => c.id === prev.activeClassId)
+                  : prev.activeClassId && classesToUse.some((c) => c.id === prev.activeClassId)
                     ? prev.activeClassId
-                    : mergedClasses[0]?.id ?? null,
+                    : classesToUse[0]?.id ?? null,
               riskSettings: data.riskSettings ?? prev.riskSettings,
               perClassRiskSettings: data.perClassRiskSettings ?? prev.perClassRiskSettings ?? {},
               periodDefinitions: data.periodDefinitions ?? prev.periodDefinitions ?? [],
