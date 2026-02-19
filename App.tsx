@@ -132,7 +132,7 @@ const App: React.FC = () => {
     if (p.fontSize !== undefined) setFontSize(p.fontSize);
     if (p.dashboardWidgets !== undefined) setDashboardWidgets(p.dashboardWidgets);
   }, []);
-  const { cloudLoaded, cloudLoadPending, cloudSyncError, setCloudSyncError, markClassAdded, flushSave, manualSaveToCloud } = useCloudSync({
+  const { cloudLoaded, cloudLoadPending, cloudSyncError, setCloudSyncError, markClassAdded, markClassDeleted, flushSave, manualSaveToCloud } = useCloudSync({
     userId: user?.uid,
     payload: cloudSyncPayload,
     preferences: { darkMode, fontSize, dashboardWidgets },
@@ -273,6 +273,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleDeleteClass = useCallback((classId: string) => {
+    markClassDeleted(classId);
     if (user?.uid) {
       deleteClassFromFirestore(user.uid, classId).catch((error) => {
         console.error('Failed deleting class from Firestore:', error);
@@ -290,7 +291,7 @@ const App: React.FC = () => {
       return { ...prev, classes: nextClasses, activeClassId: nextActiveId, view: nextView, selectedStudentId: null };
     });
     setDeleteConfirmClassId(null);
-  }, [setCloudSyncError, user?.uid]);
+  }, [markClassDeleted, setCloudSyncError, user?.uid]);
 
   const userLabel = user?.email ?? 'משתמש מחובר';
   const handleSignOut = useCallback(async () => {

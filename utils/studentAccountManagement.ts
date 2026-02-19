@@ -172,9 +172,15 @@ export async function createStudentAccount(
   const auth = getFirebaseAuth();
   const secondaryAuth = getSecondaryFirebaseAuth();
   const db = getFirebaseDb();
-  
-  if (!auth || !secondaryAuth || !db) {
-    throw new Error('Firebase לא מוגדר');
+
+  if (!auth) {
+    throw new Error('Firebase לא מוגדר. הגדר חיבור ל-Firebase בהגדרות.');
+  }
+  if (!db) {
+    throw new Error('Firestore לא זמין. בדוק את הגדרות Firebase.');
+  }
+  if (!secondaryAuth) {
+    throw new Error('יצירת חשבונות תלמידים דורשת חיבור Firebase תקין. וודא שהגדרת את Firebase (כולל Auth עם אימייל/סיסמה).');
   }
   if (!auth.currentUser) {
     throw new Error('צריך להתחבר כמורה לפני יצירת חשבון תלמיד.');
@@ -227,7 +233,11 @@ export async function createStudentAccount(
     if (lastCreateError?.code === 'auth/email-already-in-use') {
       throw new Error('לא ניתן ליצור חשבון עם שם המשתמש המקורי כי הוא כבר קיים במערכת ההתחברות. נסה שוב או בחר שם משתמש אחר.');
     }
-    throw lastCreateError ?? new Error('נכשל ביצירת חשבון תלמיד.');
+    if (lastCreateError?.code === 'auth/operation-not-allowed') {
+      throw new Error('התחברות באימייל/סיסמה לא מופעלת ב-Firebase. ב-Console: Authentication > Sign-in method > הפעל Email/Password.');
+    }
+    const msg = lastCreateError?.message ?? String(lastCreateError);
+    throw lastCreateError instanceof Error ? lastCreateError : new Error('נכשל ביצירת חשבון תלמיד: ' + msg);
   }
   const uid = userCredential.user.uid;
 
@@ -251,9 +261,9 @@ export async function createStudentAccount(
     }
     console.error('Error saving student user document to Firestore:', error);
     if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
-      throw new Error('אין הרשאה ליצור מסמך משתמש ב-Firestore. עדכן את כללי Firestore ופרסם אותם.');
+      throw new Error('אין הרשאה ליצור מסמך משתמש ב-Firestore. עדכן את כללי Firestore (users collection) ופרסם אותם.');
     }
-    throw new Error('יצירת חשבון נכשלה בזמן שמירת פרטי התלמיד.');
+    throw new Error('יצירת חשבון נכשלה בזמן שמירת פרטי התלמיד: ' + (error?.message ?? String(error)));
   } finally {
     // Always clear temporary secondary-auth session.
     await signOut(secondaryAuth).catch(() => undefined);
@@ -307,12 +317,17 @@ export async function resetStudentAccountCredentials(
 ): Promise<StudentAccount> {
   const db = getFirebaseDb();
   if (!db) {
-    throw new Error('Firebase לא מוגדר');
+    throw new Error('Firebase לא מוגדר. בדוק את הגדרות Firebase.');
   }
 
-  const nextAccount = await createStudentAccount(student, options?.username, options?.password, {
-    classId: options?.classId,
-  });
+  let nextAccount: StudentAccount;
+  try {
+    nextAccount = await createStudentAccount(student, options?.username, options?.password, {
+      classId: options?.classId,
+    });
+  } catch (error: any) {
+    throw new Error('איפוס סיסמה נכשל: ' + (error?.message ?? String(error)));
+  }
 
   // Remove previous Firestore mapping doc so the class points to one active account.
   try {

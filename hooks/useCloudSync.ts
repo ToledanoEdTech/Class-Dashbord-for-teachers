@@ -35,6 +35,7 @@ export interface UseCloudSyncResult {
   cloudSyncError: string | null;
   setCloudSyncError: (msg: string | null) => void;
   markClassAdded: () => void;
+  markClassDeleted: (classId: string) => void;
   flushSave: () => void;
   manualSaveToCloud: () => Promise<boolean>;
 }
@@ -77,6 +78,8 @@ export function useCloudSync({
   const lastCloudHadDataRef = useRef(false);
   const lastCloudUpdatedAtRef = useRef(0);
   const lastAddClassAtRef = useRef(0);
+  const recentlyDeletedClassIdsRef = useRef<Set<string>>(new Set());
+  const recentlyDeletedExpiryRef = useRef<Map<string, number>>(new Map());
   const flushFirestoreSaveRef = useRef<() => void>(() => {});
 
   const { darkMode, fontSize, dashboardWidgets } = preferences;
@@ -109,9 +112,18 @@ export function useCloudSync({
         if (data) {
           lastCloudHadDataRef.current = data.classes.length > 0;
           lastCloudUpdatedAtRef.current = updatedAt;
+          const now = Date.now();
+          const deletedSet = recentlyDeletedClassIdsRef.current;
+          for (const [id, expiry] of recentlyDeletedExpiryRef.current) {
+            if (now > expiry) {
+              deletedSet.delete(id);
+              recentlyDeletedExpiryRef.current.delete(id);
+            }
+          }
           setPayload((prev) => {
-            const recentlyAdded = Date.now() - lastAddClassAtRef.current < 3000;
-            const cloudClasses = sortClassesByUpdatedAt(data.classes);
+            const recentlyAdded = now - lastAddClassAtRef.current < 3000;
+            let cloudClasses = sortClassesByUpdatedAt(data.classes);
+            cloudClasses = cloudClasses.filter((c) => !deletedSet.has(c.id));
             const mergedClasses = mergeClassesByLatest(prev.classes, cloudClasses);
             const classesToUse = recentlyAdded ? mergedClasses : cloudClasses;
             return {
@@ -128,11 +140,12 @@ export function useCloudSync({
               periodDefinitions: data.periodDefinitions ?? prev.periodDefinitions ?? [],
             };
           });
-          // Try to save to localStorage, but don't block if it fails
+          // Try to save to localStorage (only non-deleted classes so deleted never come back from storage)
           try {
+            const classesToSave = (deletedSet.size ? data.classes.filter((c) => !deletedSet.has(c.id)) : data.classes);
             saveToStorage(
               {
-                classes: data.classes,
+                classes: classesToSave,
                 activeClassId: data.activeClassId,
                 riskSettings: data.riskSettings,
                 perClassRiskSettings: data.perClassRiskSettings ?? {},
@@ -360,6 +373,11 @@ export function useCloudSync({
     lastCloudHadDataRef.current = true;
   };
 
+  const markClassDeleted = (classId: string) => {
+    recentlyDeletedClassIdsRef.current.add(classId);
+    recentlyDeletedExpiryRef.current.set(classId, Date.now() + 5 * 60 * 1000);
+  };
+
   const flushSave = () => {
     flushFirestoreSaveRef.current();
   };
@@ -395,6 +413,7 @@ export function useCloudSync({
     cloudSyncError,
     setCloudSyncError,
     markClassAdded,
+    markClassDeleted,
     flushSave,
     manualSaveToCloud,
   };

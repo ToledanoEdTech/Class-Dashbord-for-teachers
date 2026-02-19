@@ -10,7 +10,7 @@ import {
   normalizeRiskSettings,
 } from '../types';
 import { calculateStudentStats } from '../utils/processing';
-import { ArrowRight, Sliders, Copy, Calendar, Plus, Trash2, LayoutGrid, Users, Download, Check, X } from 'lucide-react';
+import { ArrowRight, Sliders, Copy, Calendar, Plus, Trash2, LayoutGrid, Users, Download, Check, X, RefreshCw } from 'lucide-react';
 import {
   DASHBOARD_WIDGET_IDS,
   DASHBOARD_WIDGET_LABELS,
@@ -149,8 +149,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     try {
       const accounts = await getStudentAccountsForClass(students, activeClassId ?? undefined);
       setStudentAccounts(accounts);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading student accounts:', error);
+      const msg = error?.message ?? String(error);
+      alert('טעינת חשבונות תלמידים נכשלה: ' + msg);
     } finally {
       if (showLoader) setLoadingAccounts(false);
     }
@@ -258,11 +260,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   const handleCreateAllAccounts = async () => {
     if (!confirm('האם אתה בטוח שברצונך ליצור חשבונות לכל התלמידים?')) return;
-    
+
     setLoadingAccounts(true);
     const newCreds = new Map(newAccountCredentials);
     const newAccounts = new Map(studentAccounts);
-    
+    const errors: string[] = [];
+
     try {
       for (const student of students) {
         if (!newAccounts.has(student.id)) {
@@ -273,7 +276,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             newAccounts.set(student.id, account);
             newCreds.set(student.id, account);
           } catch (error: any) {
+            const msg = error?.message ?? String(error);
             console.error(`Failed to create account for ${student.name}:`, error);
+            errors.push(`${student.name} (${student.id}): ${msg}`);
           }
         }
       }
@@ -283,6 +288,14 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         localStorage.setItem(credentialsStorageKey, JSON.stringify(Object.fromEntries(newCreds)));
       } catch (e) {
         console.warn('Failed to persist bulk credentials locally:', e);
+      }
+      if (errors.length > 0) {
+        const created = students.filter((s) => newAccounts.has(s.id)).length;
+        alert(
+          `נוצרו ${created} חשבונות. ${errors.length} נכשלו:\n\n` +
+            errors.slice(0, 5).join('\n') +
+            (errors.length > 5 ? `\n... ועוד ${errors.length - 5}` : '')
+        );
       }
     } finally {
       setLoadingAccounts(false);
@@ -793,6 +806,16 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                     <Plus size={18} />
                     צור חשבונות לכל התלמידים
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => loadStudentAccounts(true)}
+                    disabled={loadingAccounts}
+                    className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                    title="טען מחדש חשבונות וסיסמאות מהענן"
+                  >
+                    <RefreshCw size={18} />
+                    רענן רשימה
+                  </button>
                   {studentAccounts.size > 0 && (
                     <button
                       type="button"
@@ -833,7 +856,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                           <div>
                             <p className="text-slate-500 mb-1">סיסמה זמנית</p>
                             <code className="bg-amber-50 border border-amber-200 text-amber-700 px-2 py-1 rounded block truncate">
-                              {(newCreds?.password || account?.password || '(לא זמין)')}
+                              {(newCreds?.password || account?.password || '(לא זמין – אפס סיסמה לשמירת סיסמה חדשה)')}
                             </code>
                           </div>
                         </div>
@@ -941,12 +964,22 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                                     <Copy size={14} className="text-slate-500" />
                                   </button>
                                 </div>
-                              ) : (
-                                account?.password ? (
+                              ) : account?.password ? (
+                                <div className="flex items-center gap-2">
                                   <code className="bg-amber-50 px-2 py-1 rounded text-xs font-mono text-amber-700 border border-amber-200">{account.password}</code>
-                                ) : (
-                                  <span className="text-slate-400">(לא זמין)</span>
-                                )
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(account.password);
+                                    }}
+                                    className="p-1 rounded hover:bg-slate-200"
+                                    title="העתק"
+                                  >
+                                    <Copy size={14} className="text-slate-500" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400" title="אפס סיסמה כדי ליצור סיסמה חדשה שנשמרת">(לא זמין – אפס סיסמה)</span>
                               )}
                             </td>
                             <td className="py-3 px-4 text-sm">

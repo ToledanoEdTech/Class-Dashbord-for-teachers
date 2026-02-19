@@ -263,7 +263,8 @@ export async function loadFromFirestore(userId: string): Promise<{
     console.log('Loading from Firestore for user:', userId);
     const settings = await loadSettings(db, userId);
     const classes = await loadClasses(db, userId);
-    const deletedClassMap = await fetchDeletedClassIds(db, userId);
+    // Always fetch deleted IDs from server so deleted classes never reappear from cache
+    const deletedClassMap = await fetchDeletedClassIds(db, userId, true);
     const deletedClassIds = new Set([
       ...Object.keys(settings?.deletedClassIds ?? {}),
       ...Object.keys(deletedClassMap),
