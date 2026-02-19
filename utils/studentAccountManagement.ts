@@ -156,11 +156,12 @@ function sanitizeUsername(raw: string, fallbackStudentId: string): string {
   return username.substring(0, 50);
 }
 
+/** Returns a unique username so we avoid auth/email-already-in-use (no random collision). */
 function withUsernameSuffix(base: string, attempt: number): string {
   if (attempt <= 0) return base;
-  const suffix = String(Math.floor(100 + Math.random() * 900)); // 3 digits
-  const maxBaseLength = Math.max(1, 50 - suffix.length - 1);
-  return `${base.substring(0, maxBaseLength)}_${suffix}`;
+  const unique = `${attempt}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const maxBaseLength = Math.max(1, 45 - unique.length);
+  return `${base.substring(0, maxBaseLength)}_${unique}`;
 }
 
 /**
@@ -197,7 +198,7 @@ export async function createStudentAccount(
   // Create Firebase Auth account on a secondary auth instance so teacher session stays intact.
   let userCredential: Awaited<ReturnType<typeof createUserWithEmailAndPassword>> | null = null;
   let lastCreateError: any = null;
-  for (let attempt = 0; attempt < 10; attempt++) {
+  for (let attempt = 0; attempt < 20; attempt++) {
     finalUsername = withUsernameSuffix(baseUsername, attempt);
     const email = `${finalUsername}@student.toledanoedtech.local`;
     if (!email.match(/^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/i)) {
@@ -252,8 +253,11 @@ export async function createStudentAccount(
 
   if (!userCredential) {
     const errMsg = lastCreateError?.message ?? String(lastCreateError);
-    const is400 = (lastCreateError?.message ?? '').includes('400') || lastCreateError?.code === 'auth/invalid-argument';
-    if (is400 && auth && auth.currentUser) {
+    const is400OrEmailExists =
+      (lastCreateError?.message ?? '').includes('400') ||
+      lastCreateError?.code === 'auth/invalid-argument' ||
+      lastCreateError?.code === 'auth/email-already-in-use';
+    if (is400OrEmailExists && auth && auth.currentUser) {
       try {
         const email = `${finalUsername}@student.toledanoedtech.local`;
         userCredential = await createUserWithEmailAndPassword(auth, email, finalPassword);

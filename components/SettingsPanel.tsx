@@ -212,15 +212,16 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const handleResetPassword = async (student: Student) => {
     const account = studentAccounts.get(student.id);
     if (!account) return;
-    if (!confirm('לאפס סיסמה לתלמיד זה? תיווצר סיסמה זמנית חדשה.')) return;
+    if (!confirm('לאפס סיסמה לתלמיד זה? תיווצר סיסמה זמנית חדשה (ושם משתמש חדש כדי למנוע התנגשות).')) return;
 
     setStudentSectionError(null);
     setCreatingAccount(student.id);
     setBusyStudentId(student.id);
     try {
       const nextPassword = generateTemporaryPassword();
+      const newUsernameBase = `${account.username}_${Date.now().toString(36).slice(-6)}`;
       const updated = await resetStudentAccountCredentials(student, account, {
-        username: account.username,
+        username: newUsernameBase,
         password: nextPassword,
         classId: activeClassId ?? undefined,
       });
@@ -250,7 +251,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setBusyStudentId(student.id);
     try {
       const updated = await resetStudentAccountCredentials(student, account, {
-        username: requested,
+        username: requested.trim(),
         password: generateTemporaryPassword(),
         classId: activeClassId ?? undefined,
       });

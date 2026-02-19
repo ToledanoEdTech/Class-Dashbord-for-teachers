@@ -90,12 +90,11 @@ export function saveToStorage(
   };
   try {
     const jsonString = JSON.stringify(persisted);
-    // Check size before saving (localStorage limit is usually ~5-10MB)
-    // If too large, try to save only essential data
-    if (jsonString.length > 4 * 1024 * 1024) { // 4MB threshold
-      console.warn('Data too large for localStorage, saving minimal state only');
+    // localStorage limit is usually ~5MB; save minimal state earlier to avoid quota errors
+    const sizeLimit = 2 * 1024 * 1024; // 2MB
+    if (jsonString.length > sizeLimit) {
       const minimalState: PersistedState = {
-        classes: [], // Don't save classes if too large
+        classes: [],
         activeClassId: payload.activeClassId,
         riskSettings: payload.riskSettings,
         perClassRiskSettings: payload.perClassRiskSettings ?? {},
@@ -106,9 +105,7 @@ export function saveToStorage(
     }
     localStorage.setItem(getStorageKey(userId), jsonString);
   } catch (e: any) {
-    // If quota exceeded, try to clear old data and save minimal state
     if (e?.name === 'QuotaExceededError' || e?.message?.includes('quota')) {
-      console.warn('localStorage quota exceeded, clearing old data and saving minimal state');
       try {
         // Clear old localStorage entries
         const keysToRemove: string[] = [];
@@ -130,11 +127,8 @@ export function saveToStorage(
         };
         localStorage.setItem(getStorageKey(userId), JSON.stringify(minimalState));
       } catch (e2) {
-        console.warn('Failed to save even minimal state to localStorage', e2);
         // Don't throw - let the app continue without localStorage
       }
-    } else {
-      console.warn('Failed to save state to localStorage', e);
     }
   }
 }
