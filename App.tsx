@@ -39,6 +39,14 @@ const Logo: React.FC<{ fallback: React.ReactNode }> = ({ fallback }) => {
 const BRAND_NAME = 'ToledanoEdTech';
 const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
 
+function generateClassId(): string {
+  const randomPart =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return `class-${Date.now()}-${randomPart}`;
+}
+
 const getEmptyDataState = () => ({
   classes: [] as ClassGroup[],
   activeClassId: null as string | null,
@@ -161,7 +169,7 @@ const App: React.FC = () => {
         const studentsList = await processFiles(behaviorFile, gradesFile);
         const now = new Date();
         const newClass: ClassGroup = {
-          id: `class-${Date.now()}`,
+          id: generateClassId(),
           name: className.trim() || `כיתה ${now.toLocaleDateString('he-IL')}`,
           students: studentsList,
           lastUpdated: now,
