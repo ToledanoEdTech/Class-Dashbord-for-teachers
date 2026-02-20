@@ -1153,8 +1153,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto p-3 md:p-6 min-h-[500px]">
+      {/* Content: starts clearly below the fixed header so titles and data are never hidden */}
+      <div className="max-w-7xl mx-auto p-3 md:p-6 min-h-[500px] pt-[5rem] md:pt-[6rem]">
         {/* השוואה בין תקופות (תלמיד זה) – לא מוצג בתובנות */}
         {periodStatsForStudent.length > 0 && activeTab !== 'insights' && (
           <div className="mb-6 bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
