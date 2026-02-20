@@ -471,6 +471,22 @@ const App: React.FC = () => {
                 <NavIcons.Settings size={18} className="shrink-0" />
                 הגדרות
               </button>
+              {state.view !== 'landing' && (
+                <button
+                  type="button"
+                  onClick={() => setState((prev) => ({ ...prev, isAnonymous: !prev.isAnonymous }))}
+                  className={`w-full text-right flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors mt-2 ${
+                    state.isAnonymous
+                      ? 'bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100'
+                      : 'text-slate-600 hover:bg-slate-50 border border-transparent'
+                  }`}
+                  title={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
+                  aria-label={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
+                >
+                  {state.isAnonymous ? <NavIcons.PrivacyOff size={18} className="shrink-0" /> : <NavIcons.Privacy size={18} className="shrink-0" />}
+                  {state.isAnonymous ? 'פרטיות פעילה' : 'פרטיות'}
+                </button>
+              )}
               <div className="px-3 py-3 mt-2 border-t border-slate-100">
                 <span className="text-xs font-bold text-slate-500 block mb-2 px-1">גודל גופן</span>
                 <div className="flex items-center gap-1">
@@ -558,7 +574,7 @@ const App: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Nav */}
         <nav className="glass border-b border-slate-200/80 sticky top-0 z-30 shadow-soft pt-[env(safe-area-inset-top)]">
-          <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto px-3 ps-5 pe-3 sm:px-4 sm:ps-6 sm:pe-4 md:px-6 md:ps-8 md:pe-6 lg:px-8 lg:ps-10 lg:pe-8">
             {/* Mobile Layout - Stacked */}
             <div className="md:hidden">
               {/* First Row: Logo and Menu */}
@@ -659,31 +675,13 @@ const App: React.FC = () => {
                       <span className="text-xs sm:text-sm">מטריצה</span>
                     </button>
                   </div>
-
-                  {/* Action Buttons Row */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setState((prev) => ({ ...prev, isAnonymous: !prev.isAnonymous }))}
-                      className={`w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all min-h-[40px] ${
-                        state.isAnonymous
-                          ? 'bg-primary-100 text-primary-700 border border-primary-200 active:bg-primary-200'
-                          : 'bg-slate-100 text-slate-600 border border-slate-200 active:bg-slate-200'
-                      }`}
-                      title={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
-                      aria-label={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
-                    >
-                      {state.isAnonymous ? <NavIcons.PrivacyOff size={18} /> : <NavIcons.Privacy size={18} />}
-                      <span className="text-xs sm:text-sm">{state.isAnonymous ? 'פרטיות' : 'פרטיות'}</span>
-                    </button>
-                  </div>
                 </div>
               )}
             </div>
 
             {/* Desktop Layout - Horizontal */}
-            <div className="hidden md:flex items-center justify-between min-h-[4.5rem]">
-              <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center justify-between min-h-[4.5rem] gap-4 lg:gap-6 min-w-0">
+              <div className="flex items-center gap-2 md:gap-3 shrink-0 min-w-0 max-w-[45%] relative z-0">
                 {showSidebar && (
                   <button
                     type="button"
@@ -697,25 +695,25 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setState((prev) => ({ ...prev, view: 'landing', activeClassId: prev.activeClassId }))}
-                  className="flex items-center gap-3 group transition-all duration-200"
+                  className="flex items-center gap-2 md:gap-3 group transition-all duration-200 shrink-0 overflow-visible"
                 >
-                  <div className="flex items-center justify-center w-20 h-20 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all">
+                  <div className="flex items-center justify-center w-14 h-14 md:w-16 md:h-16 lg:w-20 lg:h-20 rounded-xl bg-white shadow-lg overflow-hidden ring-1 ring-slate-200/50 group-hover:ring-primary-200 transition-all shrink-0">
                     <Logo fallback={<FileIcons.LogoFallback size={32} strokeWidth={2.5} className="text-primary-600" />} />
                   </div>
-                  <div className="text-right">
-                    <span className="font-display font-bold text-lg md:text-xl text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block">
+                  <div className="text-right min-w-0 hidden sm:block overflow-hidden">
+                    <span className="font-display font-bold text-base md:text-lg lg:text-xl text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block truncate">
                       {BRAND_NAME}
                     </span>
-                    <span className="text-xs text-slate-500 font-medium hidden sm:block">{BRAND_TAGLINE}</span>
+                    <span className="text-xs text-slate-500 font-medium hidden md:block truncate">{BRAND_TAGLINE}</span>
                   </div>
                 </button>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 md:gap-3 min-w-0 overflow-x-auto overflow-y-visible scrollbar-hide flex-1 justify-end relative z-10 ps-4">
                 {state.view !== 'upload' && state.view !== 'settings' && state.view !== 'landing' && (
                   <>
                     {/* Navigation: Dashboard | Teacher Analytics | Subject Matrix */}
-                    <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600">
+                    <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600 shrink-0">
                       <button
                         type="button"
                         onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
@@ -756,31 +754,15 @@ const App: React.FC = () => {
                         <span>מטריצת מקצועות</span>
                       </button>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setState((prev) => ({ ...prev, isAnonymous: !prev.isAnonymous }))}
-                        className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors min-h-[44px] ${
-                          state.isAnonymous
-                            ? 'bg-primary-100 text-primary-700 border border-primary-200'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
-                        }`}
-                        title={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
-                        aria-label={state.isAnonymous ? 'כיבוי מצב פרטיות' : 'הפעלת מצב פרטיות'}
-                      >
-                        {state.isAnonymous ? <NavIcons.PrivacyOff size={18} /> : <NavIcons.Privacy size={18} />}
-                        <span>{state.isAnonymous ? 'פרטיות פעילה' : 'פרטיות'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setState((prev) => ({ ...prev, view: 'upload' }))}
-                        className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-slate-500 hover:text-primary-600 hover:bg-primary-50/50 transition-colors text-sm font-medium min-h-[44px]"
-                        aria-label="העלאת קבצים"
-                      >
+                    <button
+                      type="button"
+                      onClick={() => setState((prev) => ({ ...prev, view: 'upload' }))}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-slate-500 hover:text-primary-600 hover:bg-primary-50/50 transition-colors text-sm font-medium min-h-[44px] shrink-0"
+                      aria-label="העלאת קבצים"
+                    >
                         <NavIcons.Upload size={18} className="shrink-0" />
-                        <span>העלאת קבצים</span>
-                      </button>
-                    </div>
+                      <span>העלאת קבצים</span>
+                    </button>
                   </>
                 )}
                 {!user ? (
@@ -849,7 +831,7 @@ const App: React.FC = () => {
         )}
         {showFirebaseConfig && <FirebaseConfigDialog onClose={() => setShowFirebaseConfig(false)} />}
 
-        <main className="animate-fade-in flex-1 relative">
+        <main className="animate-fade-in flex-1 relative min-w-0 overflow-x-auto">
           {cloudSyncError && user && (
             <div className="mx-4 mt-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-sm flex items-center justify-between gap-2">
               <span>{cloudSyncError}</span>

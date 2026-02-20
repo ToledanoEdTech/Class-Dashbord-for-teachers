@@ -256,7 +256,7 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, periodD
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 md:space-y-8 pb-safe animate-fade-in">
+    <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0 space-y-6 md:space-y-8 pb-safe animate-fade-in">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">אנליטיקת מורים</h2>

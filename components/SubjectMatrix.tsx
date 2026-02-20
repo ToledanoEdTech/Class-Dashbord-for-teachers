@@ -409,7 +409,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
   };
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto pb-safe animate-fade-in">
+    <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0 pb-safe animate-fade-in">
       <div className="mb-6">
         <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">
           מטריצת מקצועות

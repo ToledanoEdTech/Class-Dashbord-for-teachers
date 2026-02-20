@@ -48,7 +48,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
 
   return (
     <div className="flex flex-col items-center justify-start min-h-[calc(100vh-4rem)] px-3 py-1 md:px-6 md:py-2">
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-2xl min-w-0">
         {/* Hero: Logo + Branding */}
         <div className="text-center mb-2 md:mb-3 animate-slide-up flex flex-col items-center">
           <div className="w-32 h-32 md:w-40 md:h-40 rounded-2xl bg-white shadow-elevated border border-slate-200/80 overflow-hidden shrink-0 mb-3 ring-2 ring-primary-100/80">

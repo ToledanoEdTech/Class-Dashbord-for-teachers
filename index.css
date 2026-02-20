@@ -22,7 +22,18 @@ body {
   -moz-osx-font-smoothing: grayscale;
   color: #1e293b;
   font-family: 'Heebo', sans-serif;
+  /* מניעת גלילה אופקית ברמת העמוד – תוכן רחב (טבלאות וכו') יגלול בתוך המיכל שלו */
+  overflow-x: hidden;
 }
+
+/* ===== RESPONSIVE BASE ===== */
+/* תמונות לא יעברו את רוחב המסך */
+img { max-width: 100%; height: auto; }
+video, iframe, object { max-width: 100%; }
+/* מיכלים עם רוחב מקסימלי יכבדו מסכים צרים */
+.w-full { box-sizing: border-box; }
+/* Flex children יכולים להתכווץ ולא לפרוץ (במקומות שלא הוגדר min-w-0) */
+.min-w-0 { min-width: 0; }
 
 /* Focus לנגישות */
 *:focus-visible {

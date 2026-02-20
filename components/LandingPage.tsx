@@ -108,8 +108,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onOpenAuth, onOpenSt
   const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col items-center justify-center px-4 py-2 overflow-hidden">
-      <div className="w-full flex flex-col h-full justify-between">
+    <div className="min-h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] flex flex-col items-center justify-center px-3 sm:px-4 py-2 overflow-hidden w-full max-w-full">
+      <div className="w-full max-w-full flex flex-col h-full justify-between min-w-0">
         {/* Hero - Compact */}
         <div className="text-center mb-1 animate-slide-up flex-shrink-0">
           <div className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-xl bg-white shadow-elevated border border-slate-200/80 overflow-hidden mb-1 ring-2 ring-primary-100/80">
@@ -127,7 +127,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onOpenAuth, onOpenSt
         </div>
 
         {/* Visual Preview + Info on sides: carousel center, text blocks left/right */}
-        <div className="flex-1 flex items-stretch gap-3 min-h-0 mb-1 animate-slide-up w-full max-w-6xl mx-auto" style={{ animationDelay: '0.05s' }}>
+        <div className="flex-1 flex items-stretch gap-2 md:gap-3 min-h-0 mb-1 animate-slide-up w-full max-w-6xl mx-auto min-w-0" style={{ animationDelay: '0.05s' }}>
           {/* Left column - 2 info blocks */}
           <div className="hidden lg:flex flex-col gap-2 w-44 xl:w-52 flex-shrink-0">
             <div className="bg-white rounded-lg border border-slate-100 p-3 shadow-card hover:shadow-card-hover transition-shadow">
