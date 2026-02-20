@@ -203,7 +203,6 @@ async function loadClasses(db: Firestore, userId: string): Promise<ClassGroup[]>
   try {
     const colRef = collection(db, 'users', userId, 'classes');
     const snapshot = await getDocs(colRef);
-    console.log('Found', snapshot.docs.length, 'class documents');
     const classes: ClassGroup[] = [];
     for (const docSnap of snapshot.docs) {
       const raw = docSnap.data();
@@ -260,7 +259,6 @@ export async function loadFromFirestore(userId: string): Promise<{
   }
   
   try {
-    console.log('Loading from Firestore for user:', userId);
     const settings = await loadSettings(db, userId);
     const classes = await loadClasses(db, userId);
     // Always fetch deleted IDs from server so deleted classes never reappear from cache
@@ -272,8 +270,6 @@ export async function loadFromFirestore(userId: string): Promise<{
     const visibleClasses = deletedClassIds.size
       ? classes.filter((c) => !deletedClassIds.has(c.id))
       : classes;
-    console.log('Loaded settings:', !!settings, 'classes:', classes.length);
-    
     if (settings) {
       const nextActiveClassId =
         settings.activeClassId && visibleClasses.some((c) => c.id === settings.activeClassId)
@@ -527,7 +523,7 @@ export function subscribeToFirestore(
   let disposed = false;
   let emitTimeoutId: ReturnType<typeof setTimeout> | null = null;
   let hasEmittedOnce = false;
-  const EMIT_DEBOUNCE_MS = 600;
+  const EMIT_DEBOUNCE_MS = 2000;
   const emit = () => {
     if (disposed) return;
     if (!hasEmittedOnce) {

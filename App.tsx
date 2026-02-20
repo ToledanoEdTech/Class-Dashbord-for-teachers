@@ -246,13 +246,15 @@ const App: React.FC = () => {
         if (prev.activeClassId) delete nextPerClass[prev.activeClassId];
         return { ...prev, riskSettings, perClassRiskSettings: nextPerClass, view: 'dashboard' };
       });
+      setTimeout(() => flushSave(), 150);
     },
-    []
+    [flushSave]
   );
 
   const handleSavePeriodDefinitions = useCallback((periodDefinitions: PeriodDefinition[]) => {
     setState((prev) => ({ ...prev, periodDefinitions }));
-  }, []);
+    setTimeout(() => flushSave(), 150);
+  }, [flushSave]);
 
   const handleRenameClass = useCallback((classId: string, newName: string) => {
     const trimmed = newName.trim();
@@ -944,6 +946,7 @@ const App: React.FC = () => {
               onSaveDashboardWidgets={(widgets) => {
                 setDashboardWidgets(widgets);
                 savePreferences({ ...loadPreferences(), dashboardWidgets: widgets });
+                setTimeout(() => flushSave(), 150);
               }}
             />
           )}

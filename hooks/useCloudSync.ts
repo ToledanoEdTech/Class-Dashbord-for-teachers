@@ -72,7 +72,6 @@ export function useCloudSync({
   const [cloudLoadPending, setCloudLoadPending] = useState(false);
   const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
 
-  const saveToFirestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingFirestorePayloadRef = useRef<CloudSyncPayload & { preferences?: UserPreferences } | null>(null);
   const previousUserIdRef = useRef<string | null>(null);
   const lastCloudHadDataRef = useRef(false);
@@ -126,15 +125,19 @@ export function useCloudSync({
             cloudClasses = cloudClasses.filter((c) => !deletedSet.has(c.id));
             const mergedClasses = mergeClassesByLatest(prev.classes, cloudClasses);
             const classesToUse = recentlyAdded ? mergedClasses : cloudClasses;
+            // Prefer current user selection (prev.activeClassId) when still valid, so cloud
+            // updates (e.g. from our own save or cache) don't override the class they just clicked.
+            const validPrev = prev.activeClassId && classesToUse.some((c) => c.id === prev.activeClassId);
+            const validCloud = data.activeClassId && classesToUse.some((c) => c.id === data.activeClassId);
+            const activeClassId = validPrev
+              ? prev.activeClassId
+              : validCloud
+                ? data.activeClassId
+                : classesToUse[0]?.id ?? null;
             return {
               ...prev,
               classes: classesToUse,
-              activeClassId:
-                data.activeClassId && classesToUse.some((c) => c.id === data.activeClassId)
-                  ? data.activeClassId
-                  : prev.activeClassId && classesToUse.some((c) => c.id === prev.activeClassId)
-                    ? prev.activeClassId
-                    : classesToUse[0]?.id ?? null,
+              activeClassId,
               riskSettings: data.riskSettings ?? prev.riskSettings,
               perClassRiskSettings: data.perClassRiskSettings ?? prev.perClassRiskSettings ?? {},
               periodDefinitions: data.periodDefinitions ?? prev.periodDefinitions ?? [],
@@ -229,7 +232,7 @@ export function useCloudSync({
     }
   }, [userId, cloudLoaded, setPayload]);
 
-  // Save to cloud on visibility change / beforeunload
+  // Flush function: save current state to Firestore (used only on explicit actions).
   useEffect(() => {
     const flushFirestoreSave = () => {
       if (!userId || !isFirebaseConfigured() || !cloudLoaded) return;
@@ -243,10 +246,6 @@ export function useCloudSync({
           dashboardWidgets,
         } as UserPreferences,
       };
-      if (saveToFirestoreTimeoutRef.current) {
-        clearTimeout(saveToFirestoreTimeoutRef.current);
-        saveToFirestoreTimeoutRef.current = null;
-      }
       const allowEmpty = lastCloudHadDataRef.current;
       type FirestorePayload = Parameters<typeof saveToFirestore>[1];
       saveToFirestore(userId, fullPayload as FirestorePayload, allowEmpty)
@@ -258,41 +257,10 @@ export function useCloudSync({
         });
     };
     flushFirestoreSaveRef.current = flushFirestoreSave;
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushFirestoreSave();
-    };
-    const onBeforeUnload = () => flushFirestoreSave();
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('beforeunload', onBeforeUnload);
-    };
-  }, [
-    userId,
-    cloudLoaded,
-    payload.classes,
-    payload.activeClassId,
-    payload.riskSettings,
-    payload.perClassRiskSettings,
-    payload.periodDefinitions,
-    darkMode,
-    fontSize,
-    dashboardWidgets,
-  ]);
+  }, [userId, cloudLoaded, payload, darkMode, fontSize, dashboardWidgets]);
 
-  // Debounced save to Firestore when payload/preferences change
+  // Persist to localStorage only when payload/preferences change (no Firestore auto-save).
   useEffect(() => {
-    const fullPayload = {
-      ...payload,
-      preferences: {
-        darkMode,
-        fontSize,
-        dashboardViewMode: 'table' as const,
-        dashboardWidgets,
-      },
-    };
-    // Try to save to localStorage, but don't block if it fails
     try {
       saveToStorage(
         {
@@ -305,29 +273,16 @@ export function useCloudSync({
         userId ?? undefined
       );
     } catch (e) {
-      // localStorage quota exceeded - continue anyway, data is in Firestore
       console.warn('Could not save to localStorage (quota exceeded), continuing', e);
     }
-    if (userId && isFirebaseConfigured() && cloudLoaded) {
-      pendingFirestorePayloadRef.current = fullPayload;
-      if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
-      saveToFirestoreTimeoutRef.current = setTimeout(() => {
-        const allowEmpty = lastCloudHadDataRef.current;
-        saveToFirestore(userId, fullPayload, allowEmpty)
-          .then(() => setCloudSyncError(null))
-          .catch((err) => {
-            const msg = err?.message ?? String(err);
-            if (msg.includes('permission-denied') || msg.includes('Permission denied')) {
-              setCloudSyncError('שמירה לענן נכשלה: עדכן כללי Firestore ב-Console (ראה FIREBASE-SETUP.md).');
-            } else {
-              setCloudSyncError('שמירה לענן נכשלה: ' + msg);
-            }
-          });
-        saveToFirestoreTimeoutRef.current = null;
-      }, 4000);
-    }
-    return () => {
-      if (saveToFirestoreTimeoutRef.current) clearTimeout(saveToFirestoreTimeoutRef.current);
+    pendingFirestorePayloadRef.current = {
+      ...payload,
+      preferences: {
+        darkMode,
+        fontSize,
+        dashboardViewMode: 'table' as const,
+        dashboardWidgets,
+      },
     };
   }, [
     payload.classes,
@@ -336,37 +291,10 @@ export function useCloudSync({
     payload.perClassRiskSettings,
     payload.periodDefinitions,
     userId,
-    cloudLoaded,
     darkMode,
     fontSize,
     dashboardWidgets,
   ]);
-
-  // Periodic cloud persistence as additional safety net (multi-tab/device reliability).
-  useEffect(() => {
-    if (!userId || !isFirebaseConfigured() || !cloudLoaded) return;
-    const intervalId = setInterval(() => {
-      const prefs = loadPreferences();
-      const periodicPayload = pendingFirestorePayloadRef.current || {
-        ...payload,
-        preferences: {
-          darkMode,
-          fontSize,
-          dashboardViewMode: (prefs.dashboardViewMode ?? 'table') as 'table' | 'cards',
-          dashboardWidgets,
-        } as UserPreferences,
-      };
-      const allowEmpty = lastCloudHadDataRef.current;
-      saveToFirestore(userId, periodicPayload, allowEmpty)
-        .then(() => setCloudSyncError(null))
-        .catch((err) => {
-          const msg = err?.message ?? String(err);
-          setCloudSyncError(msg.includes('permission') ? 'שמירה לענן נכשלה (הרשאות).' : `שמירה לענן נכשלה: ${msg}`);
-        });
-    }, 120000);
-
-    return () => clearInterval(intervalId);
-  }, [userId, cloudLoaded, payload, darkMode, fontSize, dashboardWidgets]);
 
   const markClassAdded = () => {
     lastAddClassAtRef.current = Date.now();
