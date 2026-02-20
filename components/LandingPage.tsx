@@ -37,6 +37,7 @@ interface PreviewImage {
 
 const PreviewCarousel: React.FC<{ images: PreviewImage[] }> = ({ images }) => {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [loaded, setLoaded] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -48,9 +49,15 @@ const PreviewCarousel: React.FC<{ images: PreviewImage[] }> = ({ images }) => {
   const goNext = () => setActiveIndex((i) => (i + 1) % images.length);
   const goPrev = () => setActiveIndex((i) => (i - 1 + images.length) % images.length);
 
+  const gradients = [
+    'from-primary-500/20 via-primary-50/80 to-blue-50',
+    'from-emerald-500/20 via-emerald-50/80 to-teal-50',
+    'from-amber-500/20 via-amber-50/80 to-orange-50',
+  ];
+
   return (
-    <div className="relative rounded-xl overflow-hidden border border-slate-200/80 shadow-elevated bg-slate-50 ring-1 ring-slate-100 w-full mx-auto h-full">
-      <div className="w-full h-full bg-white relative">
+    <div className="relative rounded-2xl overflow-hidden border border-slate-200/80 shadow-xl bg-slate-100 w-full h-full min-h-[320px] flex flex-col">
+      <div className="flex-1 min-h-[280px] relative bg-slate-100">
         {images.map((img, i) => (
           <div
             key={img.src}
@@ -58,11 +65,30 @@ const PreviewCarousel: React.FC<{ images: PreviewImage[] }> = ({ images }) => {
               i === activeIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
             }`}
           >
+            {/* רקע placeholder מקצועי – תמיד נראה */}
+            <div
+              className={`absolute inset-0 bg-gradient-to-br ${gradients[i % gradients.length]} flex items-center justify-center`}
+              aria-hidden="true"
+            />
+            {/* תמונה – אם נטענה מוצגת מעל */}
             <img
               src={img.src}
               alt={img.label}
-              className="w-full h-full object-contain object-center"
+              className="absolute inset-0 w-full h-full object-contain object-center bg-transparent"
+              onLoad={() => setLoaded((p) => ({ ...p, [i]: true }))}
+              onError={() => setLoaded((p) => ({ ...p, [i]: false }))}
+              style={{ opacity: loaded[i] === true ? 1 : 0 }}
             />
+            {/* טקסט על ה-placeholder כשהתמונה לא נטענה */}
+            {loaded[i] !== true && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-600 px-4">
+                <div className="w-16 h-16 rounded-2xl bg-white/80 shadow-lg flex items-center justify-center">
+                  <BarChart2 size={28} className="text-primary-500" strokeWidth={2} />
+                </div>
+                <span className="font-bold text-lg text-slate-700">{img.label}</span>
+                <span className="text-sm text-slate-500">תצוגה מקדימה</span>
+              </div>
+            )}
           </div>
         ))}
         {/* כפתורי ניווט */}
@@ -83,13 +109,13 @@ const PreviewCarousel: React.FC<{ images: PreviewImage[] }> = ({ images }) => {
           <ChevronLeft size={20} />
         </button>
       </div>
-      <div className="flex items-center justify-center gap-2 py-2 px-4 bg-white border-t border-slate-100">
+      <div className="flex items-center justify-center gap-2 py-1.5 px-3 bg-white/95 border-t border-slate-100 flex-shrink-0">
         {images.map((img, i) => (
           <button
             key={img.src}
             type="button"
             onClick={() => setActiveIndex(i)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`px-2.5 py-1 rounded-lg text-[10px] md:text-xs font-medium transition-all ${
               i === activeIndex
                 ? 'bg-primary-100 text-primary-700'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
@@ -108,105 +134,36 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onOpenAuth, onOpenSt
   const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] flex flex-col items-center justify-center px-3 sm:px-4 py-2 overflow-hidden w-full max-w-full">
-      <div className="w-full max-w-full flex flex-col h-full justify-between min-w-0">
-        {/* Hero - Compact */}
-        <div className="text-center mb-1 animate-slide-up flex-shrink-0">
-          <div className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-xl bg-white shadow-elevated border border-slate-200/80 overflow-hidden mb-1 ring-2 ring-primary-100/80">
+    <div className="h-[calc(100vh-4rem)] flex flex-col overflow-hidden w-full">
+      <div className="w-full flex flex-col flex-1 min-h-0">
+        {/* Hero - מינימלי */}
+        <div className="flex-shrink-0 flex items-center justify-center gap-2 py-2 px-3 animate-slide-up">
+          <div className="flex items-center justify-center w-10 h-10 md:w-12 md:h-12 rounded-lg bg-white shadow-md border border-slate-200/80 overflow-hidden ring-1 ring-primary-100/80">
             <LandingLogo />
           </div>
-          <h1 className="font-display font-bold text-lg md:text-xl text-slate-800 tracking-tight">
-            {BRAND_NAME}
-          </h1>
-          <p className="text-primary-600 font-semibold text-xs md:text-sm mt-0.5">
-            {BRAND_TAGLINE}
-          </p>
-          <p className="text-slate-600 text-[10px] md:text-xs max-w-xl mx-auto mt-1 leading-tight">
-            דשבורד חכם לניתוח פדגוגי של הכיתה – ציונים, התנהגות ותובנות במבט אחד
-          </p>
-        </div>
-
-        {/* Visual Preview + Info on sides: carousel center, text blocks left/right */}
-        <div className="flex-1 flex items-stretch gap-2 md:gap-3 min-h-0 mb-1 animate-slide-up w-full max-w-6xl mx-auto min-w-0" style={{ animationDelay: '0.05s' }}>
-          {/* Left column - 2 info blocks */}
-          <div className="hidden lg:flex flex-col gap-2 w-44 xl:w-52 flex-shrink-0">
-            <div className="bg-white rounded-lg border border-slate-100 p-3 shadow-card hover:shadow-card-hover transition-shadow">
-              <div className="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center mb-2">
-                <BarChart2 size={18} strokeWidth={2} />
-              </div>
-              <h3 className="font-bold text-slate-800 text-sm mb-1">מה המערכת עושה</h3>
-              <p className="text-slate-600 text-xs leading-snug">
-                מנתחת אוטומטית ציונים ואירועי התנהגות, מזהה מגמות, סיכונים וקשרים בין התנהגות לציונים.
-              </p>
-            </div>
-            <div className="bg-white rounded-lg border border-slate-100 p-3 shadow-card hover:shadow-card-hover transition-shadow">
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center mb-2">
-                <FileText size={16} className="ml-0.5" />
-                <FileSpreadsheet size={16} className="-ml-0.5" />
-              </div>
-              <h3 className="font-bold text-slate-800 text-sm mb-1">מה צריך להעלות</h3>
-              <p className="text-slate-600 text-xs leading-snug">
-                <strong>קובץ התנהגות:</strong> יומן מחנך → דוחות → פירוט אירועי התנהגות.
-                <br />
-                <strong>קובץ ציונים:</strong> מערכת הציונים → ציונים שוטפים - סדין.
-              </p>
-            </div>
-          </div>
-
-          {/* Center - Carousel */}
-          <div className="flex-1 min-w-0 flex items-center justify-center">
-            <div className="w-full h-full">
-              <PreviewCarousel
-                images={[
-                  { src: '/dashboard-preview.png', label: 'דשבורד כיתתי' },
-                  { src: '/heatmap-preview.png', label: 'מטריצות' },
-                  { src: '/student-profile-preview.png', label: 'פרופיל תלמיד' },
-                ]}
-              />
-            </div>
-          </div>
-
-          {/* Right column - 1 info block */}
-          <div className="hidden lg:flex flex-col w-44 xl:w-52 flex-shrink-0">
-            <div className="bg-white rounded-lg border border-slate-100 p-3 shadow-card hover:shadow-card-hover transition-shadow">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center mb-2">
-                <TrendingUp size={18} strokeWidth={2} />
-              </div>
-              <h3 className="font-bold text-slate-800 text-sm mb-1">מה מקבלים</h3>
-              <p className="text-slate-600 text-xs leading-snug">
-                דשבורד כיתתי, מפת חום, פרופיל תלמיד מפורט, אנליטיקת מורים, מטריצת מקצועות וייצוא לאקסל.
-              </p>
-            </div>
+          <div>
+            <h1 className="font-display font-bold text-base md:text-lg text-slate-800 tracking-tight leading-tight">
+              {BRAND_NAME}
+            </h1>
+            <p className="text-primary-600 font-medium text-[10px] md:text-xs">{BRAND_TAGLINE}</p>
           </div>
         </div>
 
-        {/* What / Upload / Get - Mobile/tablet: compact row below (kept so small screens still have the info) */}
-        <div className="grid gap-1 grid-cols-3 lg:hidden mb-1 animate-slide-up flex-shrink-0" style={{ animationDelay: '0.1s' }}>
-          <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-card">
-            <div className="w-7 h-7 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center mb-1">
-              <BarChart2 size={16} strokeWidth={2} />
-            </div>
-            <h3 className="font-bold text-slate-800 text-xs mb-0.5">מה המערכת עושה</h3>
-            <p className="text-slate-600 text-[10px] leading-tight">מנתחת ציונים והתנהגות, מגמות וסיכונים.</p>
-          </div>
-          <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-card">
-            <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center mb-1">
-              <FileText size={14} />
-            </div>
-            <h3 className="font-bold text-slate-800 text-xs mb-0.5">מה להעלות</h3>
-            <p className="text-slate-600 text-[10px] leading-tight">התנהגות + ציונים מיומן/מערכת.</p>
-          </div>
-          <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-card">
-            <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center mb-1">
-              <TrendingUp size={16} strokeWidth={2} />
-            </div>
-            <h3 className="font-bold text-slate-800 text-xs mb-0.5">מה מקבלים</h3>
-            <p className="text-slate-600 text-[10px] leading-tight">דשבורד, מפת חום, תעודות.</p>
+        {/* קרוסלה – תופסת את רוב המסך, גובה מובטח */}
+        <div className="flex-1 min-h-[55vh] w-full max-w-6xl mx-auto px-3 sm:px-4 flex flex-col">
+          <div className="flex-1 w-full min-h-[400px] h-[55vh] max-h-[70vh]">
+            <PreviewCarousel
+              images={[
+                { src: '/dashboard-preview.png', label: 'דשבורד כיתתי' },
+                { src: '/heatmap-preview.png', label: 'מטריצות' },
+                { src: '/student-profile-preview.png', label: 'פרופיל תלמיד' },
+              ]}
+            />
           </div>
         </div>
 
-        {/* CTA */}
-        <div className="text-center animate-slide-up flex-shrink-0" style={{ animationDelay: '0.15s' }}>
+        {/* CTA – רק כפתור הכניסה מתחת לתמונה */}
+        <div className="flex-shrink-0 text-center py-3 px-2 animate-slide-up" style={{ animationDelay: '0.15s' }}>
           <button
             type="button"
             onClick={onStart}
