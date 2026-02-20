@@ -1153,11 +1153,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
         </div>
       </div>
 
-<<<<<<< HEAD
       {/* Content: starts clearly below the fixed header so titles and data are never hidden */}
-=======
-      {/* Content: starts below the fixed header so titles and data are never hidden */}
->>>>>>> 4e3b3ae (Update StudentProfile.tsx)
       <div className="max-w-7xl mx-auto p-3 md:p-6 min-h-[500px] pt-[5rem] md:pt-[6rem]">
         {/* השוואה בין תקופות (תלמיד זה) – לא מוצג בתובנות */}
         {periodStatsForStudent.length > 0 && activeTab !== 'insights' && (
