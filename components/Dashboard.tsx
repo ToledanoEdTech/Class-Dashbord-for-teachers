@@ -906,15 +906,45 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         </DashboardWidgetWrap>
       )}
 
-      {/* השוואה בין תקופות (כשמוגדרות בהגדרות) – טבלה + גרף */}
+      {/* השוואה בין תקופות (כשמוגדרות בהגדרות) – מובייל: כרטיסים, דסקטופ: טבלה + גרף */}
       {visibleWidgets.periodComparison && periodStats.length > 0 && (
         <DashboardWidgetWrap id="periodComparison" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
-        <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
-          <h3 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2">
-            <MetricIcons.ClassAverage size={20} className="text-primary-500" />
+        <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 sm:p-5 md:p-6">
+          <h3 className="text-base sm:text-lg font-bold text-slate-800 mb-4 md:mb-5 flex items-center gap-2">
+            <MetricIcons.ClassAverage size={20} className="text-primary-500 shrink-0" />
             השוואה בין תקופות
           </h3>
-          <div className="overflow-x-auto mb-5">
+
+          {/* מובייל: כרטיסים נעימים לעין */}
+          <div className="md:hidden space-y-3 mb-5">
+            {periodStats.map((row, idx) => (
+              <div
+                key={row.name}
+                className="rounded-xl border border-slate-200/80 bg-gradient-to-b from-slate-50/80 to-white p-4 shadow-sm"
+              >
+                <div className="font-bold text-slate-800 text-sm mb-3 pb-2 border-b border-slate-100">
+                  {row.name}
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-lg bg-primary-50/80 py-2.5 px-2">
+                    <div className="text-[10px] font-medium text-primary-600 mb-0.5">ממוצע</div>
+                    <div className="text-lg font-bold text-primary-700">{row.ממוצע}</div>
+                  </div>
+                  <div className="rounded-lg bg-red-50/80 py-2.5 px-2">
+                    <div className="text-[10px] font-medium text-red-600 mb-0.5">בסיכון</div>
+                    <div className="text-lg font-bold text-red-700">{row.בסיכון}</div>
+                  </div>
+                  <div className="rounded-lg bg-amber-50/80 py-2.5 px-2">
+                    <div className="text-[10px] font-medium text-amber-600 mb-0.5">חיסורים</div>
+                    <div className="text-lg font-bold text-amber-700">{row.חיסורים}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* דסקטופ: טבלה */}
+          <div className="hidden md:block overflow-x-auto mb-5">
             <table className="w-full text-right border-collapse">
               <thead>
                 <tr className="border-b border-slate-200">
@@ -938,33 +968,87 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
               </tbody>
             </table>
           </div>
+
+          {/* גרף – רק בדסקטופ; במובייל רק הכרטיסים */}
           {periodStats.length >= 2 && (() => {
             const maxחיסורים = Math.max(1, ...periodStats.map((r) => r.חיסורים));
             const maxבסיכון = Math.max(1, ...periodStats.map((r) => r.בסיכון));
             const domainחיסורים = [0, Math.ceil(maxחיסורים * 1.15) || 10];
             const domainבסיכון = [0, Math.max(5, maxבסיכון + 1)];
+            const isNarrow = periodStats.length > 3;
             return (
-            <div className="h-56">
+            <div className="hidden md:block min-h-0 h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={periodStats} margin={{ top: 8, right: 56, left: 8, bottom: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
-                  <YAxis yAxisId="left" domain={[0, 100]} tick={{ fontSize: 11, fill: '#64748b' }} />
-                  <YAxis yAxisId="rightAbsences" orientation="right" domain={domainחיסורים} tick={{ fontSize: 10, fill: '#b45309' }} width={28} />
-                  <YAxis yAxisId="rightRisk" orientation="right" domain={domainבסיכון} tick={{ fontSize: 10, fill: '#dc2626' }} width={28} />
+                <BarChart
+                  data={periodStats}
+                  margin={{ top: 16, right: 58, left: 12, bottom: 32 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#e2e8f0' }}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    domain={[0, 100]}
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={28}
+                  />
+                  <YAxis
+                    yAxisId="rightAbsences"
+                    orientation="right"
+                    domain={domainחיסורים}
+                    tick={{ fontSize: 10, fill: '#b45309' }}
+                    width={26}
+                  />
+                  <YAxis
+                    yAxisId="rightRisk"
+                    orientation="right"
+                    domain={domainבסיכון}
+                    tick={{ fontSize: 10, fill: '#dc2626' }}
+                    width={26}
+                  />
                   <Tooltip
                     content={({ active, payload }) => active && payload?.length ? (
-                      <div className="bg-white/95 border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-sm text-right">
-                        <p className="font-bold text-slate-800 mb-1">{payload[0].payload.name}</p>
+                      <div className="bg-white/95 border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm text-right">
+                        <p className="font-bold text-slate-800 mb-2">{payload[0].payload.name}</p>
                         <p className="text-primary-600">ממוצע כיתתי: {payload[0].payload.ממוצע}</p>
                         <p className="text-red-600">בסיכון: {payload[0].payload.בסיכון}</p>
                         <p className="text-amber-700">חיסורים: {payload[0].payload.חיסורים}</p>
                       </div>
                     ) : null}
                   />
-                  <Bar yAxisId="left" dataKey="ממוצע" name="ממוצע כיתתי" fill="#0c8ee6" radius={[4, 4, 0, 0]} barSize={20} />
-                  <Bar yAxisId="rightAbsences" dataKey="חיסורים" name="חיסורים" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={20} />
-                  <Bar yAxisId="rightRisk" dataKey="בסיכון" name="תלמידים בסיכון" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={20} />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="ממוצע"
+                    name="ממוצע כיתתי"
+                    fill="#0c8ee6"
+                    radius={[6, 6, 0, 0]}
+                    barSize={isNarrow ? 16 : 24}
+                    maxBarSize={40}
+                  />
+                  <Bar
+                    yAxisId="rightAbsences"
+                    dataKey="חיסורים"
+                    name="חיסורים"
+                    fill="#f59e0b"
+                    radius={[6, 6, 0, 0]}
+                    barSize={isNarrow ? 16 : 24}
+                    maxBarSize={40}
+                  />
+                  <Bar
+                    yAxisId="rightRisk"
+                    dataKey="בסיכון"
+                    name="תלמידים בסיכון"
+                    fill="#ef4444"
+                    radius={[6, 6, 0, 0]}
+                    barSize={isNarrow ? 16 : 24}
+                    maxBarSize={40}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
