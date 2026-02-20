@@ -101,6 +101,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     });
   };
 
+  // Sync props to local state. When user is editing "periods" or "widgets", don't overwrite so in-progress edits aren't reset by cloud/parent updates.
   useEffect(() => {
     setMinGradeThreshold(riskSettings.minGradeThreshold);
     setMaxNegativeBehaviors(riskSettings.maxNegativeBehaviors);
@@ -112,9 +113,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     setWeightNegativeEvents(riskSettings.weights?.negativeEvents ?? DEFAULT_RISK_WEIGHTS.negativeEvents);
     setPenaltyPerAbsence(riskSettings.penaltyPerAbsenceAboveThreshold ?? '');
     setUseForThisClassOnly(!!(activeClassId && perClassRiskSettings[activeClassId]));
-    setPeriods(periodDefinitions);
-    setWidgets(dashboardWidgets);
-  }, [riskSettings, activeClassId, perClassRiskSettings, periodDefinitions, dashboardWidgets]);
+    if (activeSection !== 'periods') setPeriods(periodDefinitions);
+    if (activeSection !== 'widgets') setWidgets(dashboardWidgets);
+  }, [riskSettings, activeClassId, perClassRiskSettings, periodDefinitions, dashboardWidgets, activeSection]);
 
   useEffect(() => {
     try {
