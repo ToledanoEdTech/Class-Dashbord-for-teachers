@@ -18,6 +18,9 @@ import {
   LineChart,
   Line,
   Legend,
+  AreaChart,
+  Area,
+  ComposedChart,
 } from 'recharts';
 import { format, subDays, startOfDay, endOfDay, differenceInDays, eachWeekOfInterval, endOfWeek, isSameWeek, eachDayOfInterval, isSameDay, addMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { computeStudentStatsFromData } from '../utils/processing';
@@ -122,6 +125,16 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const dataRange = useMemo(() => getDateRangeFromStudents(students), [students]);
   const [startDate, setStartDate] = useState<Date>(defaultStart);
   const [endDate, setEndDate] = useState<Date>(defaultEnd);
+  const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
+
+  // Track dark mode changes
+  React.useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDarkMode(document.documentElement.classList.contains('dark'));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
 
   React.useEffect(() => {
     if (!removingWidgetId || !onHideWidget) return;
@@ -343,8 +356,22 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const timelineData = useMemo(() => {
     const days = differenceInDays(rangeEnd, rangeStart) + 1;
     const useMonths = days > 90;
-    const points: { period: string; ממוצע: number; חיסורים: number; שליליים: number; חיוביים: number; fullDate: Date }[] = [];
+    const points: { 
+      period: string; 
+      ממוצע: number | null; 
+      חיסורים: number; 
+      שליליים: number; 
+      חיוביים: number; 
+      fullDate: Date;
+      studentsWithGrades: number;
+      totalStudents: number;
+      gradeCount: number;
+      dataQuality: 'good' | 'partial' | 'low';
+    }[] = [];
     const src = studentsFilteredBySubjectTeacher;
+    const minStudentsForValidData = Math.max(1, Math.floor(src.length * 0.3)); // לפחות 30% מהתלמידים
+    const minGradesForValidPeriod = 3; // לפחות 3 ציונים בתקופה
+    
     if (useMonths) {
       let d = startOfMonth(rangeStart);
       while (d <= rangeEnd) {
@@ -352,16 +379,33 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         const periodStart = startOfDay(d);
         const periodEndClamped = periodEnd > rangeEnd ? rangeEnd : periodEnd;
         const inRange = (date: Date) => date >= periodStart && date <= periodEndClamped;
+        
+        // ספירת ציונים ותלמידים עם נתונים
+        let gradeCount = 0;
+        let studentsWithGrades = 0;
         const stInPeriod = src.map((s) => {
           const g = s.grades.filter((gr) => inRange(gr.date));
           const e = s.behaviorEvents.filter((ev) => inRange(ev.date));
+          gradeCount += g.length;
+          if (g.length > 0) studentsWithGrades++;
           return computeStudentStatsFromData(g, e, riskSettings);
         });
+        
         const withData = stInPeriod.filter((_, i) => {
           const orig = src[i];
           return orig.grades.some((gr) => inRange(gr.date)) || orig.behaviorEvents.some((ev) => inRange(ev.date));
         });
-        const avgVal = withData.length > 0 ? withData.reduce((s, x) => s + x.averageScore, 0) / withData.length : 0;
+        
+        // חישוב ממוצע רק אם יש מספיק נתונים
+        let avgVal: number | null = null;
+        let dataQuality: 'good' | 'partial' | 'low' = 'low';
+        
+        if (studentsWithGrades >= minStudentsForValidData && gradeCount >= minGradesForValidPeriod) {
+          avgVal = withData.length > 0 ? withData.reduce((s, x) => s + x.averageScore, 0) / withData.length : null;
+          dataQuality = studentsWithGrades >= Math.floor(src.length * 0.7) && gradeCount >= 10 ? 'good' : 'partial';
+        }
+        
+        // אירועי משמעת - תמיד נספרים אבל עם הסבר
         let abs = 0;
         let neg = 0;
         let pos = 0;
@@ -373,13 +417,18 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             else if (ev.category === EventType.POSITIVE) pos++;
           });
         });
+        
         points.push({
           period: format(d, 'MMM yyyy'),
-          ממוצע: Math.round(avgVal * 10) / 10,
+          ממוצע: avgVal !== null ? Math.round(avgVal * 10) / 10 : null,
           חיסורים: abs,
           שליליים: neg,
           חיוביים: pos,
           fullDate: new Date(d),
+          studentsWithGrades,
+          totalStudents: src.length,
+          gradeCount,
+          dataQuality,
         });
         d = addMonths(d, 1);
       }
@@ -390,16 +439,32 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         const periodEnd = weekEnd > rangeEnd ? rangeEnd : weekEnd;
         const periodStart = weekStart < rangeStart ? rangeStart : weekStart;
         const inRange = (date: Date) => date >= periodStart && date <= periodEnd;
+        
+        // ספירת ציונים ותלמידים עם נתונים
+        let gradeCount = 0;
+        let studentsWithGrades = 0;
         const stInPeriod = src.map((s) => {
           const g = s.grades.filter((gr) => inRange(gr.date));
           const e = s.behaviorEvents.filter((ev) => inRange(ev.date));
+          gradeCount += g.length;
+          if (g.length > 0) studentsWithGrades++;
           return computeStudentStatsFromData(g, e, riskSettings);
         });
+        
         const withData = stInPeriod.filter((_, i) => {
           const orig = src[i];
           return orig.grades.some((gr) => inRange(gr.date)) || orig.behaviorEvents.some((ev) => inRange(ev.date));
         });
-        const avgVal = withData.length > 0 ? withData.reduce((s, x) => s + x.averageScore, 0) / withData.length : 0;
+        
+        // חישוב ממוצע רק אם יש מספיק נתונים
+        let avgVal: number | null = null;
+        let dataQuality: 'good' | 'partial' | 'low' = 'low';
+        
+        if (studentsWithGrades >= minStudentsForValidData && gradeCount >= minGradesForValidPeriod) {
+          avgVal = withData.length > 0 ? withData.reduce((s, x) => s + x.averageScore, 0) / withData.length : null;
+          dataQuality = studentsWithGrades >= Math.floor(src.length * 0.7) && gradeCount >= 5 ? 'good' : 'partial';
+        }
+        
         let abs = 0;
         let neg = 0;
         let pos = 0;
@@ -411,17 +476,24 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             else if (ev.category === EventType.POSITIVE) pos++;
           });
         });
+        
         points.push({
           period: format(weekStart, 'd/M'),
-          ממוצע: Math.round(avgVal * 10) / 10,
+          ממוצע: avgVal !== null ? Math.round(avgVal * 10) / 10 : null,
           חיסורים: abs,
           שליליים: neg,
           חיוביים: pos,
           fullDate: new Date(weekStart),
+          studentsWithGrades,
+          totalStudents: src.length,
+          gradeCount,
+          dataQuality,
         });
       });
     }
-    return points;
+    
+    // סינון תקופות עם נתונים מספיקים - נשאיר רק תקופות עם לפחות נתונים חלקיים
+    return points.filter(p => p.dataQuality !== 'low' || p.חיסורים > 0 || p.שליליים > 0 || p.חיוביים > 0);
   }, [studentsFilteredBySubjectTeacher, rangeStart, rangeEnd, riskSettings]);
 
   /** סטטיסטיקות לפי תקופות מוגדרות (מושפע ממקצוע/מורה) */
@@ -876,42 +948,261 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       )}
 
       {/* Timeline - מגמה כיתתית */}
-      {visibleWidgets.timeline && timelineData.length > 0 && (
+      {visibleWidgets.timeline && timelineData.length > 0 && (() => {
+        // חישוב סטטיסטיקות מהירות
+        const validAverages = timelineData.filter(d => d.ממוצע !== null).map(d => d.ממוצע!);
+        const currentAvg = validAverages.length > 0 ? validAverages[validAverages.length - 1] : null;
+        const previousAvg = validAverages.length > 1 ? validAverages[validAverages.length - 2] : null;
+        const trend = currentAvg && previousAvg ? (currentAvg > previousAvg ? 'up' : currentAvg < previousAvg ? 'down' : 'stable') : null;
+        const trendValue = currentAvg && previousAvg ? Math.abs(currentAvg - previousAvg).toFixed(1) : null;
+        
+        // מילוי הערכים האחרונים עם הערך האחרון הידוע כדי שהקו ימשיך עד הסוף
+        const extendedTimelineData = [...timelineData];
+        const lastValidAvg = validAverages.length > 0 ? validAverages[validAverages.length - 1] : null;
+        if (lastValidAvg !== null) {
+          // מצא את האינדקס של הערך האחרון עם ממוצע תקין
+          let lastValidIndex = -1;
+          for (let i = extendedTimelineData.length - 1; i >= 0; i--) {
+            if (extendedTimelineData[i].ממוצע !== null) {
+              lastValidIndex = i;
+              break;
+            }
+          }
+          // מלא את כל הערכים אחרי הערך האחרון התקין עם הערך הזה
+          if (lastValidIndex >= 0) {
+            for (let i = lastValidIndex + 1; i < extendedTimelineData.length; i++) {
+              extendedTimelineData[i] = {
+                ...extendedTimelineData[i],
+                ממוצע: lastValidAvg,
+              };
+            }
+          }
+        }
+        
+        return (
         <DashboardWidgetWrap id="timeline" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
-        <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6">
-          <h3 className="text-lg font-bold text-slate-800 mb-5 flex items-center gap-2">
-            <TrendingUp size={20} className="text-primary-500" />
-            מגמה כיתתית לאורך זמן
-          </h3>
-          <div className="h-64 min-h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={timelineData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="period" tick={{ fontSize: 11, fill: '#64748b' }} />
-                <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#64748b' }} />
-                <Tooltip
-                  contentStyle={{ direction: 'rtl', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                  formatter={(value: number) => [value, '']}
-                  labelFormatter={(label) => `תקופה: ${label}`}
-                />
-                <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="ממוצע" stroke="#0c8ee6" strokeWidth={2} dot={{ r: 4 }} name="ממוצע כיתתי" />
-                <Line yAxisId="left" type="monotone" dataKey="חיסורים" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} name="חיסורים" />
-                <Line yAxisId="left" type="monotone" dataKey="שליליים" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} name="אירועים שליליים" />
-                <Line yAxisId="left" type="monotone" dataKey="חיוביים" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} name="אירועים חיוביים" />
-              </LineChart>
-            </ResponsiveContainer>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-card border border-slate-100/80 dark:border-slate-700/50 p-5 md:p-6">
+          {/* Header עם סטטיסטיקות מהירות */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <TrendingUp size={20} className="text-primary-500 dark:text-primary-400" />
+                מגמה כיתתית לאורך זמן
+              </h3>
+              {currentAvg !== null && (
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">ממוצע נוכחי</div>
+                    <div className="text-xl font-bold text-slate-800 dark:text-slate-100">{currentAvg}</div>
+                  </div>
+                  {trend && trendValue && (
+                    <div className={`flex items-center gap-1 px-2.5 py-1 rounded-lg ${
+                      trend === 'up' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' :
+                      trend === 'down' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400' :
+                      'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}>
+                      {trend === 'up' && <TrendingUp size={14} />}
+                      {trend === 'down' && <TrendingUp size={14} className="rotate-180" />}
+                      <span className="text-xs font-semibold">{trendValue}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* גרף משולב - ממוצע ואירועי משמעת */}
+          <div className="mb-4">
+            <div className="h-80 min-h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart 
+                  data={extendedTimelineData} 
+                  margin={{ top: 20, right: 20, left: 0, bottom: 20 }}
+                >
+                  <defs>
+                    <linearGradient id="gradientAverageTimeline" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={isDarkMode ? "#38bdf8" : "#0c8ee6"} stopOpacity={0.35}/>
+                      <stop offset="50%" stopColor={isDarkMode ? "#38bdf8" : "#0c8ee6"} stopOpacity={0.12}/>
+                      <stop offset="100%" stopColor={isDarkMode ? "#38bdf8" : "#0c8ee6"} stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid 
+                    strokeDasharray="3 3" 
+                    vertical={false} 
+                    stroke={isDarkMode ? "#334155" : "#f1f5f9"}
+                    strokeOpacity={0.4}
+                  />
+                  <XAxis 
+                    dataKey="period" 
+                    tick={{ fontSize: 11, fill: isDarkMode ? "#94a3b8" : "#64748b", fontWeight: 500 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickMargin={10}
+                  />
+                  <YAxis 
+                    yAxisId="left"
+                    domain={[0, 100]}
+                    tick={{ fontSize: 11, fill: isDarkMode ? "#94a3b8" : "#64748b" }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickMargin={8}
+                    width={35}
+                    label={{ value: 'ממוצע', angle: -90, position: 'insideLeft', fill: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 10, style: { textAnchor: 'middle' } }}
+                  />
+                  <YAxis 
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fontSize: 10, fill: isDarkMode ? "#94a3b8" : "#64748b" }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={35}
+                    label={{ value: 'אירועים', angle: 90, position: 'insideRight', fill: isDarkMode ? "#94a3b8" : "#64748b", fontSize: 10, style: { textAnchor: 'middle' } }}
+                  />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload || !payload.length) return null;
+                      const data = payload[0].payload;
+                      return (
+                        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl px-4 py-3 text-sm text-right backdrop-blur-sm min-w-[180px]">
+                          <p className="font-bold text-slate-800 dark:text-slate-100 mb-3 text-base border-b border-slate-200 dark:border-slate-700 pb-2">
+                            {label}
+                          </p>
+                          <div className="space-y-2">
+                            {data.ממוצע !== null ? (
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full bg-primary-500"></div>
+                                  <span className="text-slate-600 dark:text-slate-300 text-xs">ממוצע</span>
+                                </div>
+                                <span className="font-bold text-primary-600 dark:text-primary-400">{data.ממוצע}</span>
+                              </div>
+                            ) : (
+                              <div className="text-slate-400 dark:text-slate-500 text-xs italic">אין נתוני ממוצע</div>
+                            )}
+                            {data.חיסורים > 0 && (
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500"></div>
+                                  <span className="text-slate-600 dark:text-slate-300 text-xs">חיסורים</span>
+                                </div>
+                                <span className="font-semibold text-amber-600 dark:text-amber-400">{data.חיסורים}</span>
+                              </div>
+                            )}
+                            {data.שליליים > 0 && (
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                                  <span className="text-slate-600 dark:text-slate-300 text-xs">שליליים</span>
+                                </div>
+                                <span className="font-semibold text-red-600 dark:text-red-400">{data.שליליים}</span>
+                              </div>
+                            )}
+                            {data.חיוביים > 0 && (
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+                                  <span className="text-slate-600 dark:text-slate-300 text-xs">חיוביים</span>
+                                </div>
+                                <span className="font-semibold text-emerald-600 dark:text-emerald-400">{data.חיוביים}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }}
+                    cursor={{ stroke: isDarkMode ? "#475569" : "#cbd5e1", strokeWidth: 1, strokeDasharray: "5 5" }}
+                  />
+                  {/* ממוצע - Area עם gradient (הדגש העיקרי) */}
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="ממוצע"
+                    stroke={isDarkMode ? "#38bdf8" : "#0c8ee6"}
+                    strokeWidth={2.5}
+                    fill="url(#gradientAverageTimeline)"
+                    connectNulls={true}
+                    dot={false}
+                    activeDot={{ r: 5, fill: isDarkMode ? "#38bdf8" : "#0c8ee6", strokeWidth: 2, stroke: isDarkMode ? "#1e293b" : "#fff" }}
+                    name="ממוצע כיתתי"
+                  />
+                  {/* אירועי משמעת - Lines עדינים */}
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="חיסורים"
+                    stroke={isDarkMode ? "#fbbf24" : "#f59e0b"}
+                    strokeWidth={1.5}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                    name="חיסורים"
+                    strokeDasharray="5 5"
+                    opacity={0.8}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="שליליים"
+                    stroke={isDarkMode ? "#f87171" : "#ef4444"}
+                    strokeWidth={1.5}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                    name="אירועים שליליים"
+                    strokeDasharray="3 3"
+                    opacity={0.8}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="חיוביים"
+                    stroke={isDarkMode ? "#34d399" : "#22c55e"}
+                    strokeWidth={1.5}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                    name="אירועים חיוביים"
+                    strokeDasharray="8 4"
+                    opacity={0.8}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Legend נקי */}
+          <div className="flex items-center justify-center gap-6 flex-wrap text-xs pt-2">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-primary-500"></div>
+              <span className="text-slate-600 dark:text-slate-400">ממוצע כיתתי</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <svg width="20" height="3" className="overflow-visible">
+                <line x1="0" y1="1.5" x2="20" y2="1.5" stroke={isDarkMode ? "#fbbf24" : "#f59e0b"} strokeWidth="1.5" strokeDasharray="5 5" />
+              </svg>
+              <span className="text-slate-600 dark:text-slate-400">חיסורים</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <svg width="20" height="3" className="overflow-visible">
+                <line x1="0" y1="1.5" x2="20" y2="1.5" stroke={isDarkMode ? "#f87171" : "#ef4444"} strokeWidth="1.5" strokeDasharray="3 3" />
+              </svg>
+              <span className="text-slate-600 dark:text-slate-400">אירועים שליליים</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <svg width="20" height="3" className="overflow-visible">
+                <line x1="0" y1="1.5" x2="20" y2="1.5" stroke={isDarkMode ? "#34d399" : "#22c55e"} strokeWidth="1.5" strokeDasharray="8 4" />
+              </svg>
+              <span className="text-slate-600 dark:text-slate-400">אירועים חיוביים</span>
+            </div>
           </div>
         </div>
         </DashboardWidgetWrap>
-      )}
+        );
+      })()}
 
       {/* השוואה בין תקופות (כשמוגדרות בהגדרות) – מובייל: כרטיסים, דסקטופ: טבלה + גרף */}
       {visibleWidgets.periodComparison && periodStats.length > 0 && (
         <DashboardWidgetWrap id="periodComparison" onRemove={onHideWidget} removingId={removingWidgetId} setRemovingId={setRemovingWidgetId}>
-        <div className="bg-white rounded-2xl shadow-card border border-slate-100/80 p-4 sm:p-5 md:p-6">
-          <h3 className="text-base sm:text-lg font-bold text-slate-800 mb-4 md:mb-5 flex items-center gap-2">
-            <MetricIcons.ClassAverage size={20} className="text-primary-500 shrink-0" />
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-card border border-slate-100/80 dark:border-slate-700/50 p-4 sm:p-5 md:p-6">
+          <h3 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 md:mb-5 flex items-center gap-2">
+            <MetricIcons.ClassAverage size={20} className="text-primary-500 dark:text-primary-400 shrink-0" />
             השוואה בין תקופות
           </h3>
 
@@ -920,23 +1211,23 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             {periodStats.map((row, idx) => (
               <div
                 key={row.name}
-                className="rounded-xl border border-slate-200/80 bg-gradient-to-b from-slate-50/80 to-white p-4 shadow-sm"
+                className="rounded-xl border border-slate-200/80 dark:border-slate-700/50 bg-gradient-to-b from-slate-50/80 to-white dark:from-slate-700/50 dark:to-slate-800 p-4 shadow-sm"
               >
-                <div className="font-bold text-slate-800 text-sm mb-3 pb-2 border-b border-slate-100">
+                <div className="font-bold text-slate-800 dark:text-slate-100 text-sm mb-3 pb-2 border-b border-slate-100 dark:border-slate-700">
                   {row.name}
                 </div>
                 <div className="grid grid-cols-3 gap-3 text-center">
-                  <div className="rounded-lg bg-primary-50/80 py-2.5 px-2">
-                    <div className="text-[10px] font-medium text-primary-600 mb-0.5">ממוצע</div>
-                    <div className="text-lg font-bold text-primary-700">{row.ממוצע}</div>
+                  <div className="rounded-lg bg-primary-50/80 dark:bg-primary-900/30 py-2.5 px-2 border border-primary-100/50 dark:border-primary-800/30">
+                    <div className="text-[10px] font-medium text-primary-600 dark:text-primary-300 mb-0.5">ממוצע</div>
+                    <div className="text-lg font-bold text-primary-700 dark:text-primary-200">{row.ממוצע}</div>
                   </div>
-                  <div className="rounded-lg bg-red-50/80 py-2.5 px-2">
-                    <div className="text-[10px] font-medium text-red-600 mb-0.5">בסיכון</div>
-                    <div className="text-lg font-bold text-red-700">{row.בסיכון}</div>
+                  <div className="rounded-lg bg-red-50/80 dark:bg-red-900/30 py-2.5 px-2 border border-red-100/50 dark:border-red-800/30">
+                    <div className="text-[10px] font-medium text-red-600 dark:text-red-300 mb-0.5">בסיכון</div>
+                    <div className="text-lg font-bold text-red-700 dark:text-red-200">{row.בסיכון}</div>
                   </div>
-                  <div className="rounded-lg bg-amber-50/80 py-2.5 px-2">
-                    <div className="text-[10px] font-medium text-amber-600 mb-0.5">חיסורים</div>
-                    <div className="text-lg font-bold text-amber-700">{row.חיסורים}</div>
+                  <div className="rounded-lg bg-amber-50/80 dark:bg-amber-900/30 py-2.5 px-2 border border-amber-100/50 dark:border-amber-800/30">
+                    <div className="text-[10px] font-medium text-amber-600 dark:text-amber-300 mb-0.5">חיסורים</div>
+                    <div className="text-lg font-bold text-amber-700 dark:text-amber-200">{row.חיסורים}</div>
                   </div>
                 </div>
               </div>
@@ -947,22 +1238,22 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           <div className="hidden md:block overflow-x-auto mb-5">
             <table className="w-full text-right border-collapse">
               <thead>
-                <tr className="border-b border-slate-200">
-                  <th className="py-3 px-4 font-bold text-slate-600">תקופה</th>
-                  <th className="py-3 px-4 font-bold text-slate-600">ממוצע כיתתי</th>
-                  <th className="py-3 px-4 font-bold text-slate-600">תלמידים בסיכון</th>
-                  <th className="py-3 px-4 font-bold text-slate-600">חיסורים</th>
+                <tr className="border-b border-slate-200 dark:border-slate-700">
+                  <th className="py-3 px-4 font-bold text-slate-600 dark:text-slate-300">תקופה</th>
+                  <th className="py-3 px-4 font-bold text-slate-600 dark:text-slate-300">ממוצע כיתתי</th>
+                  <th className="py-3 px-4 font-bold text-slate-600 dark:text-slate-300">תלמידים בסיכון</th>
+                  <th className="py-3 px-4 font-bold text-slate-600 dark:text-slate-300">חיסורים</th>
                 </tr>
               </thead>
               <tbody>
                 {periodStats.map((row) => (
-                  <tr key={row.name} className="border-b border-slate-100 hover:bg-slate-50/50">
-                    <td className="py-3 px-4 font-medium text-slate-800">{row.name}</td>
-                    <td className="py-3 px-4">{row.ממוצע}</td>
+                  <tr key={row.name} className="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
+                    <td className="py-3 px-4 font-medium text-slate-800 dark:text-slate-100">{row.name}</td>
+                    <td className="py-3 px-4 text-slate-700 dark:text-slate-200">{row.ממוצע}</td>
                     <td className="py-3 px-4">
-                      <span className={row.בסיכון > 0 ? 'text-red-600 font-medium' : 'text-slate-600'}>{row.בסיכון}</span>
+                      <span className={row.בסיכון > 0 ? 'text-red-600 dark:text-red-400 font-medium' : 'text-slate-600 dark:text-slate-400'}>{row.בסיכון}</span>
                     </td>
-                    <td className="py-3 px-4">{row.חיסורים}</td>
+                    <td className="py-3 px-4 text-slate-700 dark:text-slate-200">{row.חיסורים}</td>
                   </tr>
                 ))}
               </tbody>
@@ -976,6 +1267,14 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
             const domainחיסורים = [0, Math.ceil(maxחיסורים * 1.15) || 10];
             const domainבסיכון = [0, Math.max(5, maxבסיכון + 1)];
             const isNarrow = periodStats.length > 3;
+            
+            // Colors for dark mode
+            const gridColor = isDarkMode ? '#334155' : '#e2e8f0';
+            const axisColor = isDarkMode ? '#94a3b8' : '#64748b';
+            const axisLineColor = isDarkMode ? '#475569' : '#e2e8f0';
+            const amberTickColor = isDarkMode ? '#fcd34d' : '#b45309';
+            const redTickColor = isDarkMode ? '#f87171' : '#dc2626';
+            
             return (
             <div className="hidden md:block min-h-0 h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -983,17 +1282,17 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                   data={periodStats}
                   margin={{ top: 16, right: 58, left: 12, bottom: 32 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                   <XAxis
                     dataKey="name"
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: axisColor }}
                     tickLine={false}
-                    axisLine={{ stroke: '#e2e8f0' }}
+                    axisLine={{ stroke: axisLineColor }}
                   />
                   <YAxis
                     yAxisId="left"
                     domain={[0, 100]}
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: axisColor }}
                     tickLine={false}
                     axisLine={false}
                     width={28}
@@ -1002,23 +1301,23 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                     yAxisId="rightAbsences"
                     orientation="right"
                     domain={domainחיסורים}
-                    tick={{ fontSize: 10, fill: '#b45309' }}
+                    tick={{ fontSize: 10, fill: amberTickColor }}
                     width={26}
                   />
                   <YAxis
                     yAxisId="rightRisk"
                     orientation="right"
                     domain={domainבסיכון}
-                    tick={{ fontSize: 10, fill: '#dc2626' }}
+                    tick={{ fontSize: 10, fill: redTickColor }}
                     width={26}
                   />
                   <Tooltip
                     content={({ active, payload }) => active && payload?.length ? (
-                      <div className="bg-white/95 border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm text-right">
-                        <p className="font-bold text-slate-800 mb-2">{payload[0].payload.name}</p>
-                        <p className="text-primary-600">ממוצע כיתתי: {payload[0].payload.ממוצע}</p>
-                        <p className="text-red-600">בסיכון: {payload[0].payload.בסיכון}</p>
-                        <p className="text-amber-700">חיסורים: {payload[0].payload.חיסורים}</p>
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-4 py-3 text-sm text-right">
+                        <p className="font-bold text-slate-800 dark:text-slate-100 mb-2">{payload[0].payload.name}</p>
+                        <p className="text-primary-600 dark:text-primary-400">ממוצע כיתתי: {payload[0].payload.ממוצע}</p>
+                        <p className="text-red-600 dark:text-red-400">בסיכון: {payload[0].payload.בסיכון}</p>
+                        <p className="text-amber-700 dark:text-amber-400">חיסורים: {payload[0].payload.חיסורים}</p>
                       </div>
                     ) : null}
                   />
@@ -1026,7 +1325,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                     yAxisId="left"
                     dataKey="ממוצע"
                     name="ממוצע כיתתי"
-                    fill="#0c8ee6"
+                    fill={isDarkMode ? "#38bdf8" : "#0c8ee6"}
                     radius={[6, 6, 0, 0]}
                     barSize={isNarrow ? 16 : 24}
                     maxBarSize={40}
@@ -1035,7 +1334,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                     yAxisId="rightAbsences"
                     dataKey="חיסורים"
                     name="חיסורים"
-                    fill="#f59e0b"
+                    fill={isDarkMode ? "#fbbf24" : "#f59e0b"}
                     radius={[6, 6, 0, 0]}
                     barSize={isNarrow ? 16 : 24}
                     maxBarSize={40}
@@ -1044,7 +1343,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                     yAxisId="rightRisk"
                     dataKey="בסיכון"
                     name="תלמידים בסיכון"
-                    fill="#ef4444"
+                    fill={isDarkMode ? "#f87171" : "#ef4444"}
                     radius={[6, 6, 0, 0]}
                     barSize={isNarrow ? 16 : 24}
                     maxBarSize={40}
