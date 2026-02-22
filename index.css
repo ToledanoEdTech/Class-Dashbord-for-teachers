@@ -9,6 +9,23 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
+
+/* כותרת מותג – כמו בדף הנחיתה (גופן Outfit + גרדיאנט) */
+.brand-title {
+  font-family: 'Outfit', 'Heebo', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(to bottom right, #1e293b, #01599f, #0c8ee6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.dark .brand-title {
+  background: linear-gradient(to bottom right, #f1f5f9, #7cc8fb, #36aaf5);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }

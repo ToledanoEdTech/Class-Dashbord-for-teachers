@@ -20,7 +20,7 @@ export async function exportStudentsAtRiskToExcel(
   }
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'ToledanoEdTech';
+  workbook.creator = 'ClassMap';
   workbook.created = new Date();
 
   // גיליון תלמידים בסיכון
@@ -449,7 +449,7 @@ export async function exportClassSummaryToExcel(
   const { students, name } = classGroup;
   
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'ToledanoEdTech';
+  workbook.creator = 'ClassMap';
   workbook.created = new Date();
 
   // גיליון סיכום כללי
@@ -1659,7 +1659,7 @@ export function exportClassSummaryToPDF(
       </div>
 
       <div class="footer">
-        <p>נוצר ב-${format(new Date(), 'dd/MM/yyyy HH:mm')} | ToledanoEdTech - מערכת מעקב פדגוגית</p>
+        <p>נוצר ב-${format(new Date(), 'dd/MM/yyyy HH:mm')} | ClassMap - מערכת מעקב פדגוגית | מבית ToledanoEdTech</p>
       </div>
     </body>
     </html>

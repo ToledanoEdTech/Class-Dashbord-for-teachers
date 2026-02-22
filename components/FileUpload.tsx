@@ -3,7 +3,7 @@ import { AlertCircle, ArrowRight } from 'lucide-react';
 import { FileIcons } from '../constants/icons';
 import { generateSampleData } from '../utils/processing';
 
-const BRAND_NAME = 'ToledanoEdTech';
+const BRAND_NAME = 'ClassMap';
 const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
 
 interface FileUploadProps {
@@ -51,13 +51,15 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
       <div className="w-full max-w-2xl min-w-0">
         {/* Hero: Logo + Branding */}
         <div className="text-center mb-2 md:mb-3 animate-slide-up flex flex-col items-center">
-          <div className="w-32 h-32 md:w-40 md:h-40 rounded-2xl bg-white shadow-elevated border border-slate-200/80 overflow-hidden shrink-0 mb-3 ring-2 ring-primary-100/80">
-            <UploadHeaderLogo />
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-5 mb-3">
+            <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-2xl bg-white dark:bg-slate-800 shadow-elevated border border-slate-200/80 dark:border-slate-600/80 overflow-hidden shrink-0 ring-2 ring-primary-100/80 dark:ring-slate-600/50">
+              <UploadHeaderLogo />
+            </div>
+            <h1 className="brand-title font-bold text-2xl sm:text-3xl md:text-4xl tracking-tight">
+              {BRAND_NAME}
+            </h1>
           </div>
-          <h1 className="font-display font-bold text-xl md:text-2xl text-slate-800 tracking-tight">
-            {BRAND_NAME}
-          </h1>
-          <p className="text-primary-600 font-semibold text-sm md:text-base mt-0.5">
+          <p className="text-primary-600 dark:text-primary-400 font-semibold text-sm md:text-base mt-0.5">
             {BRAND_TAGLINE}
           </p>
           <p className="text-slate-600 text-xs md:text-sm max-w-md mt-1">

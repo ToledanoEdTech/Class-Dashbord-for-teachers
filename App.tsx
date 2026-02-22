@@ -29,14 +29,14 @@ const Logo: React.FC<{ fallback: React.ReactNode }> = ({ fallback }) => {
   return (
     <img
       src={LOGO_PATH}
-      alt="לוגו ToledanoEdTech"
+      alt="לוגו ClassMap"
       className="w-full h-full object-contain p-1"
       onError={() => setFailed(true)}
     />
   );
 };
 
-const BRAND_NAME = 'ToledanoEdTech';
+const BRAND_NAME = 'ClassMap';
 const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
 
 function generateClassId(): string {
@@ -561,7 +561,7 @@ const App: React.FC = () => {
                     <Logo fallback={<FileIcons.LogoFallback size={16} className="text-primary-600" />} />
                   </div>
                   <div className="text-right min-w-0">
-                    <span className="font-display font-bold text-sm text-slate-700 group-hover:text-primary-600 block truncate">{BRAND_NAME}</span>
+                    <span className="brand-title font-bold text-sm block truncate group-hover:opacity-90">{BRAND_NAME}</span>
                     <span className="text-[10px] text-slate-500 block">{BRAND_TAGLINE}</span>
                   </div>
                 </a>
@@ -599,7 +599,7 @@ const App: React.FC = () => {
                       <Logo fallback={<FileIcons.LogoFallback size={28} strokeWidth={2.5} className="text-primary-600" />} />
                     </div>
                     <div className="text-right min-w-0">
-                      <span className="font-display font-bold text-base text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block truncate">
+                      <span className="brand-title font-bold text-base transition-opacity group-hover:opacity-90 tracking-tight block truncate">
                         {BRAND_NAME}
                       </span>
                       <span className="text-[10px] text-slate-500 block">{BRAND_TAGLINE}</span>
@@ -715,7 +715,7 @@ const App: React.FC = () => {
                     <Logo fallback={<FileIcons.LogoFallback size={32} strokeWidth={2.5} className="text-primary-600" />} />
                   </div>
                   <div className="text-right min-w-0 hidden sm:block overflow-hidden">
-                    <span className="font-display font-bold text-base md:text-lg lg:text-xl text-slate-800 group-hover:text-primary-600 transition-colors tracking-tight block truncate">
+                    <span className="brand-title font-bold text-base md:text-lg lg:text-xl transition-opacity group-hover:opacity-90 tracking-tight block truncate">
                       {BRAND_NAME}
                     </span>
                     <span className="text-xs text-slate-500 font-medium hidden md:block truncate">{BRAND_TAGLINE}</span>

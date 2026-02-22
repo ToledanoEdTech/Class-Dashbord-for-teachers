@@ -17,8 +17,9 @@ import { FileIcons } from '../constants/icons';
 import { useAuth } from '../context/AuthContext';
 import FirebaseConfigDialog from './FirebaseConfigDialog';
 
-const BRAND_NAME = 'ToledanoEdTech';
+const BRAND_NAME = 'ClassMap';
 const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
+const COMPANY_NAME = 'ToledanoEdTech';
 const LOGO_PATH = '/logo.png';
 
 const PREVIEW_IMAGES: { src: string; label: string }[] = [
@@ -194,23 +195,33 @@ const LandingPage: React.FC<LandingPageProps> = ({
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center md:gap-10 lg:gap-14">
           {/* מובייל: תוכן למעלה (order-1), קרוסלה למטה (order-2). דסקטופ RTL: קרוסלה ימין (order-1), תוכן שמאל (order-2) */}
           <div className="order-1 md:order-2 flex-1 min-w-0 flex flex-col md:justify-center text-center md:text-right">
-            {/* בלוק מיתוג: לוגו + שם + סלוגן – גודל בולט, מרווח נשימה */}
-            <div className="flex flex-col sm:flex-row items-center justify-center md:justify-start gap-4 sm:gap-5 mb-6 sm:mb-8">
-              <div className="flex-shrink-0 w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 lg:w-36 lg:h-36 rounded-2xl bg-white dark:bg-slate-800 shadow-xl shadow-slate-200/50 dark:shadow-slate-900/50 border border-slate-200/60 dark:border-slate-600/80 overflow-hidden flex items-center justify-center p-2 ring-1 ring-slate-100/80 dark:ring-slate-700/50">
-                <LandingLogo className="w-full h-full" />
-              </div>
-              <div className="flex flex-col items-center md:items-start">
-                <span className="font-display font-bold text-xl sm:text-2xl md:text-3xl text-slate-900 dark:text-slate-50 tracking-tight">
-                  {BRAND_NAME}
-                </span>
-                <span className="text-primary-600 dark:text-primary-400 font-medium text-sm sm:text-base mt-0.5">
-                  {BRAND_TAGLINE}
-                </span>
+            {/* כותרת ראשית – שם האתר */}
+            <div className="mb-6 sm:mb-8">
+              <div className="text-center md:text-right min-w-0">
+                <h1
+                  className="font-brand font-extrabold tracking-tight text-5xl sm:text-6xl md:text-7xl lg:text-8xl xl:text-[7rem] leading-[1.1] whitespace-nowrap"
+                  style={{ letterSpacing: '-0.03em' }}
+                  dir="ltr"
+                >
+                  <span className="text-primary-800 dark:text-primary-300">{BRAND_NAME[0]}</span>
+                  <span className="bg-gradient-to-br from-slate-900 via-primary-700 to-primary-600 dark:from-slate-100 dark:via-primary-300 dark:to-primary-400 bg-clip-text text-transparent">
+                    {BRAND_NAME.slice(1)}
+                  </span>
+                </h1>
+                <div className="flex flex-col sm:flex-row items-center justify-center md:justify-start gap-2 sm:gap-4 mt-3 sm:mt-4">
+                  <span className="text-primary-600 dark:text-primary-400 font-medium text-base sm:text-lg">
+                    {BRAND_TAGLINE}
+                  </span>
+                  <span className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm hidden sm:inline">•</span>
+                  <span className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm">
+                    מבית {COMPANY_NAME}
+                  </span>
+                </div>
               </div>
             </div>
-            <h1 className="font-display font-bold text-2xl sm:text-3xl lg:text-4xl text-slate-900 dark:text-slate-50 tracking-tight leading-tight mb-2 sm:mb-3">
+            <h2 className="font-display font-bold text-2xl sm:text-3xl lg:text-4xl text-slate-900 dark:text-slate-50 tracking-tight leading-tight mb-2 sm:mb-3">
               מערכת המעקב הפדגוגית למורים
-            </h1>
+            </h2>
             <p className="text-slate-600 dark:text-slate-300 text-base sm:text-lg max-w-xl md:mr-0 mx-auto mb-6 sm:mb-8">
               מעקב ציונים, התנהגות ואנליטיקה בכיתה – במקום אחד.
             </p>
@@ -340,6 +351,16 @@ const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </section>
+
+      {/* לוגו בתחתית העמוד */}
+      <footer className="px-4 sm:px-6 py-8 sm:py-10 bg-slate-100/80 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700">
+        <div className="max-w-6xl mx-auto flex flex-col items-center justify-center gap-2">
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-white dark:bg-slate-800 shadow-lg border border-slate-200/60 dark:border-slate-600/80 overflow-hidden flex items-center justify-center p-2">
+            <LandingLogo className="w-full h-full" />
+          </div>
+          <span className="text-slate-600 dark:text-slate-400 text-sm font-medium">מבית {COMPANY_NAME}</span>
+        </div>
+      </footer>
 
       {showFirebaseConfig && (
         <FirebaseConfigDialog onClose={() => setShowFirebaseConfig(false)} />

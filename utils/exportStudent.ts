@@ -12,7 +12,7 @@ export async function exportStudentProfileToExcel(
   riskSettings?: RiskSettings
 ): Promise<void> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'ToledanoEdTech';
+  workbook.creator = 'ClassMap';
   workbook.created = new Date();
 
   // גיליון סיכום

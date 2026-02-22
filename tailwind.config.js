@@ -15,6 +15,7 @@ export default {
       fontFamily: {
         sans: ['Heebo', 'Rubik', 'system-ui', 'sans-serif'],
         display: ['Heebo', 'sans-serif'],
+        brand: ['Outfit', 'Heebo', 'sans-serif'],
       },
       colors: {
         primary: {
