@@ -8,7 +8,6 @@ import {
   Grid3X3,
   LayoutDashboard,
   LogIn,
-  LogOut,
   CloudCog,
   User,
   Upload,
@@ -182,7 +181,7 @@ const LandingPage: React.FC<LandingPageProps> = ({
   onOpenAuth,
   onOpenStudentLogin,
 }) => {
-  const { user, isConfigured, signOut } = useAuth();
+  const { user, isConfigured } = useAuth();
   const [showFirebaseConfig, setShowFirebaseConfig] = useState(false);
 
   return (
@@ -218,11 +217,20 @@ const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex flex-col sm:flex-row items-center justify-center md:justify-start gap-3 sm:gap-4">
               <button
                 type="button"
-                onClick={() => onOpenAuth?.()}
+                onClick={user ? onStart : () => onOpenAuth?.()}
                 className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-bold text-base bg-primary-500 hover:bg-primary-600 dark:bg-primary-500 dark:hover:bg-primary-400 text-white shadow-lg shadow-primary-500/25 hover:shadow-primary-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 min-h-[48px] w-full sm:w-auto"
               >
-                <LogIn size={22} strokeWidth={2.5} />
-                כניסה לחשבון
+                {user ? (
+                  <>
+                    <LayoutDashboard size={22} strokeWidth={2.5} />
+                    כניסה לאתר
+                  </>
+                ) : (
+                  <>
+                    <LogIn size={22} strokeWidth={2.5} />
+                    כניסה לחשבון
+                  </>
+                )}
               </button>
               <button
                 type="button"
@@ -237,25 +245,10 @@ const LandingPage: React.FC<LandingPageProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenStudentLogin()}
-                className="mt-3 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100/80 dark:bg-slate-700/60 hover:bg-slate-200/80 dark:hover:bg-slate-600 border border-slate-200/60 dark:border-slate-600/80 transition-colors"
+                className="mt-3 w-max shrink-0 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100/80 dark:bg-slate-700/60 hover:bg-slate-200/80 dark:hover:bg-slate-600 border border-slate-200/60 dark:border-slate-600/80 transition-colors"
               >
                 כניסת תלמיד
               </button>
-            )}
-            {user && (
-              <div className="mt-4 flex flex-col sm:flex-row items-center justify-center md:justify-start gap-2 flex-wrap">
-                <span className="text-slate-600 dark:text-slate-400 text-sm">
-                  שלום, {user.email}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => signOut()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                >
-                  <LogOut size={16} />
-                  התנתק
-                </button>
-              </div>
             )}
             {!user && !isConfigured && (
               <button
@@ -314,16 +307,27 @@ const LandingPage: React.FC<LandingPageProps> = ({
             מוכנים להתחיל?
           </h2>
           <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base mb-6">
-            התחברו לחשבון כדי לשמור ולסנכרן את הנתונים בענן, או התחילו בהעלאת קבצים.
+            {user
+              ? 'היכנסו לאתר או העלו קבצים.'
+              : 'התחברו לחשבון כדי לשמור ולסנכרן את הנתונים בענן, או התחילו בהעלאת קבצים.'}
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
               type="button"
-              onClick={() => onOpenAuth?.()}
+              onClick={user ? onStart : () => onOpenAuth?.()}
               className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-bold text-base bg-primary-500 hover:bg-primary-600 dark:bg-primary-500 dark:hover:bg-primary-400 text-white shadow-lg shadow-primary-500/25 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 min-h-[48px] w-full sm:w-auto"
             >
-              <LogIn size={20} strokeWidth={2.5} />
-              כניסה לחשבון
+              {user ? (
+                <>
+                  <LayoutDashboard size={20} strokeWidth={2.5} />
+                  כניסה לאתר
+                </>
+              ) : (
+                <>
+                  <LogIn size={20} strokeWidth={2.5} />
+                  כניסה לחשבון
+                </>
+              )}
             </button>
             <button
               type="button"
