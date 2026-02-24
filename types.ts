@@ -54,8 +54,12 @@ export interface Student {
   averageScore: number;
   negativeCount: number;
   positiveCount: number;
+  /** מספר חיסורים (אירועי חיסור ללא הצדקה) */
+  absenceCount?: number;
   gradeTrend: 'improving' | 'declining' | 'stable';
   behaviorTrend: 'improving' | 'declining' | 'stable';
+  /** מגמת התנהגות ללא חיסורים (רק אירועים שליליים/חיוביים אחרים) */
+  behaviorOnlyTrend?: 'improving' | 'declining' | 'stable';
   riskLevel: 'high' | 'medium' | 'low';
   riskScore: number; // Score from 1 (High Risk) to 10 (Low Risk)
   correlations: Correlation[];

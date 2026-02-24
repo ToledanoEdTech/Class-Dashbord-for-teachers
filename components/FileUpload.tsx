@@ -7,8 +7,11 @@ const BRAND_NAME = 'ClassMap';
 const BRAND_TAGLINE = 'מערכת מעקב פדגוגית';
 
 interface FileUploadProps {
-  onProcess: (behaviorFile: File | string, gradesFile: File | string, className: string) => void;
+  onProcess: (behaviorFile: File | string, gradesFile: File | string, className: string, classIdToUpdate?: string) => void;
   loading: boolean;
+  /** עדכון כיתה קיימת – ידרוס את הקבצים והפרטים של הכיתה */
+  updatingClassId?: string | null;
+  initialClassName?: string;
 }
 
 const LOGO_PATH = '/logo.png';
@@ -28,14 +31,18 @@ const UploadHeaderLogo: React.FC = () => {
   );
 };
 
-const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading, updatingClassId = null, initialClassName = '' }) => {
   const [behaviorFile, setBehaviorFile] = useState<File | null>(null);
   const [gradesFile, setGradesFile] = useState<File | null>(null);
-  const [className, setClassName] = useState('');
+  const [className, setClassName] = useState(initialClassName);
+
+  React.useEffect(() => {
+    setClassName(initialClassName);
+  }, [initialClassName, updatingClassId]);
 
   const handleSubmit = () => {
     if (behaviorFile && gradesFile) {
-      onProcess(behaviorFile, gradesFile, className.trim() || 'כיתה חדשה');
+      onProcess(behaviorFile, gradesFile, className.trim() || (updatingClassId ? 'כיתה' : 'כיתה חדשה'), updatingClassId || undefined);
     }
   };
 
@@ -90,12 +97,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
 
             {/* Class Name */}
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">שם הכיתה</label>
+              <label className="block text-sm font-bold text-slate-700 mb-1">
+                {updatingClassId ? 'שם הכיתה (ניתן לעדכן)' : 'שם הכיתה'}
+              </label>
               <input
                 type="text"
                 value={className}
                 onChange={(e) => setClassName(e.target.value)}
-                placeholder="למשל: כיתה ח׳1"
+                placeholder={updatingClassId ? 'שם הכיתה' : 'למשל: כיתה ח׳1'}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:border-primary-400 focus:ring-2 focus:ring-primary-500/20 text-slate-800 font-medium placeholder:text-slate-400 text-sm"
               />
             </div>
@@ -136,7 +145,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading }) => {
                 ) : (
                   <>
                     <FileIcons.Upload size={22} strokeWidth={2.5} />
-                    נתח נתונים
+                    {updatingClassId ? 'עדכן קבצים והחלף נתונים' : 'נתח נתונים'}
                     <ArrowRight size={18} className="opacity-80" />
                   </>
                 )}

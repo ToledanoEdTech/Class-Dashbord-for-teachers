@@ -89,6 +89,8 @@ const App: React.FC = () => {
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [deleteConfirmClassId, setDeleteConfirmClassId] = useState<string | null>(null);
+  /** כשמוגדר – מסך העלאת קבצים במצב עדכון כיתה (ידרוס את הכיתה הקיימת) */
+  const [updatingClassId, setUpdatingClassId] = useState<string | null>(null);
   const [manualSaveState, setManualSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [darkMode, setDarkMode] = useState(() => loadPreferences().darkMode);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => loadPreferences().fontSize);
@@ -164,27 +166,46 @@ const App: React.FC = () => {
   }, [fontSize]);
 
   const handleProcess = useCallback(
-    async (behaviorFile: File | string, gradesFile: File | string, className: string) => {
+    async (behaviorFile: File | string, gradesFile: File | string, className: string, classIdToUpdate?: string) => {
       setState((prev) => ({ ...prev, loading: true }));
       try {
         await new Promise((resolve) => setTimeout(resolve, 800));
         const studentsList = await processFiles(behaviorFile, gradesFile);
         const now = new Date();
-        const newClass: ClassGroup = {
-          id: generateClassId(),
-          name: className.trim() || `כיתה ${now.toLocaleDateString('he-IL')}`,
-          students: studentsList,
-          lastUpdated: now,
-        };
-        markClassAdded();
-        setState((prev) => ({
-          ...prev,
-          view: 'dashboard',
-          selectedStudentId: null,
-          classes: [...prev.classes, newClass],
-          activeClassId: newClass.id,
-          loading: false,
-        }));
+        if (classIdToUpdate) {
+          const existing = state.classes.find((c) => c.id === classIdToUpdate);
+          const updatedClass: ClassGroup = {
+            id: classIdToUpdate,
+            name: (className || existing?.name || '').trim() || `כיתה ${now.toLocaleDateString('he-IL')}`,
+            students: studentsList,
+            lastUpdated: now,
+          };
+          setState((prev) => ({
+            ...prev,
+            view: 'dashboard',
+            selectedStudentId: null,
+            classes: prev.classes.map((c) => (c.id === classIdToUpdate ? updatedClass : c)),
+            activeClassId: classIdToUpdate,
+            loading: false,
+          }));
+          setUpdatingClassId(null);
+        } else {
+          const newClass: ClassGroup = {
+            id: generateClassId(),
+            name: className.trim() || `כיתה ${now.toLocaleDateString('he-IL')}`,
+            students: studentsList,
+            lastUpdated: now,
+          };
+          markClassAdded();
+          setState((prev) => ({
+            ...prev,
+            view: 'dashboard',
+            selectedStudentId: null,
+            classes: [...prev.classes, newClass],
+            activeClassId: newClass.id,
+            loading: false,
+          }));
+        }
         setTimeout(() => flushSave(), 450);
       } catch (error) {
         console.error('Error processing files', error);
@@ -192,7 +213,7 @@ const App: React.FC = () => {
         setState((prev) => ({ ...prev, loading: false }));
       }
     },
-    []
+    [state.classes]
   );
 
   const handleSelectClass = useCallback((classId: string) => {
@@ -428,6 +449,15 @@ const App: React.FC = () => {
                       </button>
                       <button
                         type="button"
+                        onClick={(e) => { e.stopPropagation(); setState((prev) => ({ ...prev, view: 'upload' })); setUpdatingClassId(c.id); closeSidebar(); }}
+                        className={`p-1.5 rounded-lg hover:bg-primary-100 text-slate-500 hover:text-primary-600 shrink-0 transition-all ${state.activeClassId === c.id ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'}`}
+                        aria-label="עדכן קבצי כיתה"
+                        title="עדכן קבצי ציונים והתנהגות"
+                      >
+                        <CloudUpload size={14} />
+                      </button>
+                      <button
+                        type="button"
                         onClick={(e) => { e.stopPropagation(); setDeleteConfirmClassId(c.id); }}
                         className={`p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 shrink-0 transition-all ${state.activeClassId === c.id ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'}`}
                         aria-label="מחיקת כיתה"
@@ -442,6 +472,7 @@ const App: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setState((prev) => ({ ...prev, view: 'upload' }));
+                  setUpdatingClassId(null);
                   closeSidebar();
                 }}
                 className="w-full text-right flex items-center gap-3 px-4 py-3 rounded-xl text-primary-600 hover:bg-primary-50 font-medium transition-colors border border-dashed border-primary-200"
@@ -617,20 +648,15 @@ const App: React.FC = () => {
                     <LogIn size={18} />
                     <span className="text-xs font-medium">התחבר</span>
                   </button>
-                ) : user && state.view === 'landing' ? (
-                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700/80 border border-slate-200/60 dark:border-slate-600/80 max-w-[180px] min-w-0">
-                    <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate" title={userLabel}>
-                      שלום, {userLabel}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleSignOut}
-                      className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors shrink-0"
-                      aria-label="התנתק"
-                    >
-                      <LogOut size={16} />
-                    </button>
-                  </div>
+                ) : user ? (
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors shrink-0"
+                    aria-label="התנתק"
+                  >
+                    <LogOut size={18} />
+                  </button>
                 ) : null}
                 <button
                   type="button"
@@ -644,10 +670,9 @@ const App: React.FC = () => {
               </div>
               </div>
 
-              {/* Second Row: Navigation Buttons (only when not in upload/settings) */}
+              {/* Second Row: Navigation Buttons – במרכז השורה */}
               {state.view !== 'upload' && state.view !== 'settings' && state.view !== 'landing' && (
-                <div className="pb-2.5 space-y-2">
-                  {/* Main Navigation Tabs */}
+                <div className="pb-2.5 flex justify-center">
                   <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/90 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600">
                     <button
                       type="button"
@@ -693,9 +718,9 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {/* Desktop Layout - Horizontal */}
+            {/* Desktop Layout: לוגו | ניווט במרכז | כפתורים */}
             <div className="hidden md:flex items-center justify-between min-h-[4.5rem] gap-4 lg:gap-6 min-w-0">
-              <div className="flex items-center gap-2 md:gap-3 shrink-0 min-w-0 max-w-[45%] relative z-0">
+              <div className="flex items-center gap-2 md:gap-3 min-w-0 max-w-[220px] lg:max-w-[260px] shrink-0 relative z-0">
                 {showSidebar && (
                   <button
                     type="button"
@@ -723,116 +748,84 @@ const App: React.FC = () => {
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 md:gap-3 min-w-0 overflow-x-auto overflow-y-visible scrollbar-hide flex-1 justify-end relative z-10 ps-4">
+              <div className="flex-1 flex items-center justify-center min-w-0 px-2 relative z-10">
                 {state.view !== 'upload' && state.view !== 'settings' && state.view !== 'landing' && (
-                  <>
-                    {/* Navigation: Dashboard | Teacher Analytics | Subject Matrix */}
-                    <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
-                        className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
-                          state.view === 'dashboard' || state.view === 'student'
-                            ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
-                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
-                        }`}
-                        aria-label="דשבורד"
-                      >
-                        <NavIcons.Dashboard size={18} className="shrink-0" />
-                        <span>דשבורד</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
-                        className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
-                          state.view === 'teachers'
-                            ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
-                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
-                        }`}
-                        aria-label="אנליטיקת מורים"
-                      >
-                        <NavIcons.TeachersAnalytics size={18} className="shrink-0" />
-                        <span>אנליטיקת מורים</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
-                        className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
-                          state.view === 'matrix'
-                            ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
-                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
-                        }`}
-                        aria-label="מטריצת מקצועות"
-                      >
-                        <NavIcons.SubjectMatrix size={18} className="shrink-0" />
-                        <span>מטריצת מקצועות</span>
-                      </button>
-                    </div>
+                  /* דשבורד | מטריצת מקצועות | אנליטיקת מורים – במרכז השורה */
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setState((prev) => ({ ...prev, view: 'upload' }))}
-                      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-slate-500 hover:text-primary-600 hover:bg-primary-50/50 transition-colors text-sm font-medium min-h-[44px] shrink-0"
-                      aria-label="העלאת קבצים"
+                      onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
+                      className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                        state.view === 'dashboard' || state.view === 'student'
+                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
+                      }`}
+                      aria-label="דשבורד"
                     >
-                        <NavIcons.Upload size={18} className="shrink-0" />
-                      <span>העלאת קבצים</span>
+                      <NavIcons.Dashboard size={18} className="shrink-0" />
+                      <span>דשבורד</span>
                     </button>
-                  </>
+                    <button
+                      type="button"
+                      onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
+                      className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                        state.view === 'teachers'
+                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
+                      }`}
+                      aria-label="אנליטיקת מורים"
+                    >
+                      <NavIcons.TeachersAnalytics size={18} className="shrink-0" />
+                      <span>אנליטיקת מורים</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
+                      className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                        state.view === 'matrix'
+                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
+                      }`}
+                      aria-label="מטריצת מקצועות"
+                    >
+                      <NavIcons.SubjectMatrix size={18} className="shrink-0" />
+                      <span>מטריצת מקצועות</span>
+                    </button>
+                  </div>
                 )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
                 {!user ? (
                   <button
                     type="button"
                     onClick={() => setShowAuthModal(true)}
-                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary-100 text-primary-600 hover:bg-primary-200 font-medium text-sm"
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary-100 text-primary-600 hover:bg-primary-200 font-medium text-sm shrink-0"
                     aria-label="התחבר"
                   >
                     <LogIn size={18} />
                     התחבר
                   </button>
                 ) : state.view === 'landing' ? (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/80 border border-slate-200/60 dark:border-slate-600/80">
-                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate max-w-[180px]" title={userLabel}>
-                      שלום, {userLabel}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleSignOut}
-                      className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors shrink-0"
-                    >
-                      <LogOut size={16} />
-                      התנתק
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium text-sm shrink-0"
+                    aria-label="התנתק"
+                  >
+                    <LogOut size={18} />
+                    התנתק
+                  </button>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleManualCloudSave}
-                      disabled={manualSaveState === 'saving' || !cloudLoaded}
-                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-medium text-sm disabled:opacity-60"
-                      aria-label="שמור לענן"
-                      title="שמור לענן"
-                    >
-                      <CloudUpload size={18} />
-                      {manualSaveState === 'saving'
-                        ? 'שומר...'
-                        : manualSaveState === 'saved'
-                          ? 'נשמר לענן'
-                          : manualSaveState === 'error'
-                            ? 'שגיאת שמירה'
-                            : 'שמור לענן'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSwitchUser}
-                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium text-sm max-w-[320px]"
-                      aria-label="החלף משתמש"
-                      title={userLabel}
-                    >
-                      <LogOut size={18} />
-                      <span className="truncate">{userLabel}</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 font-medium text-sm shrink-0"
+                    aria-label="התנתק"
+                  >
+                    <LogOut size={18} />
+                    התנתק
+                  </button>
                 )}
                 <button
                   type="button"
@@ -894,7 +887,12 @@ const App: React.FC = () => {
           )}
 
           {state.view === 'upload' && (
-            <FileUpload onProcess={handleProcess} loading={state.loading} />
+            <FileUpload
+              onProcess={handleProcess}
+              loading={state.loading}
+              updatingClassId={updatingClassId}
+              initialClassName={updatingClassId ? (state.classes.find((c) => c.id === updatingClassId)?.name ?? '') : ''}
+            />
           )}
 
           {state.view === 'dashboard' && activeClass && (

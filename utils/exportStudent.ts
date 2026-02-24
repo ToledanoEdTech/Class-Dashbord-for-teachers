@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import { Student, RiskSettings, EventType, Grade, BehaviorEvent } from '../types';
 import { format, eachWeekOfInterval, eachDayOfInterval, isSameWeek, isSameDay, endOfWeek, differenceInDays, startOfDay } from 'date-fns';
 import { isAbsenceEvent, isOtherNegativeEvent } from '../types';
+import { normalizeSubjectName } from './processing';
 
 /**
  * ייצוא מפורט של תלמיד בודד ל-Excel עם עיצוב מקצועי וגרפים
@@ -197,9 +198,9 @@ export async function exportStudentProfileToExcel(
     .forEach((grade) => {
       const weightedScore = grade.score * (grade.weight / 100);
       const row = gradesSheet.addRow([
-        grade.subject,
+        normalizeSubjectName(grade.subject || 'כללי'),
         grade.teacher,
-        grade.assignment,
+        grade.assignment || 'מטלה',
         format(grade.date, 'dd/MM/yyyy'),
         grade.score,
         grade.weight,
@@ -381,7 +382,7 @@ export async function exportStudentProfileToExcel(
   const subjectStats: Record<string, { grades: number[], positiveEvents: number, negativeEvents: number }> = {};
   
   student.grades.forEach((grade) => {
-    const subject = grade.subject || 'כללי';
+    const subject = normalizeSubjectName(grade.subject || 'כללי');
     if (!subjectStats[subject]) {
       subjectStats[subject] = { grades: [], positiveEvents: 0, negativeEvents: 0 };
     }
@@ -389,7 +390,7 @@ export async function exportStudentProfileToExcel(
   });
   
   student.behaviorEvents.forEach((event) => {
-    const subject = event.subject || 'כללי';
+    const subject = normalizeSubjectName(event.subject || 'כללי');
     if (!subjectStats[subject]) {
       subjectStats[subject] = { grades: [], positiveEvents: 0, negativeEvents: 0 };
     }

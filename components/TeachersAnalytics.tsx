@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Student, EventType, isAbsenceEvent, isOtherNegativeEvent, PeriodDefinition } from '../types';
 import { startOfDay, endOfDay } from 'date-fns';
+import { normalizeSubjectName } from '../utils/processing';
 import {
   BarChart,
   Bar,
@@ -92,7 +93,7 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, periodD
     };
     const normalize = (t: string, s: string) => {
       const teacher = normalizeTeacher(t) || 'ללא מורה';
-      const subject = (s || '').trim().replace(/\s+/g, ' ') || 'כללי';
+      const subject = normalizeSubjectName((s || '').trim() || 'כללי');
       return { teacher, subject };
     };
     const key = (t: string, s: string) => `${t}\0${s}`;

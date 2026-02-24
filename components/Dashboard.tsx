@@ -23,7 +23,7 @@ import {
   ComposedChart,
 } from 'recharts';
 import { format, subDays, startOfDay, endOfDay, differenceInDays, eachWeekOfInterval, endOfWeek, isSameWeek, eachDayOfInterval, isSameDay, addMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { computeStudentStatsFromData } from '../utils/processing';
+import { computeStudentStatsFromData, normalizeSubjectName } from '../utils/processing';
 import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
 import HelpTip from './HelpTip';
@@ -110,12 +110,12 @@ const getDateRangeFromStudents = (students: Student[]): { min: Date; max: Date }
   };
 };
 
-/** התאמת מקצוע לסינון: בחר "מתמטיקה" = כל "מתמטיקה", "מתמטיקה א", "מתמטיקה ב" וכו'. */
+/** התאמת מקצוע לסינון – משווה מקצוע מנורמל (רק שם המקצוע). */
 const subjectMatchesFilter = (filter: string, subjectValue: string | undefined): boolean => {
   if (!filter) return true;
   const s = (subjectValue || '').trim();
   if (!s) return false;
-  return s === filter || s.startsWith(filter + ' ');
+  return normalizeSubjectName(s) === filter;
 };
 
 const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectStudent, riskSettings, isAnonymous = false, className = 'כיתה', classGroup, periodDefinitions = [], visibleWidgets: visibleWidgetsProp, onHideWidget }) => {
@@ -234,6 +234,11 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
     });
   }, [studentsFilteredBySubjectTeacher, prevPeriodStart, prevPeriodEnd, riskSettings]);
 
+  const prevStatsByStudentId = useMemo(
+    () => new Map(studentsFilteredBySubjectTeacher.map((s, i) => [s.id, prevStats[i]])),
+    [studentsFilteredBySubjectTeacher, prevStats]
+  );
+
   const totalStudents = studentsInRange.length;
   const atRiskCount = studentsInRange.filter((s) => s.riskLevel === 'high').length;
   const totalNegative = studentsInRange.reduce((sum, s) => sum + s.negativeCount, 0);
@@ -272,12 +277,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
     const addSubject = (raw: string) => {
       const t = raw?.trim();
       if (!t || /^\d+$/.test(t)) return;
-      subjects.add(t);
-      const lastSpace = t.lastIndexOf(' ');
-      if (lastSpace > 0) {
-        const base = t.slice(0, lastSpace).trim();
-        if (base) subjects.add(base);
-      }
+      subjects.add(normalizeSubjectName(t));
     };
     students.forEach((s) => {
       s.grades.forEach((g) => {
@@ -566,24 +566,24 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   };
 
   return (
-    <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0 space-y-6 md:space-y-8 pb-safe">
+    <div className="p-3 sm:p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0 space-y-4 sm:space-y-6 md:space-y-8 pb-safe">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">דשבורד כיתתי</h2>
-          <p className="text-slate-500 text-sm md:text-base mt-1">סקירה מלאה של מצב הכיתה והתלמידים</p>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 sm:gap-4">
+        <div className="min-w-0">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-800 tracking-tight truncate">דשבורד כיתתי</h2>
+          <p className="text-slate-500 text-xs sm:text-sm md:text-base mt-1">סקירה מלאה של מצב הכיתה והתלמידים</p>
         </div>
-        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap w-full md:w-auto">
           {/* Export Dropdown */}
           <div className="relative export-menu-container">
             <button
               type="button"
               onClick={() => setExportMenuOpen(!exportMenuOpen)}
-              className="no-print flex items-center gap-2 px-3 py-2 rounded-xl bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800 text-sm font-medium transition-colors"
+              className="no-print flex items-center gap-2 px-3 py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800 text-sm font-medium transition-colors"
               aria-label="ייצוא נתונים"
               aria-expanded={exportMenuOpen}
             >
-              <Download size={16} />
+              <Download size={18} className="sm:w-4 sm:h-4" />
               <span className="hidden sm:inline">ייצוא</span>
             </button>
             {(exportMenuOpen || false) && (
@@ -681,12 +681,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
           <button
             type="button"
             onClick={() => window.print()}
-            className="no-print flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
+            className="no-print flex items-center gap-2 px-3 py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
           >
-            <Printer size={16} />
+            <Printer size={18} className="sm:w-4 sm:h-4" />
             <span className="hidden sm:inline">הדפסה</span>
           </button>
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100/80 text-slate-600 text-sm font-medium">
+          <div className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-slate-100/80 text-slate-600 text-xs sm:text-sm font-medium shrink-0">
             <span className="w-2 h-2 rounded-full bg-accent-success animate-pulse"></span>
             עודכן: {new Date().toLocaleDateString('he-IL')}
           </div>
@@ -1499,16 +1499,17 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
 
         {/* Desktop Table - only when viewMode is 'table' */}
         <div className={`${viewMode === 'table' ? 'hidden md:block' : 'hidden'} overflow-x-auto`}>
-          <table className="w-full text-right">
+          <table className="w-full text-center">
             <thead>
               <tr className="bg-slate-50/80 text-slate-500 text-sm">
-                <th className="px-6 py-4 font-semibold">שם התלמיד</th>
-                <th className="px-6 py-4 font-semibold">ממוצע</th>
-                <th className="px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="השוואה בין ממוצע 3 הציונים האחרונים ל-3 שלפניהם. שיפור = עלייה, ירידה = ירידה." /></th>
-                <th className="px-6 py-4 font-semibold">מגמת התנהגות <HelpTip text="מגמה לפי 12 האירועים האחרונים, עם משקל לאירועים שליליים." /></th>
-                <th className="px-6 py-4 font-semibold">אירועים</th>
-                <th className="px-6 py-4 font-semibold">סיכון <HelpTip text="ציון סיכון 1-10 (1=סיכון גבוה, 10=סיכון נמוך). מחושב לפי ציונים, מגמות, אירועים שליליים וחיסורים." /></th>
-                <th className="px-6 py-4 w-12"></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold text-right">שם התלמיד</th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">ממוצע</th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="השוואה בין ממוצע 3 הציונים האחרונים ל-3 שלפניהם. שיפור = עלייה, ירידה = ירידה." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">חיסורים <HelpTip text="מספר חיסורים במגמה – שיפור/ירידה ביחס לתקופה הקודמת." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת התנהגות (ללא חיסורים) <HelpTip text="מגמה לפי אירועי משמעת בלבד (ללא חיסורים)." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">אירועים</th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">סיכון <HelpTip text="ציון סיכון 1-10 (1=סיכון גבוה, 10=סיכון נמוך). מחושב לפי ציונים, מגמות, אירועים שליליים וחיסורים." /></th>
+                <th className="px-3 sm:px-6 py-4 w-12"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -1518,41 +1519,67 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                   onClick={() => onSelectStudent(student.id)}
                   className="hover:bg-primary-50/30 cursor-pointer transition-colors group"
                 >
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white
+                  <td className="px-3 sm:px-6 py-4 text-right" dir="rtl">
+                    <div className="flex items-center justify-start gap-2 sm:gap-3">
+                      <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-xs sm:text-sm font-bold text-white shrink-0
                         ${student.averageScore < 60 ? 'bg-red-500' : student.averageScore < 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}>
                         {Math.round(student.averageScore)}
                       </div>
-                      <div>
-                        <div className="font-semibold text-slate-800">{getDisplayName(student.name, idx, isAnonymous)}</div>
-                        <div className="text-xs text-slate-400">{student.id}</div>
+                      <div className="min-w-0 text-right">
+                        <div className="font-semibold text-slate-800 truncate">{getDisplayName(student.name, idx, isAnonymous)}</div>
+                        <div className="text-xs text-slate-400 truncate">{student.id}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <span className={`font-bold ${student.averageScore < 70 ? 'text-red-600' : 'text-slate-700'}`}>
-                      {student.averageScore.toFixed(1)}
-                    </span>
+                  <td className="px-3 sm:px-6 py-4">
+                    <div className="flex justify-center">
+                      <span className={`font-bold ${student.averageScore < 70 ? 'text-red-600' : 'text-slate-700'}`}>
+                        {student.averageScore.toFixed(1)}
+                      </span>
+                    </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <TrendBadge trend={student.gradeTrend} type="grade" />
+                  <td className="px-3 sm:px-6 py-4">
+                    <div className="flex justify-center">
+                      <TrendBadge trend={student.gradeTrend} type="grade" />
+                    </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <TrendBadge trend={student.behaviorTrend} type="behavior" />
+                  <td className="px-3 sm:px-6 py-4">
+                    {(() => {
+                      const prev = prevStatsByStudentId.get(student.id);
+                      const currAbs = (student as any).absenceCount ?? (student.behaviorEvents?.filter((e: BehaviorEvent) => isAbsenceEvent(e)).length ?? 0);
+                      const prevAbs = prev?.absenceCount ?? 0;
+                      let absenceTrend: 'improving' | 'declining' | 'stable' = 'stable';
+                      if (currAbs < prevAbs) absenceTrend = 'improving';
+                      else if (currAbs > prevAbs) absenceTrend = 'declining';
+                      return (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className="font-medium text-slate-700">{currAbs}</span>
+                          <TrendBadge trend={absenceTrend} type="grade" />
+                        </div>
+                      );
+                    })()}
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-1 text-sm">
+                  <td className="px-3 sm:px-6 py-4">
+                    <div className="flex justify-center">
+                      <TrendBadge trend={(student as any).behaviorOnlyTrend ?? student.behaviorTrend} type="behavior" />
+                    </div>
+                  </td>
+                  <td className="px-3 sm:px-6 py-4">
+                    <div className="flex justify-center gap-1 text-sm">
                       <span className="text-red-500 font-medium">{student.negativeCount}</span>
                       <span className="text-slate-300">/</span>
                       <span className="text-emerald-500 font-medium">{student.positiveCount}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <RiskBadge level={student.riskLevel} score={student.riskScore} />
+                  <td className="px-3 sm:px-6 py-4">
+                    <div className="flex justify-center">
+                      <RiskBadge level={student.riskLevel} score={student.riskScore} />
+                    </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <ChevronRight className="text-slate-300 group-hover:text-primary-500 transition-colors" size={20} />
+                  <td className="px-3 sm:px-6 py-4">
+                    <div className="flex justify-center">
+                      <ChevronRight className="text-slate-300 group-hover:text-primary-500 transition-colors" size={20} />
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -73,23 +73,39 @@ const normalizeTeacherName = (raw: string): string => {
 };
 
 /**
- * Clean subject labels that include trailing group/teacher fragments
- * such as "היסטוריה הרב", "אנגלית א2" and keep only the real subject.
+ * Clean subject labels – מחזיר רק את שם המקצוע (למשל "אנגלית")
+ * בלי שם המורה/הרב/הקבצה (לא "אנגלית ב1 הרב נגאוקר אבינעם").
  */
-const normalizeSubjectName = (raw: string): string => {
-  const clean = (raw || '').trim().replace(/\s+/g, ' ');
+export const normalizeSubjectName = (raw: string): string => {
+  const withComma = (raw || '').trim().replace(/\s+/g, ' ');
+  let clean = withComma.includes(',') ? withComma.split(',')[0].trim().replace(/\s+/g, ' ') : withComma;
   if (!clean) return 'כללי';
-  const words = clean.split(' ').filter(Boolean);
-  if (words.length <= 1) return clean;
-
-  const last = words[words.length - 1];
-  const isTeacherTail = /^(הרב|רב|המורה|מר|גב')$/.test(last);
-  const isGroupTail = /^[א-ת]\d{0,2}$/i.test(last) || /^[a-z]\d{1,2}$/i.test(last);
-
-  if (isTeacherTail || isGroupTail) {
-    return words.slice(0, -1).join(' ') || 'כללי';
+  // אם מופיע "הרב" או "רב" – לוקחים רק את החלק שלפניהם (מקצוע + אולי הקבצה)
+  const rabbiMatch = clean.match(/\s+(הרב|רב)\s+/);
+  if (rabbiMatch && rabbiMatch.index !== undefined) {
+    clean = clean.substring(0, rabbiMatch.index).trim();
+    if (!clean) return 'כללי';
   }
-  return clean;
+  let words = clean.split(' ').filter(Boolean);
+  if (words.length <= 1) return clean;
+  // אם יש 3+ מילים בלי שחתכנו לפי הרב – שתי המילים האחרונות = מורה
+  if (words.length >= 3 && !rabbiMatch) {
+    clean = words.slice(0, -2).join(' ');
+    if (!clean) return 'כללי';
+  }
+  // להסיר הקבצה בסוף (א1, ב1, א2 וכו')
+  let subjectCandidate = clean;
+  let last: string;
+  for (;;) {
+    const w = subjectCandidate.split(' ').filter(Boolean);
+    if (w.length <= 1) break;
+    last = w[w.length - 1];
+    const isGroupTail = /^[א-ת]\d{0,2}$/i.test(last) || /^[a-z]\d{1,2}$/i.test(last);
+    if (!isGroupTail) break;
+    subjectCandidate = w.slice(0, -1).join(' ') || 'כללי';
+    if (!subjectCandidate) return 'כללי';
+  }
+  return subjectCandidate || 'כללי';
 };
 
 const parseDate = (dateVal: any): Date | null => {
@@ -259,29 +275,135 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
   }
 
   // --- Process Grades Data ---
+  // שורת הכותרת: מכילה "שם התלמיד" בעמודות האישיות
   let gradesHeaderIndex = gradesData.findIndex(row => row.some(cell => typeof cell === 'string' && cell.includes('שם התלמיד')));
   if (gradesHeaderIndex === -1) gradesHeaderIndex = 2;
 
   const gradeHeaders = gradesData[gradesHeaderIndex];
   const grades: Grade[] = [];
-  
-  let startColIndex = 6; 
+  let startColIndex = 6;
+
+  // === DEBUG: הדפסת מבנה הנתונים כדי לזהות פורמט ===
+  console.log('=== GRADES DEBUG START ===');
+  console.log('gradesHeaderIndex:', gradesHeaderIndex);
+  console.log('Total rows in gradesData:', gradesData.length);
+  console.log('Header row length:', gradeHeaders.length);
+  // הדפסת 5 שורות סביב הכותרת
+  for (let r = Math.max(0, gradesHeaderIndex - 1); r < Math.min(gradesData.length, gradesHeaderIndex + 5); r++) {
+    const row = gradesData[r];
+    if (!row) continue;
+    const sample: Record<string, any> = {};
+    for (let c = 0; c < Math.min(row.length, 10); c++) {
+      const val = row[c];
+      const s = String(val ?? '').substring(0, 80);
+      sample[`col${c}`] = s + (String(val ?? '').length > 80 ? '...' : '');
+    }
+    console.log(`Row ${r}${r === gradesHeaderIndex ? ' [HEADER]' : ''}:`, JSON.stringify(sample));
+  }
+  // הדפסת 3 תאים מעמודות ציונים
+  for (let c = startColIndex; c < Math.min(gradeHeaders.length, startColIndex + 3); c++) {
+    const raw = gradeHeaders[c];
+    console.log(`Header col ${c} type:`, typeof raw, '| hasNewline:', typeof raw === 'string' && /\n/.test(raw), '| value:', JSON.stringify(String(raw ?? '').substring(0, 200)));
+  }
+  console.log('=== GRADES DEBUG END ===');
+
+  // === זיהוי פורמט: האם כותרות הציונים מכילות \n (תא אחד) או שהן בשורות נפרדות ===
+  let headerHasNewlines = false;
+  for (let c = startColIndex; c < gradeHeaders.length; c++) {
+    const h = gradeHeaders[c];
+    if (h && typeof h === 'string' && /\n/.test(h)) {
+      headerHasNewlines = true;
+      break;
+    }
+  }
+
+  // אם אין newlines בתאים — בדוק אם השורה הבאה היא שורת שמות מטלות (טקסט, לא מספרים)
+  let assignmentRow: any[] | null = null;
+  let weightRow: any[] | null = null;
+  let dataStartIndex: number;
+
+  if (headerHasNewlines) {
+    // כל המידע בתא אחד עם \n — נתונים מתחילים מיד אחרי שורת הכותרת
+    dataStartIndex = gradesHeaderIndex + 1;
+  } else {
+    // בדוק אם שורת gradesHeaderIndex+1 מכילה שמות מטלות (טקסט) ולא ציונים (מספרים)
+    const candidateAssignmentRow = gradesData[gradesHeaderIndex + 1];
+    let nextRowHasText = false;
+    if (candidateAssignmentRow) {
+      for (let c = startColIndex; c < Math.min(candidateAssignmentRow.length, gradeHeaders.length); c++) {
+        const val = candidateAssignmentRow[c];
+        const s = String(val ?? '').trim();
+        // אם יש תא עם טקסט שאינו רק מספר — זו שורת מטלות
+        if (s && !/^\d+(\.\d+)?$/.test(s) && !/^$/.test(s)) {
+          nextRowHasText = true;
+          break;
+        }
+      }
+    }
+
+    if (nextRowHasText) {
+      assignmentRow = candidateAssignmentRow;
+      // בדוק אם השורה אחריה היא שורת משקלים (מכילה "משקל")
+      const candidateWeightRow = gradesData[gradesHeaderIndex + 2];
+      let hasWeightRow = false;
+      if (candidateWeightRow) {
+        for (let c = startColIndex; c < Math.min(candidateWeightRow.length, gradeHeaders.length); c++) {
+          const val = candidateWeightRow[c];
+          const s = String(val ?? '').trim();
+          if (/משקל/.test(s)) {
+            hasWeightRow = true;
+            break;
+          }
+        }
+      }
+      weightRow = hasWeightRow ? candidateWeightRow : null;
+      dataStartIndex = gradesHeaderIndex + (hasWeightRow ? 3 : 2);
+    } else {
+      dataStartIndex = gradesHeaderIndex + 1;
+    }
+  }
+
+  console.log('=== FORMAT DETECTION ===');
+  console.log('headerHasNewlines:', headerHasNewlines);
+  console.log('assignmentRow found:', assignmentRow !== null);
+  console.log('weightRow found:', weightRow !== null);
+  console.log('dataStartIndex:', dataStartIndex);
+  if (assignmentRow) {
+    for (let c = startColIndex; c < Math.min(assignmentRow.length, startColIndex + 3); c++) {
+      console.log(`AssignmentRow col ${c}:`, JSON.stringify(String(assignmentRow[c] ?? '')));
+    }
+  }
+
+  // === פענוח כל עמודת ציון ===
   const headerMeta: Record<number, { subject: string, teacher: string, assignment: string, date: Date, weight: number }> = {};
 
   for (let c = startColIndex; c < gradeHeaders.length; c++) {
     const headerRaw = gradeHeaders[c];
-    if (!headerRaw || typeof headerRaw !== 'string') continue;
+    if (headerRaw == null) continue;
 
-    const dateMatch = headerRaw.match(/(\d{2}\/\d{2}\/\d{4})/);
-    const weightMatch = headerRaw.match(/משקל\s*(\d+)/) || headerRaw.match(/(\d+)\s*משקל/);
-    const bracketContent = headerRaw.match(/\[([^\]]*)\]/)?.[1]?.trim() || '';
+    let subjectLine = '';
+    let assignmentLine = '';
+    let weightLine = '';
 
-    let subject = "כללי";
-    let teacher = "";
-    let assignment = "מטלה";
+    if (headerHasNewlines) {
+      // פורמט A: תא אחד עם \n — מפצלים ל-3 שורות
+      const lines = String(headerRaw).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      subjectLine = lines[0] || '';
+      assignmentLine = lines[1] || '';
+      weightLine = lines[2] || '';
+    } else {
+      // פורמט B: כותרות מפוזרות בשורות נפרדות
+      subjectLine = String(headerRaw ?? '').trim();
+      assignmentLine = assignmentRow ? String(assignmentRow[c] ?? '').trim() : '';
+      weightLine = weightRow ? String(weightRow[c] ?? '').trim() : '';
+    }
 
-    const beforeBrackets = headerRaw.replace(/\s*\[[^\]]*\].*$/s, '').trim();
-    const words = beforeBrackets ? beforeBrackets.split(/\s+/).filter(Boolean) : [];
+    // --- חילוץ מקצוע ומורה מ-subjectLine ---
+    // דוגמה: "אנגלית א1 רבקה גורדון [71]"
+    const subjectClean = subjectLine.replace(/\s*\[\d+\]\s*$/, '').trim();
+    let subject = 'כללי';
+    let teacher = '';
+    const words = subjectClean ? subjectClean.split(/\s+/).filter(Boolean) : [];
     if (words.length >= 3) {
       teacher = words.slice(-2).join(' ');
       subject = words.slice(0, -2).join(' ');
@@ -292,24 +414,28 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
       subject = words[0];
     }
 
-    if (bracketContent) {
-      assignment = bracketContent
-        .replace(/\d{2}\/\d{2}\/\d{4}/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!assignment) assignment = "מטלה";
-    }
+    // --- חילוץ שם מטלה ותאריך מ-assignmentLine ---
+    // דוגמה: "Quiz 1- p17 28/09/2025"
+    const dateMatch = assignmentLine.match(/(\d{2}\/\d{2}\/\d{4})/);
+    let assignment = assignmentLine
+      .replace(/\s*\d{2}\/\d{2}\/\d{4}\s*$/, '')
+      .trim();
+    if (!assignment || /^\d+$/.test(assignment)) assignment = '';
+
+    // --- חילוץ משקל מ-weightLine ---
+    // דוגמה: "משקל 45" או פשוט "45"
+    const weightMatch = weightLine.match(/משקל\s*(\d+)/) || weightLine.match(/^(\d+)$/);
 
     headerMeta[c] = {
       subject: normalizeSubjectName(subject || 'כללי'),
       teacher: teacher.trim(),
-      assignment: assignment,
+      assignment: assignment || `אירוע ${c - startColIndex + 1}`,
       date: dateMatch ? parseDate(dateMatch[0])! : new Date(),
       weight: weightMatch ? parseInt(weightMatch[1]) : 1
     };
   }
 
-  for (let i = gradesHeaderIndex + 1; i < gradesData.length; i++) {
+  for (let i = dataStartIndex; i < gradesData.length; i++) {
     const row = gradesData[i];
     if (!row || row.length < 2) continue;
 
@@ -386,6 +512,7 @@ export function calculateStudentStats(
   const negativeCount = sEvents.filter((e) => e.category === EventType.NEGATIVE).length;
   const positiveCount = sEvents.filter((e) => e.category === EventType.POSITIVE).length;
   const absenceCount = sEvents.filter((e) => isAbsenceEvent(e)).length;
+  const nonAbsenceEvents = sEvents.filter((e) => !isAbsenceEvent(e));
 
   let gradeTrend: 'improving' | 'declining' | 'stable' = 'stable';
   let gradeDelta = 0;
@@ -422,6 +549,25 @@ export function calculateStudentStats(
       if (behaviorDelta >= 2) behaviorTrend = 'improving';
       else if (behaviorDelta <= -2) behaviorTrend = 'declining';
     }
+  }
+
+  let behaviorOnlyTrend: 'improving' | 'declining' | 'stable' = 'stable';
+  if (nonAbsenceEvents.length >= 2) {
+    const recent = nonAbsenceEvents.slice(-12);
+    const mid = Math.floor(recent.length / 2);
+    const prevHalf = recent.slice(0, mid);
+    const currHalf = recent.slice(mid);
+    const getScore = (e: BehaviorEvent) => {
+      if (e.category === EventType.POSITIVE) return 1;
+      if (e.category === EventType.NEGATIVE) return -2;
+      return 0;
+    };
+    const scoreCurr = currHalf.reduce((sum, e) => sum + getScore(e), 0);
+    const scorePrev = prevHalf.reduce((sum, e) => sum + getScore(e), 0);
+    const delta = scoreCurr - scorePrev;
+    if (scoreCurr <= -6 && delta <= 0) behaviorOnlyTrend = 'declining';
+    else if (delta >= 2) behaviorOnlyTrend = 'improving';
+    else if (delta <= -2) behaviorOnlyTrend = 'declining';
   }
 
   const minGT = settings.minGradeThreshold;
@@ -485,7 +631,7 @@ export function calculateStudentStats(
         date: grade.date,
         grade,
         nearbyEvents: nearby,
-        description: `נכשל ב${grade.subject} (${grade.score}) בסמיכות ל-${nearby.length} אירועי משמעת.`,
+        description: `נכשל ב${normalizeSubjectName(grade.subject || 'כללי')} (${grade.score}) בסמיכות ל-${nearby.length} אירועי משמעת.`,
       });
     }
   });
@@ -497,8 +643,10 @@ export function calculateStudentStats(
     averageScore: parseFloat(average.toFixed(1)),
     negativeCount,
     positiveCount,
+    absenceCount,
     gradeTrend,
     behaviorTrend,
+    behaviorOnlyTrend,
     riskLevel,
     riskScore: score,
     correlations,
@@ -510,8 +658,10 @@ export interface StudentStatsResult {
   averageScore: number;
   negativeCount: number;
   positiveCount: number;
+  absenceCount: number;
   gradeTrend: 'improving' | 'declining' | 'stable';
   behaviorTrend: 'improving' | 'declining' | 'stable';
+  behaviorOnlyTrend: 'improving' | 'declining' | 'stable';
   riskLevel: 'high' | 'medium' | 'low';
   riskScore: number;
 }
@@ -528,12 +678,15 @@ export function computeStudentStatsFromData(
     behaviorEvents,
   };
   const full = calculateStudentStats(raw, settings);
+  const absenceCount = behaviorEvents.filter((e) => isAbsenceEvent(e)).length;
   return {
     averageScore: full.averageScore,
     negativeCount: full.negativeCount,
     positiveCount: full.positiveCount,
+    absenceCount,
     gradeTrend: full.gradeTrend,
     behaviorTrend: full.behaviorTrend,
+    behaviorOnlyTrend: full.behaviorOnlyTrend ?? full.behaviorTrend,
     riskLevel: full.riskLevel,
     riskScore: full.riskScore,
   };
@@ -554,7 +707,13 @@ IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGN
   const gradesCSV = `
 IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE
 IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE,IGNORE
-מס',ת.ז,שם התלמיד,שכבה,כיתה,שליליים,"מתמטיקה רבקה כהן [101] בחן 1 02/09/2024 משקל 10","היסטוריה דוד לוי [102] עבודה 06/09/2024 משקל 20","אנגלית שרה אברהם [103] מבחן מחצית 14/09/2024 משקל 30"
+מס',ת.ז,שם התלמיד,שכבה,כיתה,שליליים,"מתמטיקה רבקה כהן [101]
+בחן 1 02/09/2024
+משקל 10","היסטוריה דוד לוי [102]
+עבודה 06/09/2024
+משקל 20","אנגלית שרה אברהם [103]
+מבחן מחצית 14/09/2024
+משקל 30"
 1,123456789,ישראל ישראלי,ח,1,2,55,80,60
 2,987654321,דניאל כהן,ח,1,0,95,90,88
 `.trim();

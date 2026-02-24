@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Student, Grade } from '../types';
 import { getDisplayName } from '../utils/displayName';
+import { normalizeSubjectName } from '../utils/processing';
 import { Search, ArrowUp, ArrowDown, ChevronUp, ChevronDown, Minus, BarChart3, X, ListFilter } from 'lucide-react';
 import HelpTip from './HelpTip';
 import { format } from 'date-fns';
@@ -36,7 +37,7 @@ interface RowData {
 }
 
 function getSubjectData(grades: Grade[], subject: string): CellData {
-  const bySubject = grades.filter((g) => ((g.subject || '').trim() || 'כללי') === subject);
+  const bySubject = grades.filter((g) => normalizeSubjectName((g.subject || '').trim() || 'כללי') === subject);
   if (bySubject.length === 0) return { avg: null, weightedAvg: null, count: 0, grades: [] };
   const sum = bySubject.reduce((s, g) => s + g.score, 0);
   const avg = Math.round((sum / bySubject.length) * 10) / 10;
@@ -140,7 +141,13 @@ function GradeDetailDialog({ studentName, subject, grades, onClose }: GradeDetai
             <tbody>
               {sorted.map((g, i) => (
                 <tr key={i} className="border-b border-slate-100">
-                  <td className="py-2 pr-2 font-medium">{g.assignment || '—'}</td>
+                  <td className="py-2 pr-2 font-medium">
+                    {(() => {
+                      const a = (g.assignment || '').toString().trim();
+                      if (!a || /^\d+$/.test(a)) return 'מטלה';
+                      return a;
+                    })()}
+                  </td>
                   <td className="py-2 pr-2">{g.score}</td>
                   <td className="py-2 pr-2">{g.weight ?? 1}</td>
                   <td className="py-2 pr-2 text-slate-500">{format(new Date(g.date), 'dd/MM/yyyy', { locale: he })}</td>
@@ -232,7 +239,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
     const subjectSet = new Set<string>();
     students.forEach((s) => {
       s.grades.forEach((g) => {
-        const subj = (g.subject || '').trim() || 'כללי';
+        const subj = normalizeSubjectName((g.subject || '').trim() || 'כללי');
         subjectSet.add(subj);
       });
     });
@@ -395,7 +402,12 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
             <div className="text-[10px] text-slate-300 mb-1">לחץ לפרטים מלאים</div>
             {cell!.grades.slice(0, 6).map((g, i) => (
               <div key={i} className="flex justify-between gap-4">
-                <span>{g.assignment || 'ציון'}</span>
+                <span>
+                  {(() => {
+                    const a = (g.assignment || '').toString().trim();
+                    return !a || /^\d+$/.test(a) ? 'מטלה' : a;
+                  })()}
+                </span>
                 <span className="font-medium">{g.score}</span>
               </div>
             ))}

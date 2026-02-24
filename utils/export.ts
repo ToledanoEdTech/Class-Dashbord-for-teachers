@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import { Student, ClassGroup, RiskSettings, EventType, Grade, BehaviorEvent } from '../types';
 import { format, eachWeekOfInterval, eachDayOfInterval, isSameWeek, isSameDay, endOfWeek, differenceInDays } from 'date-fns';
 import { isAbsenceEvent, isOtherNegativeEvent } from '../types';
+import { normalizeSubjectName } from './processing';
 import html2canvas from 'html2canvas';
 
 /**
@@ -164,9 +165,9 @@ export async function exportStudentsAtRiskToExcel(
     { width: 22 }  // מספר אירועי התנהגות
   ];
 
-  // גיליון פירוט ציונים
+  // גיליון פירוט ציונים – שמות המבחנים/אירועי ההערכה במרכז, מקצוע מנורמל
   const gradesSheet = workbook.addWorksheet('פירוט ציונים');
-  const gradesHeaders = ['מזהה תלמיד', 'שם התלמיד', 'מקצוע', 'מורה', 'מטלה', 'תאריך', 'ציון', 'משקל'];
+  const gradesHeaders = ['מזהה תלמיד', 'שם התלמיד', 'אירוע ציון / שם המבחן', 'מקצוע', 'מורה', 'תאריך', 'ציון', 'משקל'];
   const gradesHeaderRow = gradesSheet.addRow(gradesHeaders);
   gradesHeaderRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
   gradesHeaderRow.fill = {
@@ -182,9 +183,9 @@ export async function exportStudentsAtRiskToExcel(
       const gradeRow = gradesSheet.addRow([
         student.id,
         student.name,
-        grade.subject,
+        grade.assignment || 'מטלה',
+        normalizeSubjectName(grade.subject || 'כללי'),
         grade.teacher,
-        grade.assignment,
         format(grade.date, 'dd/MM/yyyy'),
         grade.score,
         grade.weight
@@ -682,9 +683,9 @@ export async function exportClassSummaryToExcel(
     { width: 15 }
   ];
 
-  // גיליון פירוט ציונים
+  // גיליון פירוט ציונים – שמות המבחנים/אירועי ההערכה במרכז, מקצוע מנורמל
   const gradesSheet = workbook.addWorksheet('פירוט ציונים');
-  const gradesHeaders = ['מזהה תלמיד', 'שם התלמיד', 'מקצוע', 'מורה', 'מטלה', 'תאריך', 'ציון', 'משקל'];
+  const gradesHeaders = ['מזהה תלמיד', 'שם התלמיד', 'אירוע ציון / שם המבחן', 'מקצוע', 'מורה', 'תאריך', 'ציון', 'משקל'];
   const gradesHeaderRow = gradesSheet.addRow(gradesHeaders);
   gradesHeaderRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
   gradesHeaderRow.fill = {
@@ -700,9 +701,9 @@ export async function exportClassSummaryToExcel(
       const gradeRow = gradesSheet.addRow([
         student.id,
         student.name,
-        grade.subject,
+        grade.assignment || 'מטלה',
+        normalizeSubjectName(grade.subject || 'כללי'),
         grade.teacher,
-        grade.assignment,
         format(grade.date, 'dd/MM/yyyy'),
         grade.score,
         grade.weight
@@ -854,7 +855,7 @@ export async function exportClassSummaryToExcel(
   
   students.forEach((student) => {
     student.grades.forEach((grade) => {
-      const subject = grade.subject || 'כללי';
+      const subject = normalizeSubjectName(grade.subject || 'כללי');
       if (!subjectStats[subject]) {
         subjectStats[subject] = { students: new Set(), grades: [], events: 0 };
       }
@@ -863,7 +864,7 @@ export async function exportClassSummaryToExcel(
     });
     
     student.behaviorEvents.forEach((event) => {
-      const subject = event.subject || 'כללי';
+      const subject = normalizeSubjectName(event.subject || 'כללי');
       if (!subjectStats[subject]) {
         subjectStats[subject] = { students: new Set(), grades: [], events: 0 };
       }
@@ -1119,7 +1120,7 @@ export function exportClassSummaryToPDF(
   
   students.forEach((student) => {
     student.grades.forEach((grade) => {
-      const subject = grade.subject || 'כללי';
+      const subject = normalizeSubjectName(grade.subject || 'כללי');
       if (!subjectStats[subject]) {
         subjectStats[subject] = { students: new Set(), grades: [], events: 0 };
       }
@@ -1128,7 +1129,7 @@ export function exportClassSummaryToPDF(
     });
     
     student.behaviorEvents.forEach((event) => {
-      const subject = event.subject || 'כללי';
+      const subject = normalizeSubjectName(event.subject || 'כללי');
       if (!subjectStats[subject]) {
         subjectStats[subject] = { students: new Set(), grades: [], events: 0 };
       }
