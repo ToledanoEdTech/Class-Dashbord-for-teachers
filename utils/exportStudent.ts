@@ -45,8 +45,9 @@ export async function exportStudentProfileToExcel(
   const otherNegativeCount = student.behaviorEvents.filter(isOtherNegativeEvent).length;
   const gradeTrendText = student.gradeTrend === 'improving' ? 'משתפר ⬆️' : 
                         student.gradeTrend === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
-  const behaviorTrendText = student.behaviorTrend === 'improving' ? 'משתפר ⬆️' : 
-                           student.behaviorTrend === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
+  const bTrendSt = student.behaviorOnlyTrend ?? student.behaviorTrend;
+  const behaviorTrendText = bTrendSt === 'improving' ? 'משתפר ⬆️' : 
+                           bTrendSt === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
   const riskText = student.riskLevel === 'high' ? 'גבוה' : 
                   student.riskLevel === 'medium' ? 'בינוני' : 'נמוך';
 

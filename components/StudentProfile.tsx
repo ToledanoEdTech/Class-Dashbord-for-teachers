@@ -821,7 +821,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     if (effectiveStudent.gradeTrend === 'declining') {
       insights.push({ icon: TrendingDown, text: 'מגמת ציונים יורדת – לבחון מה השתנה ולדבר עם התלמיד על חסמים', priority: 3 });
     }
-    if (effectiveStudent.behaviorTrend === 'declining') {
+    if ((effectiveStudent.behaviorOnlyTrend ?? effectiveStudent.behaviorTrend) === 'declining') {
       insights.push({ icon: AlertCircle, text: 'מגמת התנהגות מידרדרת – להזכיר חוקים ולהעמיק בשיחה על מקור האירועים', priority: 4 });
     }
     const absencesCount = effectiveStudent.behaviorEvents.filter(isAbsenceEvent).length;

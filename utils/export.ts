@@ -82,8 +82,9 @@ export async function exportStudentsAtRiskToExcel(
     
     const gradeTrendText = student.gradeTrend === 'improving' ? 'משתפר' : 
                           student.gradeTrend === 'declining' ? 'מידרדר' : 'יציב';
-    const behaviorTrendText = student.behaviorTrend === 'improving' ? 'משתפר' : 
-                             student.behaviorTrend === 'declining' ? 'מידרדר' : 'יציב';
+    const bTrend = student.behaviorOnlyTrend ?? student.behaviorTrend;
+    const behaviorTrendText = bTrend === 'improving' ? 'משתפר' : 
+                             bTrend === 'declining' ? 'מידרדר' : 'יציב';
     const riskText = student.riskLevel === 'high' ? 'גבוה' : 
                     student.riskLevel === 'medium' ? 'בינוני' : 'נמוך';
 
@@ -600,8 +601,9 @@ export async function exportClassSummaryToExcel(
     
     const gradeTrendText = student.gradeTrend === 'improving' ? 'משתפר' : 
                           student.gradeTrend === 'declining' ? 'מידרדר' : 'יציב';
-    const behaviorTrendText = student.behaviorTrend === 'improving' ? 'משתפר' : 
-                             student.behaviorTrend === 'declining' ? 'מידרדר' : 'יציב';
+    const bTrend2 = student.behaviorOnlyTrend ?? student.behaviorTrend;
+    const behaviorTrendText = bTrend2 === 'improving' ? 'משתפר' : 
+                             bTrend2 === 'declining' ? 'מידרדר' : 'יציב';
     const riskText = student.riskLevel === 'high' ? 'גבוה' : 
                     student.riskLevel === 'medium' ? 'בינוני' : 'נמוך';
 
@@ -1629,8 +1631,9 @@ export function exportClassSummaryToPDF(
               const absenceCount = student.behaviorEvents.filter(isAbsenceEvent).length;
               const gradeTrendText = student.gradeTrend === 'improving' ? 'משתפר ⬆️' : 
                                     student.gradeTrend === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
-              const behaviorTrendText = student.behaviorTrend === 'improving' ? 'משתפר ⬆️' : 
-                                       student.behaviorTrend === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
+              const bTrendHtml = student.behaviorOnlyTrend ?? student.behaviorTrend;
+              const behaviorTrendText = bTrendHtml === 'improving' ? 'משתפר ⬆️' : 
+                                       bTrendHtml === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
               const riskText = student.riskLevel === 'high' ? 'גבוה' : 
                              student.riskLevel === 'medium' ? 'בינוני' : 'נמוך';
               const riskClass = student.riskLevel === 'high' ? 'risk-high-cell' : 

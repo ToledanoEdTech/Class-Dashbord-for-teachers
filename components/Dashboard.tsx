@@ -1868,9 +1868,9 @@ const StudentCard: React.FC<{ student: Student; onClick: () => void; index: numb
         </div>
         <div className="text-center">
           <span className="text-[10px] text-slate-500 block mb-1">מגמת התנהגות</span>
-          {student.behaviorTrend === 'improving' && <MetricIcons.TrendUp size={18} className="text-grade-success mx-auto" />}
-          {student.behaviorTrend === 'declining' && <MetricIcons.TrendDown size={18} className="text-grade-danger mx-auto" />}
-          {student.behaviorTrend === 'stable' && <MetricIcons.TrendStable size={18} className="text-slate-400 mx-auto" />}
+          {((student as any).behaviorOnlyTrend ?? student.behaviorTrend) === 'improving' && <MetricIcons.TrendUp size={18} className="text-grade-success mx-auto" />}
+          {((student as any).behaviorOnlyTrend ?? student.behaviorTrend) === 'declining' && <MetricIcons.TrendDown size={18} className="text-grade-danger mx-auto" />}
+          {((student as any).behaviorOnlyTrend ?? student.behaviorTrend) === 'stable' && <MetricIcons.TrendStable size={18} className="text-slate-400 mx-auto" />}
           <MiniSparkline values={behaviorValues} color="#f59e0b" min={behaviorMin} max={behaviorMax} />
         </div>
       </div>

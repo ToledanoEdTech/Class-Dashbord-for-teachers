@@ -541,14 +541,16 @@ export function calculateStudentStats(
       return 0;
     };
     const scoreCurr = currHalf.reduce((sum, e) => sum + getScore(e), 0);
-    const scorePrev = prevHalf.reduce((sum, e) => sum + getScore(e), 0);
-    const behaviorDelta = scoreCurr - scorePrev;
     recentBehaviorScore = scoreCurr;
-    if (scoreCurr <= -6 && behaviorDelta <= 0) behaviorTrend = 'declining';
-    else {
-      if (behaviorDelta >= 2) behaviorTrend = 'improving';
-      else if (behaviorDelta <= -2) behaviorTrend = 'declining';
-    }
+
+    const negPrev = prevHalf.filter(e => e.category === EventType.NEGATIVE).length;
+    const negCurr = currHalf.filter(e => e.category === EventType.NEGATIVE).length;
+    const posPrev = prevHalf.filter(e => e.category === EventType.POSITIVE).length;
+    const posCurr = currHalf.filter(e => e.category === EventType.POSITIVE).length;
+    const improvementSignal = (negPrev - negCurr) + (posCurr - posPrev);
+
+    if (improvementSignal > 0) behaviorTrend = 'improving';
+    else if (improvementSignal < 0) behaviorTrend = 'declining';
   }
 
   let behaviorOnlyTrend: 'improving' | 'declining' | 'stable' = 'stable';
@@ -557,17 +559,15 @@ export function calculateStudentStats(
     const mid = Math.floor(recent.length / 2);
     const prevHalf = recent.slice(0, mid);
     const currHalf = recent.slice(mid);
-    const getScore = (e: BehaviorEvent) => {
-      if (e.category === EventType.POSITIVE) return 1;
-      if (e.category === EventType.NEGATIVE) return -2;
-      return 0;
-    };
-    const scoreCurr = currHalf.reduce((sum, e) => sum + getScore(e), 0);
-    const scorePrev = prevHalf.reduce((sum, e) => sum + getScore(e), 0);
-    const delta = scoreCurr - scorePrev;
-    if (scoreCurr <= -6 && delta <= 0) behaviorOnlyTrend = 'declining';
-    else if (delta >= 2) behaviorOnlyTrend = 'improving';
-    else if (delta <= -2) behaviorOnlyTrend = 'declining';
+
+    const negPrevBO = prevHalf.filter(e => e.category === EventType.NEGATIVE).length;
+    const negCurrBO = currHalf.filter(e => e.category === EventType.NEGATIVE).length;
+    const posPrevBO = prevHalf.filter(e => e.category === EventType.POSITIVE).length;
+    const posCurrBO = currHalf.filter(e => e.category === EventType.POSITIVE).length;
+    const improvementSignalBO = (negPrevBO - negCurrBO) + (posCurrBO - posPrevBO);
+
+    if (improvementSignalBO > 0) behaviorOnlyTrend = 'improving';
+    else if (improvementSignalBO < 0) behaviorOnlyTrend = 'declining';
   }
 
   const minGT = settings.minGradeThreshold;
