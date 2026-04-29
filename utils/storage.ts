@@ -2,6 +2,7 @@ import type { ClassGroup, RiskSettings, Student, Grade, BehaviorEvent, PerClassR
 import { DEFAULT_RISK_SETTINGS, normalizeRiskSettings } from '../types';
 import type { DashboardWidgetsState } from '../constants/dashboardWidgets';
 import { normalizeDashboardWidgets } from '../constants/dashboardWidgets';
+import { normalizeSubjectName } from './processing';
 
 const STORAGE_KEY_PREFIX = 'toledano-edtech-state';
 
@@ -46,10 +47,20 @@ export function toPersistedStudent(s: Student): PersistedStudent {
 }
 
 export function fromPersistedStudent(p: PersistedStudent): Student {
+  // מתקנים בטעינה שמות מקצועות שנשמרו בעבר עם התואר "הרב" / "הרבנית" / וכו'
+  // (תיקון רטרואקטיבי לנתונים שהועלו לפני התיקון בלוגיקת הניתוח של קבצי משו"ב).
   return {
     ...p,
-    grades: p.grades.map((g) => ({ ...g, date: new Date(g.date) })),
-    behaviorEvents: p.behaviorEvents.map((e) => ({ ...e, date: new Date(e.date) })),
+    grades: p.grades.map((g) => ({
+      ...g,
+      date: new Date(g.date),
+      subject: normalizeSubjectName(g.subject || 'כללי'),
+    })),
+    behaviorEvents: p.behaviorEvents.map((e) => ({
+      ...e,
+      date: new Date(e.date),
+      subject: normalizeSubjectName(e.subject || 'כללי'),
+    })),
   };
 }
 
