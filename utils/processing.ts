@@ -63,10 +63,16 @@ const findSubjectCol = (headerRow: any[]): number => {
 /**
  * מנרמל שם מורה: אם מופיע תג הקבצה/מקצוע בתחילה (למשל "א1 רבקה גורדון") מחזיר רק "רבקה גורדון".
  * כך מורים שמופיעים בהקבצות שונות יזוהו כאותו מורה.
+ * שומרים על תואר "הרב" / "הרבנית" וכו' אם הוא קיים – זה חלק מזיהוי המורה.
  */
 const normalizeTeacherName = (raw: string): string => {
   const t = (raw || '').trim().replace(/\s+/g, ' ');
   if (!t) return '';
+  // אם מופיע תואר "הרב"/"הרבנית"/וכו' – נחזיר אותו ואת מה שאחריו (התואר + שם המורה)
+  const titleMatch = t.match(/(?:^|\s)(הרבנית|הרב|רב|הרה"ג|הגאון)\s+\S+/);
+  if (titleMatch && titleMatch.index !== undefined) {
+    return t.substring(titleMatch.index).trim();
+  }
   const words = t.split(' ').filter(Boolean);
   if (words.length >= 3) return words.slice(-2).join(' ');
   return t;
@@ -80,8 +86,11 @@ export const normalizeSubjectName = (raw: string): string => {
   const withComma = (raw || '').trim().replace(/\s+/g, ' ');
   let clean = withComma.includes(',') ? withComma.split(',')[0].trim().replace(/\s+/g, ' ') : withComma;
   if (!clean) return 'כללי';
-  // אם מופיע "הרב" או "רב" – לוקחים רק את החלק שלפניהם (מקצוע + אולי הקבצה)
-  const rabbiMatch = clean.match(/\s+(הרב|רב)\s+/);
+  // אם מופיע "הרב" / "רב" / "הרבנית" / "הרה"ג" כתואר של המורה –
+  // לוקחים רק את החלק שלפניהם (מקצוע + אולי הקבצה).
+  // התואר יכול להופיע באמצע (לפני שם המורה: "אנגלית הרב נגאוקר") או בסוף
+  // (אם שם המורה כבר הוסר במקום אחר ונשאר רק "עברית הרב").
+  const rabbiMatch = clean.match(/\s+(הרבנית|הרב|רב|הרה"ג|הגאון)(\s|$)/);
   if (rabbiMatch && rabbiMatch.index !== undefined) {
     clean = clean.substring(0, rabbiMatch.index).trim();
     if (!clean) return 'כללי';
@@ -399,19 +408,27 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
     }
 
     // --- חילוץ מקצוע ומורה מ-subjectLine ---
-    // דוגמה: "אנגלית א1 רבקה גורדון [71]"
+    // דוגמה: "אנגלית א1 רבקה גורדון [71]"  או  "גמרא הרב נגאוקר אבינעם [71]"
     const subjectClean = subjectLine.replace(/\s*\[\d+\]\s*$/, '').trim();
     let subject = 'כללי';
     let teacher = '';
-    const words = subjectClean ? subjectClean.split(/\s+/).filter(Boolean) : [];
-    if (words.length >= 3) {
-      teacher = words.slice(-2).join(' ');
-      subject = words.slice(0, -2).join(' ');
-    } else if (words.length === 2) {
-      teacher = words[1];
-      subject = words[0];
-    } else if (words.length === 1) {
-      subject = words[0];
+    // אם מופיע תואר "הרב" / "הרבנית" וכו' – הכל ממנו והלאה הוא שם המורה (כולל התואר),
+    // וכל מה שלפני התואר הוא המקצוע (ואולי הקבצה).
+    const rabbiTitleMatch = subjectClean.match(/\s+(הרבנית|הרב|רב|הרה"ג|הגאון)(\s|$)/);
+    if (rabbiTitleMatch && rabbiTitleMatch.index !== undefined) {
+      subject = subjectClean.substring(0, rabbiTitleMatch.index).trim();
+      teacher = subjectClean.substring(rabbiTitleMatch.index).trim();
+    } else {
+      const words = subjectClean ? subjectClean.split(/\s+/).filter(Boolean) : [];
+      if (words.length >= 3) {
+        teacher = words.slice(-2).join(' ');
+        subject = words.slice(0, -2).join(' ');
+      } else if (words.length === 2) {
+        teacher = words[1];
+        subject = words[0];
+      } else if (words.length === 1) {
+        subject = words[0];
+      }
     }
 
     // --- חילוץ שם מטלה ותאריך מ-assignmentLine ---
