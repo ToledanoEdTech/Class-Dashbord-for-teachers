@@ -33,9 +33,32 @@ import { normalizeRiskSettings } from '../types';
 const SETTINGS_DOC = 'settings';
 const COMPRESSED_VERSION = 2;
 const FIRESTORE_DOC_KEY = 'appData';
-const MAX_CHUNK_BYTES = 800000;
+// Firestore rejects any single string field larger than 1,048,487 UTF-8 bytes.
+// LZString.compressToUTF16 returns UTF-16 chars mostly in 0x800–0x7FFF, each
+// taking 3 bytes in UTF-8 – so we must measure the *byte* size, not .length.
+// We leave generous headroom below the hard limit for safety.
+const MAX_CHUNK_BYTES = 900_000;
 const MAX_BATCH_OPS = 400;
 const DELETED_CLASSES_COL = 'deletedClasses';
+
+const _textEncoder: TextEncoder | null =
+  typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
+
+/** Returns the UTF-8 byte length of a string, matching how Firestore measures field size. */
+function utf8ByteLength(s: string): number {
+  if (_textEncoder) return _textEncoder.encode(s).length;
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff) {
+      n += 4;
+      i++;
+    } else n += 3;
+  }
+  return n;
+}
 
 async function fetchDeletedClassIds(
   db: Firestore,
@@ -73,6 +96,50 @@ function decompress(compressed: string): unknown {
   const json = LZString.decompressFromUTF16(compressed);
   if (!json) throw new Error('Failed to decompress');
   return JSON.parse(json);
+}
+
+/**
+ * Pack students into chunks where each chunk's compressed payload is <= MAX_CHUNK_BYTES (UTF-8 bytes).
+ *
+ * Strategy: estimate each student's incremental compressed cost from a quick solo compression,
+ * pack greedily by estimate, and verify the combined compressed size before committing each chunk.
+ * If the verified size still exceeds the limit we shrink the chunk via binary search.
+ *
+ * Throws a Hebrew error if even a single student cannot fit in one chunk (extremely rare – would
+ * require many MB of grades/events for one student).
+ */
+function splitStudentsIntoChunks(
+  students: PersistedStudent[],
+  className: string
+): Array<{ students: PersistedStudent[]; compressed: string }> {
+  const out: Array<{ students: PersistedStudent[]; compressed: string }> = [];
+  let i = 0;
+  while (i < students.length) {
+    let lo = 1;
+    let hi = students.length - i;
+    let bestCount = 0;
+    let bestCompressed = '';
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const slice = students.slice(i, i + mid);
+      const candidate = compress({ students: slice });
+      if (utf8ByteLength(candidate) <= MAX_CHUNK_BYTES) {
+        bestCount = mid;
+        bestCompressed = candidate;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    if (bestCount === 0) {
+      throw new Error(
+        `תלמיד בודד בכיתה "${className}" גדול מדי לשמירה בענן. נסה להקטין נתונים (ציונים/אירועים).`
+      );
+    }
+    out.push({ students: students.slice(i, i + bestCount), compressed: bestCompressed });
+    i += bestCount;
+  }
+  return out;
 }
 
 /** Firestore rejects undefined - strip it from nested objects */
@@ -399,7 +466,7 @@ export async function saveToFirestore(
         }
       }
 
-      if (compressed.length <= MAX_CHUNK_BYTES) {
+      if (utf8ByteLength(compressed) <= MAX_CHUNK_BYTES) {
         await queueSet(classRef, {
           v: COMPRESSED_VERSION,
           d: compressed,
@@ -407,19 +474,7 @@ export async function saveToFirestore(
           t: Date.now(),
         });
       } else {
-        const persistedStudents = persisted.students;
-        const chunks: { students: PersistedStudent[] }[] = [];
-        let currentChunk: PersistedStudent[] = [];
-        for (const s of persistedStudents) {
-          currentChunk.push(s);
-          const compressedChunk = compress({ students: currentChunk });
-          if (compressedChunk.length > MAX_CHUNK_BYTES && currentChunk.length > 1) {
-            currentChunk.pop();
-            chunks.push({ students: [...currentChunk] });
-            currentChunk = [s];
-          }
-        }
-        if (currentChunk.length > 0) chunks.push({ students: currentChunk });
+        const chunks = splitStudentsIntoChunks(persisted.students, c.name);
 
         await queueSet(classRef, {
           meta: {
@@ -435,13 +490,7 @@ export async function saveToFirestore(
         const chunksRef = collection(db, 'users', userId, 'classes', c.id, 'chunks');
         const existingChunks = await getDocs(chunksRef);
         for (let i = 0; i < chunks.length; i++) {
-          const chunkCompressed = compress(chunks[i]);
-          if (chunkCompressed.length > MAX_CHUNK_BYTES) {
-            throw new Error(
-              `תלמיד בודד בכיתה "${c.name}" גדול מדי. נסה להקטין נתונים (ציונים/אירועים).`
-            );
-          }
-          await queueSet(doc(chunksRef, String(i)), { d: chunkCompressed });
+          await queueSet(doc(chunksRef, String(i)), { d: chunks[i].compressed });
         }
         for (let i = chunks.length; i < existingChunks.docs.length; i++) {
           await queueDelete(doc(chunksRef, String(i)));
