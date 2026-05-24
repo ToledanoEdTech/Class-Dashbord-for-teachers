@@ -10,6 +10,9 @@ import StudentProfile from './components/StudentProfile';
 import SettingsPanel from './components/SettingsPanel';
 import TeachersAnalytics from './components/TeachersAnalytics';
 import SubjectMatrix from './components/SubjectMatrix';
+import PedagogicalMeetings from './components/PedagogicalMeetings';
+import MeetingView from './components/MeetingView';
+import MeetingTeacherForm from './components/MeetingTeacherForm';
 import { Student, AppState, ClassGroup, RiskSettings, PerClassRiskSettings, PeriodDefinition, DEFAULT_RISK_SETTINGS } from './types';
 import { processFiles } from './utils/processing';
 import { calculateStudentStats } from './utils/processing';
@@ -60,6 +63,7 @@ const getInitialState = (): AppState => {
   return {
     view: 'landing',
     selectedStudentId: null,
+    activeMeetingId: null,
     classes: loaded.classes,
     activeClassId: loaded.activeClassId,
     isAnonymous: false,
@@ -95,6 +99,15 @@ const App: React.FC = () => {
   const [darkMode, setDarkMode] = useState(() => loadPreferences().darkMode);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => loadPreferences().fontSize);
   const [dashboardWidgets, setDashboardWidgets] = useState(() => loadDashboardWidgets());
+
+  const meetingLinkToken = (() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('meeting');
+  })();
+  const meetingHomeroomUid = (() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('t');
+  })();
 
   // Handle student routing - redirect students to student dashboard
   useEffect(() => {
@@ -369,6 +382,13 @@ const App: React.FC = () => {
       />
     );
   }
+
+  // Show teacher meeting form via share link (no login required)
+  if (meetingLinkToken && meetingHomeroomUid) {
+    return <MeetingTeacherForm linkToken={meetingLinkToken} homeroomUid={meetingHomeroomUid} />;
+  }
+
+  const homeroomName = user?.displayName || user?.email || 'מחנך/ת';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-primary-50/30 font-sans text-slate-900 flex">
@@ -713,6 +733,19 @@ const App: React.FC = () => {
                       <NavIcons.SubjectMatrix size={18} className="shrink-0" />
                       <span className="text-xs sm:text-sm">מטריצה</span>
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setState((prev) => ({ ...prev, view: 'meetings', activeMeetingId: null }))}
+                      className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all min-h-[40px] ${
+                        state.view === 'meetings' || state.view === 'meeting'
+                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                          : 'text-slate-600 dark:text-slate-300 active:bg-slate-200/60 dark:active:bg-slate-600'
+                      }`}
+                      aria-label="ישיבות פדגוגיות"
+                    >
+                      <NavIcons.PedagogicalMeetings size={18} className="shrink-0" />
+                      <span className="text-xs sm:text-sm">ישיבות</span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -790,6 +823,19 @@ const App: React.FC = () => {
                     >
                       <NavIcons.SubjectMatrix size={18} className="shrink-0" />
                       <span>מטריצת מקצועות</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setState((prev) => ({ ...prev, view: 'meetings', activeMeetingId: null }))}
+                      className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                        state.view === 'meetings' || state.view === 'meeting'
+                          ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
+                      }`}
+                      aria-label="ישיבות פדגוגיות"
+                    >
+                      <NavIcons.PedagogicalMeetings size={18} className="shrink-0" />
+                      <span>ישיבות פדגוגיות</span>
                     </button>
                   </div>
                 )}
@@ -936,6 +982,31 @@ const App: React.FC = () => {
 
           {state.view === 'matrix' && activeClass && (
             <SubjectMatrix students={students} isAnonymous={state.isAnonymous} />
+          )}
+
+          {state.view === 'meetings' && activeClass && user && (
+            <PedagogicalMeetings
+              activeClass={activeClass}
+              homeroomUid={user.uid}
+              homeroomName={homeroomName}
+              onOpenMeeting={(meetingId) => setState((prev) => ({ ...prev, view: 'meeting', activeMeetingId: meetingId }))}
+            />
+          )}
+
+          {state.view === 'meetings' && activeClass && !user && (
+            <div className="max-w-md mx-auto p-8 text-center">
+              <p className="text-slate-600 mb-4">ישיבות פדגוגיות דורשות התחברות לחשבון.</p>
+              <button type="button" onClick={() => setShowAuthModal(true)} className="px-5 py-2.5 rounded-xl bg-primary-600 text-white font-medium">התחבר</button>
+            </div>
+          )}
+
+          {state.view === 'meeting' && state.activeMeetingId && user && (
+            <MeetingView
+              meetingId={state.activeMeetingId}
+              homeroomUid={user.uid}
+              homeroomName={homeroomName}
+              onBack={() => setState((prev) => ({ ...prev, view: 'meetings', activeMeetingId: null }))}
+            />
           )}
 
           {state.view === 'settings' && (

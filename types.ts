@@ -135,8 +135,65 @@ export interface ClassGroup {
   lastUpdated: Date;
 }
 
+/** משתתף בישיבה פדגוגית (מורה מקצוע) */
+export interface MeetingParticipant {
+  id: string;
+  teacherName: string;
+  subject: string;
+  token: string;
+  submittedAt?: string;
+}
+
+/** תלמיד בצילום מצב לישיבה (ללא נתונים מלאים) */
+export interface MeetingStudentSnapshot {
+  id: string;
+  name: string;
+  averageScore?: number;
+  riskLevel?: 'high' | 'medium' | 'low';
+}
+
+/** הערת מורה על תלמיד בישיבה */
+export interface StudentMeetingNote {
+  id: string;
+  studentId: string;
+  participantId: string;
+  teacherName: string;
+  subject: string;
+  note: string;
+  updatedAt: string;
+}
+
+/** החלטה / המלצה מישיבה פדגוגית */
+export interface MeetingDecision {
+  id: string;
+  studentId?: string;
+  studentName?: string;
+  text: string;
+  authorName: string;
+  authorRole: 'homeroom' | 'coordinator';
+  createdAt: string;
+}
+
+/** ישיבה פדגוגית */
+export interface PedagogicalMeeting {
+  id: string;
+  classId: string;
+  className: string;
+  homeroomTeacherUid: string;
+  homeroomTeacherName: string;
+  title: string;
+  status: 'draft' | 'collecting' | 'in_progress' | 'completed';
+  createdAt: string;
+  scheduledAt?: string;
+  completedAt?: string;
+  studentSnapshot: MeetingStudentSnapshot[];
+  participants: MeetingParticipant[];
+}
+
 export interface AppState {
-  view: 'landing' | 'upload' | 'dashboard' | 'student' | 'teachers' | 'matrix' | 'settings';
+  view: 'landing' | 'upload' | 'dashboard' | 'student' | 'teachers' | 'matrix' | 'meetings' | 'meeting' | 'settings';
+  /** מזהה ישיבה פעילה (במסך meeting) */
+  activeMeetingId: string | null;
   selectedStudentId: string | null;
   /** כל הכיתות (במקום רשימת תלמידים שטוחה) */
   classes: ClassGroup[];

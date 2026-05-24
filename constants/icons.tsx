@@ -29,6 +29,7 @@ import {
   TrendingUp,
   Upload,
   Users,
+  Users2,
 } from 'lucide-react';
 
 /** אייקונים לפעולות ניווט וממשק */
@@ -36,6 +37,7 @@ export const NavIcons = {
   Dashboard: LayoutDashboard,
   TeachersAnalytics: BarChart3,
   SubjectMatrix: Grid3X3,
+  PedagogicalMeetings: Users2,
   Upload: Upload,
   Settings: Settings,
   AddClass: PlusCircle,

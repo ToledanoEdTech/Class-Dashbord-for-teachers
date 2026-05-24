@@ -15,6 +15,19 @@ service cloud.firestore {
     function isCurrentUserTeacher() {
       return isSignedIn() && !isCurrentUserStudent();
     }
+
+    function isMeetingOwner(uid, meetingId) {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(uid)/pedagogicalMeetings/$(meetingId)) &&
+             get(/databases/$(database)/documents/users/$(uid)/pedagogicalMeetings/$(meetingId)).data.homeroomTeacherUid == request.auth.uid;
+    }
+
+    function isValidParticipantNote(uid, meetingId) {
+      return request.resource.data.participantId is string &&
+             request.resource.data.participantToken is string &&
+             exists(/databases/$(database)/documents/users/$(uid)/pedagogicalMeetings/$(meetingId)/participants/$(request.resource.data.participantId)) &&
+             get(/databases/$(database)/documents/users/$(uid)/pedagogicalMeetings/$(meetingId)/participants/$(request.resource.data.participantId)).data.token == request.resource.data.participantToken;
+    }
     
     match /users/{userId} {
       // Teachers can manage all user docs (needed for student account management).
@@ -48,6 +61,43 @@ service cloud.firestore {
       allow read: if isSignedIn() &&
                      (request.auth.uid == userId || isCurrentUserStudent());
       allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ── ישיבות פדגוגיות ──
+    match /users/{userId}/pedagogicalMeetings/{meetingId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+
+      match /participants/{participantId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow write: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      match /notes/{noteId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create, update: if isValidParticipantNote(userId, meetingId);
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      match /decisions/{decisionId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+
+    match /users/{userId}/meetingLinks/{token} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if (isSignedIn() && request.auth.uid == userId) ||
+        (resource.data.participantToken == request.resource.data.participantToken);
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // קישורי ישיבה (נתיב ישן – תאימות לאחור)
+    match /meetingLinks/{token} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() ||
+        (resource.data.participantToken == request.resource.data.participantToken);
+      allow delete: if isSignedIn();
     }
     
     match /users/{userId}/{document=**} {
