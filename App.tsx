@@ -690,61 +690,61 @@ const App: React.FC = () => {
               </div>
               </div>
 
-              {/* Second Row: Navigation Buttons – במרכז השורה */}
+              {/* Second Row: Navigation Buttons – פריסת רשת במוביל כדי שלא תגלוש מהמסגרת */}
               {state.view !== 'upload' && state.view !== 'settings' && state.view !== 'landing' && (
-                <div className="pb-2.5 flex justify-center">
-                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/90 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600">
+                <div className="pb-2.5 w-full min-w-0">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 w-full min-w-0 rounded-xl bg-slate-100/90 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600">
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
-                      className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all min-h-[40px] ${
+                      className={`flex flex-col items-center justify-center gap-0.5 px-1 py-2 rounded-lg text-xs font-medium transition-all min-h-[52px] min-w-0 ${
                         state.view === 'dashboard' || state.view === 'student'
                           ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
                           : 'text-slate-600 dark:text-slate-300 active:bg-slate-200/60 dark:active:bg-slate-600'
                       }`}
                       aria-label="דשבורד"
                     >
-                      <NavIcons.Dashboard size={18} className="shrink-0" />
-                      <span className="text-xs sm:text-sm">דשבורד</span>
+                      <NavIcons.Dashboard size={16} className="shrink-0" />
+                      <span className="text-[10px] sm:text-xs leading-tight text-center truncate max-w-full px-0.5">דשבורד</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
-                      className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all min-h-[40px] ${
+                      className={`flex flex-col items-center justify-center gap-0.5 px-1 py-2 rounded-lg text-xs font-medium transition-all min-h-[52px] min-w-0 ${
                         state.view === 'teachers'
                           ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
                           : 'text-slate-600 dark:text-slate-300 active:bg-slate-200/60 dark:active:bg-slate-600'
                       }`}
                       aria-label="אנליטיקת מורים"
                     >
-                      <NavIcons.TeachersAnalytics size={18} className="shrink-0" />
-                      <span className="text-xs sm:text-sm">אנליטיקה</span>
+                      <NavIcons.TeachersAnalytics size={16} className="shrink-0" />
+                      <span className="text-[10px] sm:text-xs leading-tight text-center truncate max-w-full px-0.5">אנליטיקת מורים</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
-                      className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all min-h-[40px] ${
+                      className={`flex flex-col items-center justify-center gap-0.5 px-1 py-2 rounded-lg text-xs font-medium transition-all min-h-[52px] min-w-0 ${
                         state.view === 'matrix'
                           ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
                           : 'text-slate-600 dark:text-slate-300 active:bg-slate-200/60 dark:active:bg-slate-600'
                       }`}
                       aria-label="מטריצת מקצועות"
                     >
-                      <NavIcons.SubjectMatrix size={18} className="shrink-0" />
-                      <span className="text-xs sm:text-sm">מטריצה</span>
+                      <NavIcons.SubjectMatrix size={16} className="shrink-0" />
+                      <span className="text-[10px] sm:text-xs leading-tight text-center truncate max-w-full px-0.5">מטריצת מקצועות</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'meetings', activeMeetingId: null }))}
-                      className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all min-h-[40px] ${
+                      className={`flex flex-col items-center justify-center gap-0.5 px-1 py-2 rounded-lg text-xs font-medium transition-all min-h-[52px] min-w-0 ${
                         state.view === 'meetings' || state.view === 'meeting'
                           ? 'bg-white text-primary-700 shadow-sm border border-slate-200/80 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
                           : 'text-slate-600 dark:text-slate-300 active:bg-slate-200/60 dark:active:bg-slate-600'
                       }`}
                       aria-label="ישיבות פדגוגיות"
                     >
-                      <NavIcons.PedagogicalMeetings size={18} className="shrink-0" />
-                      <span className="text-xs sm:text-sm">ישיבות</span>
+                      <NavIcons.PedagogicalMeetings size={16} className="shrink-0" />
+                      <span className="text-[10px] sm:text-xs leading-tight text-center truncate max-w-full px-0.5">ישיבות פדגוגיות</span>
                     </button>
                   </div>
                 </div>
@@ -784,11 +784,11 @@ const App: React.FC = () => {
               <div className="flex-1 flex items-center justify-center min-w-0 px-2 relative z-10">
                 {state.view !== 'upload' && state.view !== 'settings' && state.view !== 'landing' && (
                   /* דשבורד | מטריצת מקצועות | אנליטיקת מורים – במרכז השורה */
-                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600 shrink-0">
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100/80 dark:bg-slate-700/90 border border-slate-200/80 dark:border-slate-600 max-w-full min-w-0 overflow-x-auto scrollbar-hide">
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'dashboard' }))}
-                      className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                      className={`flex items-center justify-start gap-1.5 lg:gap-2 px-2 lg:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] shrink-0 ${
                         state.view === 'dashboard' || state.view === 'student'
                           ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
@@ -801,7 +801,7 @@ const App: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'teachers' }))}
-                      className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                      className={`flex items-center justify-start gap-1.5 lg:gap-2 px-2 lg:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] shrink-0 ${
                         state.view === 'teachers'
                           ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
@@ -809,12 +809,13 @@ const App: React.FC = () => {
                       aria-label="אנליטיקת מורים"
                     >
                       <NavIcons.TeachersAnalytics size={18} className="shrink-0" />
-                      <span>אנליטיקת מורים</span>
+                      <span className="lg:hidden">אנליטיקה</span>
+                      <span className="hidden lg:inline">אנליטיקת מורים</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'matrix' }))}
-                      className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                      className={`flex items-center justify-start gap-1.5 lg:gap-2 px-2 lg:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] shrink-0 ${
                         state.view === 'matrix'
                           ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
@@ -822,12 +823,13 @@ const App: React.FC = () => {
                       aria-label="מטריצת מקצועות"
                     >
                       <NavIcons.SubjectMatrix size={18} className="shrink-0" />
-                      <span>מטריצת מקצועות</span>
+                      <span className="lg:hidden">מטריצה</span>
+                      <span className="hidden lg:inline">מטריצת מקצועות</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setState((prev) => ({ ...prev, view: 'meetings', activeMeetingId: null }))}
-                      className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                      className={`flex items-center justify-start gap-1.5 lg:gap-2 px-2 lg:px-3 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] shrink-0 ${
                         state.view === 'meetings' || state.view === 'meeting'
                           ? 'bg-white text-primary-700 shadow-sm border border-slate-200 dark:bg-slate-600 dark:text-slate-100 dark:border-slate-500'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'
@@ -835,7 +837,8 @@ const App: React.FC = () => {
                       aria-label="ישיבות פדגוגיות"
                     >
                       <NavIcons.PedagogicalMeetings size={18} className="shrink-0" />
-                      <span>ישיבות פדגוגיות</span>
+                      <span className="lg:hidden">ישיבות</span>
+                      <span className="hidden lg:inline">ישיבות פדגוגיות</span>
                     </button>
                   </div>
                 )}
