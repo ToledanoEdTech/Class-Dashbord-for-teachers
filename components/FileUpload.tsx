@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { AlertCircle, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { FileIcons } from '../constants/icons';
+import DownloadGuide from './DownloadGuide';
 import { generateSampleData } from '../utils/processing';
 
 const BRAND_NAME = 'ClassMap';
@@ -77,23 +78,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading, updatingCla
         {/* Main Card */}
         <div className="bg-white rounded-2xl shadow-elevated border border-slate-100/80 overflow-hidden animate-slide-up" style={{ animationDelay: '0.1s' }}>
           <div className="p-3 md:p-4 space-y-3 md:space-y-4">
-            {/* Instructions - compact */}
-            <div className="bg-gradient-to-br from-primary-50 to-blue-50/50 border border-primary-100 rounded-xl p-2.5 md:p-3">
-              <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-1 text-sm">
-                <AlertCircle size={16} className="text-primary-500 shrink-0" />
-                הנחיות להורדת קבצים
-              </h3>
-              <ul className="space-y-0.5 text-xs text-slate-600 leading-relaxed">
-                <li className="flex gap-2">
-                  <span className="text-primary-500 font-bold">•</span>
-                  <span><strong className="text-slate-700">קובץ התנהגות:</strong> יומן מחנך ← דוחות ← פירוט אירועי התנהגות</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="text-primary-500 font-bold">•</span>
-                  <span><strong className="text-slate-700">קובץ ציונים:</strong> מערכת הציונים ← "ציונים שוטפים - סדין"</span>
-                </li>
-              </ul>
-            </div>
+            <DownloadGuide />
 
             {/* Class Name */}
             <div>
@@ -116,14 +101,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onProcess, loading, updatingCla
                 onFileChange={setBehaviorFile}
                 icon={FileIcons.Behavior}
                 label="קובץ התנהגות"
-                placeholder="יומן מחנך (פירוט אירועים)"
+                placeholder="יומן מחנך → פירוט → Excel"
               />
               <FileDropZone
                 file={gradesFile}
                 onFileChange={setGradesFile}
                 icon={FileIcons.Grades}
                 label="קובץ ציונים"
-                placeholder="ציונים שוטפים - סדין"
+                placeholder="יומן מחנך → ציונים תצוגת סדין"
               />
             </div>
 
