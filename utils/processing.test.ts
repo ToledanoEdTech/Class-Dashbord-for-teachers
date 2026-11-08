@@ -153,7 +153,7 @@ describe('calculateStudentStats', () => {
       expect(result.gradeTrend).toBe('improving');
     });
 
-    it('returns declining when recent half is more than 5 points lower', () => {
+    it('returns a sharp decline when the recent half is more than 8 points lower', () => {
       const base = new Date(2024, 0, 1);
       const grades: Grade[] = [
         makeGrade({ score: 85, date: new Date(base), weight: 1 }),
@@ -163,10 +163,10 @@ describe('calculateStudentStats', () => {
       ];
       const student = { id: '1', name: 'S', grades, behaviorEvents: [] };
       const result = calculateStudentStats(student);
-      expect(result.gradeTrend).toBe('declining');
+      expect(result.gradeTrend).toBe('sharp_decline');
     });
 
-    it('returns stable when the drop is 5 points or less', () => {
+    it('returns a moderate decline when the drop is more than 3 and at most 8', () => {
       const base = new Date(2024, 0, 1);
       const grades: Grade[] = [
         makeGrade({ score: 90, date: new Date(base), weight: 1 }),
@@ -176,10 +176,23 @@ describe('calculateStudentStats', () => {
       ];
       const student = { id: '1', name: 'S', grades, behaviorEvents: [] };
       const result = calculateStudentStats(student);
+      expect(result.gradeTrend).toBe('moderate_decline');
+    });
+
+    it('returns stable when the drop is 3 points or less', () => {
+      const base = new Date(2024, 0, 1);
+      const grades: Grade[] = [
+        makeGrade({ score: 90, date: new Date(base), weight: 1 }),
+        makeGrade({ score: 90, date: new Date(base.getTime() + 1), weight: 1 }),
+        makeGrade({ score: 88, date: new Date(base.getTime() + 2), weight: 1 }),
+        makeGrade({ score: 88, date: new Date(base.getTime() + 3), weight: 1 }),
+      ];
+      const student = { id: '1', name: 'S', grades, behaviorEvents: [] };
+      const result = calculateStudentStats(student);
       expect(result.gradeTrend).toBe('stable');
     });
 
-    it('stays stable when only one subject drops and another does not', () => {
+    it('shows a moderate decline when only one subject drops', () => {
       const base = new Date(2024, 0, 1);
       const grades: Grade[] = [
         makeGrade({ subject: 'Math', score: 80, date: new Date(base), weight: 1 }),
@@ -193,7 +206,7 @@ describe('calculateStudentStats', () => {
       ];
       const student = { id: '1', name: 'S', grades, behaviorEvents: [] };
       const result = calculateStudentStats(student);
-      expect(result.gradeTrend).toBe('stable');
+      expect(result.gradeTrend).toBe('moderate_decline');
     });
 
     it('ignores undated grades when dated grades are enough to judge', () => {
@@ -223,7 +236,7 @@ describe('calculateStudentStats', () => {
       ];
       const student = { id: '1', name: 'S', grades, behaviorEvents: [] };
       const result = calculateStudentStats(student);
-      expect(result.gradeTrend).toBe('declining');
+      expect(result.gradeTrend).toBe('sharp_decline');
     });
   });
 
@@ -273,7 +286,7 @@ describe('calculateStudentStats', () => {
       expect(result.behaviorOnlyTrend).toBe('stable');
     });
 
-    it('returns declining only when the recent half is worse by at least 2 events', () => {
+    it('returns a sharp behavior decline when the recent half is worse by at least 2 events', () => {
       const base = new Date(2024, 0, 1);
       const events: BehaviorEvent[] = [
         makeEvent({ date: base, category: EventType.POSITIVE, type: 'מילה טובה' }),
@@ -283,10 +296,10 @@ describe('calculateStudentStats', () => {
       ];
       const student = { id: '1', name: 'S', grades: [], behaviorEvents: events };
       const result = calculateStudentStats(student);
-      expect(result.behaviorOnlyTrend).toBe('declining');
+      expect(result.behaviorOnlyTrend).toBe('sharp_decline');
     });
 
-    it('keeps a one-event difference stable', () => {
+    it('marks a one-event difference as a moderate decline', () => {
       const base = new Date(2024, 0, 1);
       const events: BehaviorEvent[] = [
         makeEvent({ date: base, category: EventType.NEGATIVE, type: 'הפרעה' }),
@@ -296,7 +309,7 @@ describe('calculateStudentStats', () => {
       ];
       const student = { id: '1', name: 'S', grades: [], behaviorEvents: events };
       const result = calculateStudentStats(student);
-      expect(result.behaviorOnlyTrend).toBe('stable');
+      expect(result.behaviorOnlyTrend).toBe('moderate_decline');
     });
   });
 
@@ -305,13 +318,14 @@ describe('calculateStudentStats', () => {
       expect(absenceTrend(8, 0, false)).toBe('stable');
     });
 
-    it('stays stable when absences change by one', () => {
-      expect(absenceTrend(4, 3, true)).toBe('stable');
+    it('marks one or two extra absences as a moderate decline', () => {
+      expect(absenceTrend(4, 3, true)).toBe('moderate_decline');
+      expect(absenceTrend(4, 2, true)).toBe('moderate_decline');
       expect(absenceTrend(3, 4, true)).toBe('stable');
     });
 
-    it('declines only when absences rise by at least 2 against a real previous period', () => {
-      expect(absenceTrend(5, 2, true)).toBe('declining');
+    it('marks three or more extra absences as a sharp decline', () => {
+      expect(absenceTrend(5, 2, true)).toBe('sharp_decline');
     });
 
     it('improves when absences fall by at least 2', () => {

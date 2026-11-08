@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Student, EventType, Grade, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent, RiskSettings, ClassGroup, PeriodDefinition } from '../types';
+import { Student, EventType, Grade, BehaviorEvent, isAbsenceEvent, isOtherNegativeEvent, RiskSettings, ClassGroup, PeriodDefinition, type TrendDirection } from '../types';
 import { Search, ChevronRight, PieChart as PieChartIcon, Filter, ChevronDown, Printer, LayoutGrid, LayoutList, Download, FileSpreadsheet, FileText, AlertCircle, TrendingUp, Check, X, Trash2 } from 'lucide-react';
 import { MetricIcons } from '../constants/icons';
 import { exportStudentsAtRiskToExcel, exportClassSummaryToExcel, exportClassSummaryToPDF } from '../utils/export';
@@ -23,7 +23,7 @@ import {
   ComposedChart,
 } from 'recharts';
 import { format, subDays, startOfDay, endOfDay, differenceInDays, eachWeekOfInterval, endOfWeek, isSameWeek, eachDayOfInterval, isSameDay, addMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { absenceTrend, computeStudentStatsFromData, isGradeInRange, normalizeSubjectName, weightedGradeAverage } from '../utils/processing';
+import { absenceTrend, computeStudentStatsFromData, isGradeInRange, normalizeSubjectName, trendLabel, weightedGradeAverage } from '../utils/processing';
 import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
 import HelpTip from './HelpTip';
@@ -158,7 +158,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'average' | 'risk'>('risk');
   const [riskFilter, setRiskFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
-  const [trendFilter, setTrendFilter] = useState<'all' | 'improving' | 'declining' | 'stable'>('all');
+  const [trendFilter, setTrendFilter] = useState<'all' | TrendDirection>('all');
   const [subjectFilter, setSubjectFilter] = useState('');
   const [teacherFilter, setTeacherFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -343,8 +343,8 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       .filter(
         (s) =>
           s.riskLevel === 'high' &&
-          (s.gradeTrend === 'declining' ||
-            (s.behaviorOnlyTrend ?? s.behaviorTrend) === 'declining' ||
+          (s.gradeTrend === 'sharp_decline' ||
+            (s.behaviorOnlyTrend ?? s.behaviorTrend) === 'sharp_decline' ||
             s.behaviorEvents.filter((e) => isAbsenceEvent(e)).length >= attThr)
       )
       .sort((a, b) => a.riskScore - b.riskScore)
@@ -863,11 +863,12 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-500 mb-1.5 block">מגמת ציונים <HelpTip text="סנן לפי מגמת הציונים: משתפר, מידרדר או יציב." /></label>
-              <select value={trendFilter} onChange={(e) => setTrendFilter(e.target.value as any)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 min-h-[40px]">
+              <label className="text-xs font-medium text-slate-500 mb-1.5 block">מגמת ציונים <HelpTip text="סנן לפי מגמת הציונים: שיפור, ירידה מתונה, ירידה חדה או יציב." /></label>
+              <select value={trendFilter} onChange={(e) => setTrendFilter(e.target.value as 'all' | TrendDirection)} className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 min-h-[40px]">
                 <option value="all">הכל</option>
-                <option value="improving">משתפר</option>
-                <option value="declining">מידרדר</option>
+                <option value="improving">שיפור</option>
+                <option value="moderate_decline">ירידה מתונה</option>
+                <option value="sharp_decline">ירידה חדה</option>
                 <option value="stable">יציב</option>
               </select>
             </div>
@@ -1508,9 +1509,9 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
               <tr className="bg-slate-50/80 text-slate-500 text-sm">
                 <th className="px-3 sm:px-6 py-4 font-semibold text-right">שם התלמיד</th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">ממוצע</th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="בכל מקצוע משווים את ממוצע 2–3 הציונים האחרונים לאותו מספר ציונים לפניהם. ירידה או שיפור רק כשיש פער של יותר מ-5 נקודות, ולפחות ב-4 ציונים. אם יש כמה מקצועות, התווית משתנה רק כשרוב הציונים באותו כיוון." /></th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">חיסורים <HelpTip text="המספר הוא סך החיסורים בטווח המוצג. המגמה משווה לתקופה הקודמת באותו אורך, ורק אם יש בה נתונים. ירידה או שיפור רק מהפרש של שני חיסורים לפחות. בלי תקופה קודמת המגמה יציבה." /></th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת התנהגות (ללא חיסורים) <HelpTip text="שני חצאים שווים של עד 12 אירועי המשמעת האחרונים, בלי חיסורים. מידרדר או משתפר רק כשהחצי האחרון שונה בלפחות שני אירועים. אירוע בודד, או פחות מ-4 אירועים, נשאר יציב." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="בכל מקצוע משווים את ממוצע 2–3 הציונים האחרונים לאותו מספר ציונים לפניהם. עד 3 נקודות — יציב. יותר מ-3 ועד 8 — ירידה מתונה. יותר מ-8, או ירידה ברוב המקצועות — ירידה חדה. ירידה במקצוע אחד בלבד נשארת מתונה." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">חיסורים <HelpTip text="המספר הוא סך החיסורים בטווח המוצג. המגמה משווה לתקופה הקודמת באותו אורך, ורק אם יש בה נתונים. חיסור או שניים יותר — ירידה מתונה. שלושה ויותר — ירידה חדה." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת התנהגות (ללא חיסורים) <HelpTip text="שני חצאים שווים של עד 12 אירועי המשמעת האחרונים, בלי חיסורים. אירוע אחד לרעה — ירידה מתונה. שני אירועים ויותר — מידרדר." /></th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">אירועים</th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">סיכון <HelpTip text="ציון סיכון 1-10 (1=סיכון גבוה, 10=סיכון נמוך). מחושב לפי ציונים, מגמות, אירועים שליליים וחיסורים." /></th>
                 <th className="px-3 sm:px-6 py-4 w-12"></th>
@@ -1689,17 +1690,18 @@ const RiskBadge: React.FC<{ level: 'high' | 'medium' | 'low'; score?: number }> 
   );
 };
 
-const TrendBadge: React.FC<{ trend: 'improving' | 'declining' | 'stable'; type: 'grade' | 'behavior' }> = ({ trend, type }) => {
-  const config = {
-    improving: { icon: MetricIcons.TrendUp, text: type === 'grade' ? 'שיפור' : 'משתפר', class: 'bg-emerald-50 text-grade-success' },
-    declining: { icon: MetricIcons.TrendDown, text: type === 'grade' ? 'ירידה' : 'מידרדר', class: 'bg-red-50 text-grade-danger' },
-    stable: { icon: MetricIcons.TrendStable, text: 'יציב', class: 'bg-slate-100 text-slate-600' },
+const TrendBadge: React.FC<{ trend: TrendDirection; type: 'grade' | 'behavior' }> = ({ trend, type }) => {
+  const config: Record<TrendDirection, { icon: React.ElementType; className: string }> = {
+    improving: { icon: MetricIcons.TrendUp, className: 'bg-emerald-50 text-grade-success' },
+    moderate_decline: { icon: MetricIcons.TrendDown, className: 'bg-amber-50 text-amber-700' },
+    sharp_decline: { icon: MetricIcons.TrendDown, className: 'bg-red-50 text-grade-danger' },
+    stable: { icon: MetricIcons.TrendStable, className: 'bg-slate-100 text-slate-600' },
   };
-  const { icon: Icon, text, class: cls } = config[trend];
+  const { icon: Icon, className } = config[trend];
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${cls}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${className}`}>
       <Icon size={14} strokeWidth={2.5} />
-      {text}
+      {trendLabel(trend, type)}
     </span>
   );
 };
@@ -1864,15 +1866,19 @@ const StudentCard: React.FC<{ student: Student; onClick: () => void; index: numb
         <div className="text-center border-x border-slate-100">
           <span className="text-[10px] text-slate-500 block mb-1">מגמת ציונים</span>
           {student.gradeTrend === 'improving' && <MetricIcons.TrendUp size={18} className="text-grade-success mx-auto" />}
-          {student.gradeTrend === 'declining' && <MetricIcons.TrendDown size={18} className="text-grade-danger mx-auto" />}
+          {student.gradeTrend === 'moderate_decline' && <MetricIcons.TrendDown size={18} className="text-amber-600 mx-auto" />}
+          {student.gradeTrend === 'sharp_decline' && <MetricIcons.TrendDown size={18} className="text-grade-danger mx-auto" />}
           {student.gradeTrend === 'stable' && <MetricIcons.TrendStable size={18} className="text-slate-400 mx-auto" />}
+          <span className={`block text-[10px] font-medium mt-0.5 ${student.gradeTrend === 'moderate_decline' ? 'text-amber-700' : student.gradeTrend === 'sharp_decline' ? 'text-grade-danger' : student.gradeTrend === 'improving' ? 'text-grade-success' : 'text-slate-500'}`}>{trendLabel(student.gradeTrend, 'grade')}</span>
           <MiniSparkline values={gradeValues} color="#0c8ee6" min={0} max={100} />
         </div>
         <div className="text-center">
           <span className="text-[10px] text-slate-500 block mb-1">מגמת התנהגות</span>
           {((student as any).behaviorOnlyTrend ?? student.behaviorTrend) === 'improving' && <MetricIcons.TrendUp size={18} className="text-grade-success mx-auto" />}
-          {((student as any).behaviorOnlyTrend ?? student.behaviorTrend) === 'declining' && <MetricIcons.TrendDown size={18} className="text-grade-danger mx-auto" />}
+          {((student as any).behaviorOnlyTrend ?? student.behaviorTrend) === 'moderate_decline' && <MetricIcons.TrendDown size={18} className="text-amber-600 mx-auto" />}
+          {((student as any).behaviorOnlyTrend ?? student.behaviorTrend) === 'sharp_decline' && <MetricIcons.TrendDown size={18} className="text-grade-danger mx-auto" />}
           {((student as any).behaviorOnlyTrend ?? student.behaviorTrend) === 'stable' && <MetricIcons.TrendStable size={18} className="text-slate-400 mx-auto" />}
+          <span className={`block text-[10px] font-medium mt-0.5 ${((student.behaviorOnlyTrend ?? student.behaviorTrend) === 'moderate_decline') ? 'text-amber-700' : ((student.behaviorOnlyTrend ?? student.behaviorTrend) === 'sharp_decline') ? 'text-grade-danger' : ((student.behaviorOnlyTrend ?? student.behaviorTrend) === 'improving') ? 'text-grade-success' : 'text-slate-500'}`}>{trendLabel(student.behaviorOnlyTrend ?? student.behaviorTrend, 'behavior')}</span>
           <MiniSparkline values={behaviorValues} color="#f59e0b" min={behaviorMin} max={behaviorMax} />
         </div>
       </div>

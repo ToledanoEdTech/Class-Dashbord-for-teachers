@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent, PeriodDefinition } from '../types';
+import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent, PeriodDefinition, type TrendDirection } from '../types';
 import { calculateStudentStats, computeStudentStatsFromData, gradeTrendForGrades, weightedGradeAverage } from '../utils/processing';
 import { ArrowRight, ArrowLeft, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer, TrendingUp, TrendingDown, BarChart3, Target, Users, Zap, Star, MessageSquare, ThumbsUp, Lightbulb, ChevronRight, ChevronLeft, FileText, Check, Grid, LayoutGrid } from 'lucide-react';
 import HelpTip from './HelpTip';
@@ -530,7 +530,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
 
   // ניתוח מקצועות - חוזקות וחולשות
   const subjectAnalysis = useMemo(() => {
-    const subjectStats: Record<string, { avg: number; count: number; trend: 'improving' | 'declining' | 'stable'; behaviorScore: number; classAvg: number }> = {};
+    const subjectStats: Record<string, { avg: number; count: number; trend: TrendDirection; behaviorScore: number; classAvg: number }> = {};
     
     // Calculate weighted averages per subject for student
     effectiveStudent.grades.forEach(g => {
@@ -792,11 +792,15 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     if (effectiveStudent.averageScore < riskSettingsUsed.minGradeThreshold) {
       insights.push({ icon: BookOpen, text: 'ממוצע מתחת לסף – להציע שיעורי עזר או תגבור במקצועות החלשים', priority: 2 });
     }
-    if (effectiveStudent.gradeTrend === 'declining') {
-      insights.push({ icon: TrendingDown, text: 'מגמת ציונים יורדת – לבחון מה השתנה ולדבר עם התלמיד על חסמים', priority: 3 });
+    if (effectiveStudent.gradeTrend === 'sharp_decline') {
+      insights.push({ icon: TrendingDown, text: 'ירידה חדה בציונים – לבחון מה השתנה ולדבר עם התלמיד על חסמים', priority: 3 });
+    } else if (effectiveStudent.gradeTrend === 'moderate_decline') {
+      insights.push({ icon: TrendingDown, text: 'ירידה מתונה בציונים – שווה מעקב, בלי לסמן את התלמיד כמידרדר', priority: 8 });
     }
-    if ((effectiveStudent.behaviorOnlyTrend ?? effectiveStudent.behaviorTrend) === 'declining') {
-      insights.push({ icon: AlertCircle, text: 'מגמת התנהגות מידרדרת – להזכיר חוקים ולהעמיק בשיחה על מקור האירועים', priority: 4 });
+    if ((effectiveStudent.behaviorOnlyTrend ?? effectiveStudent.behaviorTrend) === 'sharp_decline') {
+      insights.push({ icon: AlertCircle, text: 'ההתנהגות מידרדרת – להזכיר חוקים ולהעמיק בשיחה על מקור האירועים', priority: 4 });
+    } else if ((effectiveStudent.behaviorOnlyTrend ?? effectiveStudent.behaviorTrend) === 'moderate_decline') {
+      insights.push({ icon: AlertCircle, text: 'ירידה מתונה בהתנהגות – לשים לב אם האירועים ממשיכים להצטבר', priority: 9 });
     }
     const absencesCount = effectiveStudent.behaviorEvents.filter(isAbsenceEvent).length;
     if (absencesCount >= riskSettingsUsed.attendanceThreshold) {
@@ -1614,7 +1618,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                                     <div className="flex items-center gap-2 mt-1">
                                                         <span className="text-xs text-slate-600">ממוצע: {stats.classAvg > 0 ? stats.classAvg.toFixed(1) : '-'}</span>
                                                         {stats.trend === 'improving' && <TrendingUp size={12} className="text-emerald-600" />}
-                                                        {stats.trend === 'declining' && <TrendingDown size={12} className="text-red-600" />}
+                                                        {stats.trend === 'moderate_decline' && <TrendingDown size={12} className="text-amber-600" />}
+                                                        {stats.trend === 'sharp_decline' && <TrendingDown size={12} className="text-red-600" />}
                                                     </div>
                                                 </div>
                                                 <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded">
@@ -1636,7 +1641,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                                     <div className="flex items-center gap-2 mt-1">
                                                         <span className="text-xs text-slate-600">ממוצע: {stats.classAvg > 0 ? stats.classAvg.toFixed(1) : '-'}</span>
                                                         {stats.trend === 'improving' && <TrendingUp size={12} className="text-emerald-600" />}
-                                                        {stats.trend === 'declining' && <TrendingDown size={12} className="text-red-600" />}
+                                                        {stats.trend === 'moderate_decline' && <TrendingDown size={12} className="text-amber-600" />}
+                                                        {stats.trend === 'sharp_decline' && <TrendingDown size={12} className="text-red-600" />}
                                                     </div>
                                                 </div>
                                                 <span className="text-xs font-bold text-red-700 bg-red-100 px-2 py-1 rounded">
@@ -1710,24 +1716,33 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                         <div className="text-slate-600">ממוצע: {temporalAnalysis.earlyLateComparison.early.avg.toFixed(1)}</div>
                                     </div>
                                     <div className={`p-2 rounded ${
-                                        temporalAnalysis.earlyLateComparison.late.avg > temporalAnalysis.earlyLateComparison.early.avg + 5
-                                            ? 'bg-emerald-50 border border-emerald-200' 
-                                            : temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 5
+                                        temporalAnalysis.earlyLateComparison.late.avg > temporalAnalysis.earlyLateComparison.early.avg + 3
+                                            ? 'bg-emerald-50 border border-emerald-200'
+                                            : temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 8
                                             ? 'bg-red-50 border border-red-200'
+                                            : temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 3
+                                            ? 'bg-amber-50 border border-amber-200'
                                             : 'bg-slate-50'
                                     }`}>
                                         <div className="font-medium text-slate-700">סוף תקופה</div>
                                         <div className="text-slate-600">ממוצע: {temporalAnalysis.earlyLateComparison.late.avg.toFixed(1)}</div>
-                                        {temporalAnalysis.earlyLateComparison.late.avg > temporalAnalysis.earlyLateComparison.early.avg + 5 && (
+                                        {temporalAnalysis.earlyLateComparison.late.avg > temporalAnalysis.earlyLateComparison.early.avg + 3 && (
                                             <div className="text-emerald-700 font-semibold mt-1 flex items-center gap-1">
                                                 <TrendingUp size={12} />
                                                 שיפור של {(temporalAnalysis.earlyLateComparison.late.avg - temporalAnalysis.earlyLateComparison.early.avg).toFixed(1)} נקודות!
                                             </div>
                                         )}
-                                        {temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 5 && (
+                                        {temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 8 && (
                                             <div className="text-red-700 font-semibold mt-1 flex items-center gap-1">
                                                 <TrendingDown size={12} />
-                                                ירידה של {(temporalAnalysis.earlyLateComparison.early.avg - temporalAnalysis.earlyLateComparison.late.avg).toFixed(1)} נקודות
+                                                ירידה חדה של {(temporalAnalysis.earlyLateComparison.early.avg - temporalAnalysis.earlyLateComparison.late.avg).toFixed(1)} נקודות
+                                            </div>
+                                        )}
+                                        {temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 3 &&
+                                          temporalAnalysis.earlyLateComparison.late.avg >= temporalAnalysis.earlyLateComparison.early.avg - 8 && (
+                                            <div className="text-amber-700 font-semibold mt-1 flex items-center gap-1">
+                                                <TrendingDown size={12} />
+                                                ירידה מתונה של {(temporalAnalysis.earlyLateComparison.early.avg - temporalAnalysis.earlyLateComparison.late.avg).toFixed(1)} נקודות
                                             </div>
                                         )}
                                     </div>
@@ -2105,10 +2120,10 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                 <p className="text-sm text-slate-700">ריבוי אירועי משמעת. יש לבדוק האם הקושי נובע מחוסר עניין בחומר או בעיות אישיות.</p>
                             </li>
                         )}
-                         {effectiveStudent.behaviorTrend === 'declining' && (
+                         {(effectiveStudent.behaviorTrend === 'sharp_decline' || effectiveStudent.behaviorTrend === 'moderate_decline') && (
                             <li className="flex gap-3 items-start">
-                                <div className="w-6 h-6 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0 text-xs font-bold">!</div>
-                                <p className="text-sm text-slate-700">זוהתה הידרדרות משמעותית בהתנהגות לאחרונה. נדרשת בדיקת עומק.</p>
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${effectiveStudent.behaviorTrend === 'sharp_decline' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>!</div>
+                                <p className="text-sm text-slate-700">{effectiveStudent.behaviorTrend === 'sharp_decline' ? 'זוהתה ירידה חדה בהתנהגות לאחרונה. נדרשת בדיקת עומק.' : 'יש ירידה מתונה בהתנהגות. כדאי לעקוב אם היא נמשכת.'}</p>
                             </li>
                         )}
                         {student.correlations.length > 0 && (

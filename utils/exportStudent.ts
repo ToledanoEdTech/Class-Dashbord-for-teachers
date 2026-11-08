@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { Student, RiskSettings, EventType, Grade, BehaviorEvent } from '../types';
 import { format, eachWeekOfInterval, eachDayOfInterval, isSameWeek, isSameDay, endOfWeek, differenceInDays, startOfDay } from 'date-fns';
 import { isAbsenceEvent, isOtherNegativeEvent } from '../types';
-import { normalizeSubjectName, weightedGradeAverage } from './processing';
+import { normalizeSubjectName, trendLabel, weightedGradeAverage } from './processing';
 
 /**
  * ייצוא מפורט של תלמיד בודד ל-Excel עם עיצוב מקצועי וגרפים
@@ -43,11 +43,9 @@ export async function exportStudentProfileToExcel(
   // נתוני סיכום
   const absenceCount = student.behaviorEvents.filter(isAbsenceEvent).length;
   const otherNegativeCount = student.behaviorEvents.filter(isOtherNegativeEvent).length;
-  const gradeTrendText = student.gradeTrend === 'improving' ? 'משתפר ⬆️' : 
-                        student.gradeTrend === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
+  const gradeTrendText = `${trendLabel(student.gradeTrend, 'grade')} ${student.gradeTrend === 'improving' ? '⬆️' : student.gradeTrend === 'moderate_decline' ? '↘️' : student.gradeTrend === 'sharp_decline' ? '⬇️' : '➡️'}`;
   const bTrendSt = student.behaviorOnlyTrend ?? student.behaviorTrend;
-  const behaviorTrendText = bTrendSt === 'improving' ? 'משתפר ⬆️' : 
-                           bTrendSt === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
+  const behaviorTrendText = `${trendLabel(bTrendSt, 'behavior')} ${bTrendSt === 'improving' ? '⬆️' : bTrendSt === 'moderate_decline' ? '↘️' : bTrendSt === 'sharp_decline' ? '⬇️' : '➡️'}`;
   const riskText = student.riskLevel === 'high' ? 'גבוה' : 
                   student.riskLevel === 'medium' ? 'בינוני' : 'נמוך';
 

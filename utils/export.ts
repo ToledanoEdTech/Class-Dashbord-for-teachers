@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { Student, ClassGroup, RiskSettings, EventType, Grade, BehaviorEvent } from '../types';
 import { format, eachWeekOfInterval, eachDayOfInterval, isSameWeek, isSameDay, endOfWeek, differenceInDays } from 'date-fns';
 import { isAbsenceEvent, isOtherNegativeEvent } from '../types';
-import { normalizeSubjectName, weightedGradeAverage } from './processing';
+import { normalizeSubjectName, trendLabel, weightedGradeAverage } from './processing';
 import html2canvas from 'html2canvas';
 
 /**
@@ -80,11 +80,9 @@ export async function exportStudentsAtRiskToExcel(
     const absenceCount = student.behaviorEvents.filter(isAbsenceEvent).length;
     const otherNegativeCount = student.behaviorEvents.filter(isOtherNegativeEvent).length;
     
-    const gradeTrendText = student.gradeTrend === 'improving' ? 'משתפר' : 
-                          student.gradeTrend === 'declining' ? 'מידרדר' : 'יציב';
+    const gradeTrendText = trendLabel(student.gradeTrend, 'grade');
     const bTrend = student.behaviorOnlyTrend ?? student.behaviorTrend;
-    const behaviorTrendText = bTrend === 'improving' ? 'משתפר' : 
-                             bTrend === 'declining' ? 'מידרדר' : 'יציב';
+    const behaviorTrendText = trendLabel(bTrend, 'behavior');
     const riskText = student.riskLevel === 'high' ? 'גבוה' : 
                     student.riskLevel === 'medium' ? 'בינוני' : 'נמוך';
 
@@ -599,11 +597,9 @@ export async function exportClassSummaryToExcel(
     const absenceCount = student.behaviorEvents.filter(isAbsenceEvent).length;
     const otherNegativeCount = student.behaviorEvents.filter(isOtherNegativeEvent).length;
     
-    const gradeTrendText = student.gradeTrend === 'improving' ? 'משתפר' : 
-                          student.gradeTrend === 'declining' ? 'מידרדר' : 'יציב';
+    const gradeTrendText = trendLabel(student.gradeTrend, 'grade');
     const bTrend2 = student.behaviorOnlyTrend ?? student.behaviorTrend;
-    const behaviorTrendText = bTrend2 === 'improving' ? 'משתפר' : 
-                             bTrend2 === 'declining' ? 'מידרדר' : 'יציב';
+    const behaviorTrendText = trendLabel(bTrend2, 'behavior');
     const riskText = student.riskLevel === 'high' ? 'גבוה' : 
                     student.riskLevel === 'medium' ? 'בינוני' : 'נמוך';
 
@@ -1625,11 +1621,9 @@ export function exportClassSummaryToPDF(
           <tbody>
             ${students.map((student) => {
               const absenceCount = student.behaviorEvents.filter(isAbsenceEvent).length;
-              const gradeTrendText = student.gradeTrend === 'improving' ? 'משתפר ⬆️' : 
-                                    student.gradeTrend === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
+              const gradeTrendText = `${trendLabel(student.gradeTrend, 'grade')} ${student.gradeTrend === 'improving' ? '⬆️' : student.gradeTrend === 'moderate_decline' ? '↘️' : student.gradeTrend === 'sharp_decline' ? '⬇️' : '➡️'}`;
               const bTrendHtml = student.behaviorOnlyTrend ?? student.behaviorTrend;
-              const behaviorTrendText = bTrendHtml === 'improving' ? 'משתפר ⬆️' : 
-                                       bTrendHtml === 'declining' ? 'מידרדר ⬇️' : 'יציב ➡️';
+              const behaviorTrendText = `${trendLabel(bTrendHtml, 'behavior')} ${bTrendHtml === 'improving' ? '⬆️' : bTrendHtml === 'moderate_decline' ? '↘️' : bTrendHtml === 'sharp_decline' ? '⬇️' : '➡️'}`;
               const riskText = student.riskLevel === 'high' ? 'גבוה' : 
                              student.riskLevel === 'medium' ? 'בינוני' : 'נמוך';
               const riskClass = student.riskLevel === 'high' ? 'risk-high-cell' : 

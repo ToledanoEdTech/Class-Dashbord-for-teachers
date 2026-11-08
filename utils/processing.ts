@@ -1,4 +1,5 @@
-import { BehaviorEvent, EventType, Grade, Student, Correlation, RiskSettings, DEFAULT_RISK_SETTINGS, DEFAULT_RISK_WEIGHTS } from '../types';
+import { BehaviorEvent, EventType, Grade, Student, Correlation, RiskSettings, DEFAULT_RISK_SETTINGS, DEFAULT_RISK_WEIGHTS, type TrendDirection } from '../types';
+export type { TrendDirection };
 import { isAbsenceEvent } from '../types';
 import { differenceInDays } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -555,18 +556,14 @@ export function weightedGradeAverage(grades: ReadonlyArray<{ score: number; weig
   return scoreSum / grades.length;
 }
 
-export type TrendDirection = 'improving' | 'declining' | 'stable';
-
-/** פער מינימלי (נקודות) לפני שמגמת ציונים עוזבת את "יציב". */
-const GRADE_TREND_THRESHOLD = 5;
+/** עד 3 נקודות נשאר יציב. מעבר לזה ירידה מתונה, ומעבר ל-8 ירידה חדה. */
+const GRADE_MODERATE_DROP = 3;
+const GRADE_SHARP_DROP = 8;
 /** לפחות שני ציונים בכל חצי — פחות מזה לא מספיק כדי לקבוע מגמה. */
 const GRADE_TREND_MIN = 4;
-/**
- * הפרש מינימלי לפני שמגמת התנהגות עוזבת את "יציב".
- * בחצאים שווים, אירוע אחד שהתהפך משנה את האות ב-2, לכן הסף הוא 4
- * (שני אירועים לכל הפחות).
- */
-const BEHAVIOR_SIGNAL_THRESHOLD = 4;
+/** בחצאים שווים אירוע אחד שהתהפך משנה את האות ב-2, ושני אירועים ב-4. */
+const BEHAVIOR_MODERATE_SIGNAL = 2;
+const BEHAVIOR_SHARP_SIGNAL = 4;
 const BEHAVIOR_TREND_MIN = 4;
 
 function evenTail<T>(items: readonly T[], maxCount: number, minCount: number): T[] {
@@ -586,15 +583,16 @@ function gradeSeriesDelta(grades: readonly Grade[]): { delta: number; count: num
 }
 
 function trendFromGradeDelta(delta: number): TrendDirection {
-  if (delta > GRADE_TREND_THRESHOLD) return 'improving';
-  if (delta < -GRADE_TREND_THRESHOLD) return 'declining';
+  if (delta > GRADE_MODERATE_DROP) return 'improving';
+  if (delta < -GRADE_SHARP_DROP) return 'sharp_decline';
+  if (delta < -GRADE_MODERATE_DROP) return 'moderate_decline';
   return 'stable';
 }
 
 /**
  * מגמת ציונים: חצאים שווים של 4 או 6 הציונים האחרונים בכל מקצוע.
- * ירידה או שיפור רק מפער של יותר מ-5 נקודות, ורק אם רוב הציונים שנמדדו
- * (לפי מקצוע) באותו כיוון. מקצוע בודד עם מעט ציונים לא הופך את המצב הכללי.
+ * ירידה מתונה מפער של יותר מ-3 נקודות, ירידה חדה מפער של יותר מ-8
+ * או כשרוב המקצועות יורדים יחד. ירידה במקצוע אחד בלבד נשארת מתונה.
  * ציונים בלי תאריך מהקובץ לא נכנסים למגמה כשיש ציונים מתוארכים.
  */
 export function gradeTrendForGrades(grades: readonly Grade[]): { trend: TrendDirection; delta: number } {
@@ -617,13 +615,15 @@ export function gradeTrendForGrades(grades: readonly Grade[]): { trend: TrendDir
   if (measured.length >= 2) {
     const total = measured.reduce((sum, item) => sum + item.count, 0);
     const down = measured
-      .filter((item) => item.delta < -GRADE_TREND_THRESHOLD)
+      .filter((item) => item.delta < -GRADE_MODERATE_DROP)
       .reduce((sum, item) => sum + item.count, 0);
     const up = measured
-      .filter((item) => item.delta > GRADE_TREND_THRESHOLD)
+      .filter((item) => item.delta > GRADE_MODERATE_DROP)
       .reduce((sum, item) => sum + item.count, 0);
     const delta = measured.reduce((sum, item) => sum + item.delta * item.count, 0) / total;
-    if (down > total / 2 && down > up) return { trend: 'declining', delta };
+    const broadDecline = down > total / 2 && down > up;
+    if (broadDecline) return { trend: 'sharp_decline', delta };
+    if (down > 0 && down > up) return { trend: 'moderate_decline', delta };
     if (up > total / 2 && up > down) return { trend: 'improving', delta };
     return { trend: 'stable', delta };
   }
@@ -636,7 +636,7 @@ export function gradeTrendForGrades(grades: readonly Grade[]): { trend: TrendDir
 
 /**
  * מגמת התנהגות: שני חצאים שווים של עד 12 האירועים האחרונים (חיובי/שלילי בלבד).
- * אירוע בודד לא משנה את התווית — צריך לפחות שני אירועים הבדל.
+ * אירוע אחד לרעה הוא ירידה מתונה. שני אירועים ויותר הם ירידה חדה.
  */
 export function behaviorTrendForEvents(
   events: readonly BehaviorEvent[],
@@ -658,15 +658,16 @@ export function behaviorTrendForEvents(
     count(prev, EventType.NEGATIVE) -
     count(curr, EventType.NEGATIVE) +
     (count(curr, EventType.POSITIVE) - count(prev, EventType.POSITIVE));
-  if (signal >= BEHAVIOR_SIGNAL_THRESHOLD) return 'improving';
-  if (signal <= -BEHAVIOR_SIGNAL_THRESHOLD) return 'declining';
+  if (signal >= BEHAVIOR_SHARP_SIGNAL) return 'improving';
+  if (signal <= -BEHAVIOR_SHARP_SIGNAL) return 'sharp_decline';
+  if (signal <= -BEHAVIOR_MODERATE_SIGNAL) return 'moderate_decline';
   return 'stable';
 }
 
 /**
  * מגמת חיסורים מול תקופה קודמת באותו אורך.
- * בלי נתונים בתקופה הקודמת לא מסמנים ירידה (החלון ריק, לא "אפס חיסורים").
- * הפרש של חיסור אחד נשאר יציב.
+ * בלי נתונים בתקופה הקודמת אין מגמה. חיסור או שניים יותר הם ירידה מתונה,
+ * שלושה ויותר הם ירידה חדה.
  */
 export function absenceTrend(
   currentAbsences: number,
@@ -675,9 +676,18 @@ export function absenceTrend(
 ): TrendDirection {
   if (!previousPeriodHasData) return 'stable';
   const delta = currentAbsences - previousAbsences;
-  if (delta >= 2) return 'declining';
+  if (delta >= 3) return 'sharp_decline';
+  if (delta >= 1) return 'moderate_decline';
   if (delta <= -2) return 'improving';
   return 'stable';
+}
+
+/** תווית בעברית לתג המגמה ולייצוא. */
+export function trendLabel(trend: TrendDirection, kind: 'grade' | 'behavior'): string {
+  if (trend === 'improving') return kind === 'grade' ? 'שיפור' : 'משתפר';
+  if (trend === 'moderate_decline') return 'ירידה מתונה';
+  if (trend === 'sharp_decline') return kind === 'grade' ? 'ירידה חדה' : 'מידרדר';
+  return 'יציב';
 }
 
 /** ציון בלי תאריך מהקובץ. includeUndated שומר אותו בממוצע הכללי, אבל לא בכל חודש בנפרד. */
@@ -739,7 +749,7 @@ export function calculateStudentStats(
   if (average < minGT) gradePart += 4;
   else if (average < minGT + 10) gradePart += 2;
   else if (average < minGT + 20) gradePart += 1;
-  if (gradeTrend === 'declining') {
+  if (gradeTrend === 'sharp_decline') {
     if (gradeDelta <= -10) gradePart += 2;
     else gradePart += 1;
   }
@@ -759,7 +769,7 @@ export function calculateStudentStats(
   if (recentBehaviorScore <= -12) negPart += 4;
   else if (recentBehaviorScore <= -6) negPart += 2;
   else if (recentBehaviorScore < 0) negPart += 1;
-  if (behaviorTrend === 'declining') negPart += 1;
+  if (behaviorTrend === 'sharp_decline') negPart += 1;
   if (behaviorTrend === 'improving') negPart -= 0.3;
   if (negativeCount > 15) negPart += 2;
   else if (negativeCount > maxNB) negPart += 1;
@@ -815,9 +825,9 @@ export interface StudentStatsResult {
   negativeCount: number;
   positiveCount: number;
   absenceCount: number;
-  gradeTrend: 'improving' | 'declining' | 'stable';
-  behaviorTrend: 'improving' | 'declining' | 'stable';
-  behaviorOnlyTrend: 'improving' | 'declining' | 'stable';
+  gradeTrend: TrendDirection;
+  behaviorTrend: TrendDirection;
+  behaviorOnlyTrend: TrendDirection;
   riskLevel: 'high' | 'medium' | 'low';
   riskScore: number;
   /** ציונים + אירועים שנכנסו לחלון. 0 = אין בסיס להשוואת תקופה. */

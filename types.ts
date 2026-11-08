@@ -48,6 +48,9 @@ export interface Correlation {
   description: string;
 }
 
+/** יציב, שיפור, ירידה מתונה או ירידה חדה. */
+export type TrendDirection = 'improving' | 'stable' | 'moderate_decline' | 'sharp_decline';
+
 export interface Student {
   id: string;
   name: string;
@@ -58,10 +61,10 @@ export interface Student {
   positiveCount: number;
   /** מספר חיסורים (אירועי חיסור ללא הצדקה) */
   absenceCount?: number;
-  gradeTrend: 'improving' | 'declining' | 'stable';
-  behaviorTrend: 'improving' | 'declining' | 'stable';
+  gradeTrend: TrendDirection;
+  behaviorTrend: TrendDirection;
   /** מגמת התנהגות ללא חיסורים (רק אירועים שליליים/חיוביים אחרים) */
-  behaviorOnlyTrend?: 'improving' | 'declining' | 'stable';
+  behaviorOnlyTrend?: TrendDirection;
   riskLevel: 'high' | 'medium' | 'low';
   riskScore: number; // Score from 1 (High Risk) to 10 (Low Risk)
   correlations: Correlation[];
