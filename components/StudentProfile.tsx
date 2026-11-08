@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent, PeriodDefinition } from '../types';
-import { calculateStudentStats, computeStudentStatsFromData, weightedGradeAverage } from '../utils/processing';
+import { calculateStudentStats, computeStudentStatsFromData, gradeTrendForGrades, weightedGradeAverage } from '../utils/processing';
 import { ArrowRight, ArrowLeft, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer, TrendingUp, TrendingDown, BarChart3, Target, Users, Zap, Star, MessageSquare, ThumbsUp, Lightbulb, ChevronRight, ChevronLeft, FileText, Check, Grid, LayoutGrid } from 'lucide-react';
 import HelpTip from './HelpTip';
 import {
@@ -219,19 +219,19 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     const last = periodStatsForStudent[periodStatsForStudent.length - 1];
     const prev = periodStatsForStudent[periodStatsForStudent.length - 2];
     const lines: { icon: React.ElementType; text: string; type: 'improve' | 'decline' | 'neutral' }[] = [];
-    if (last.ממוצע > prev.ממוצע + 2) {
+    if (last.ממוצע > prev.ממוצע + 5) {
       lines.push({ icon: TrendingUp, text: `בתקופה "${last.name}" חל שיפור בממוצע הציונים (${prev.ממוצע.toFixed(1)} → ${last.ממוצע.toFixed(1)}) ביחס ל"${prev.name}"`, type: 'improve' });
-    } else if (last.ממוצע < prev.ממוצע - 2) {
+    } else if (last.ממוצע < prev.ממוצע - 5) {
       lines.push({ icon: TrendingDown, text: `בתקופה "${last.name}" ירד ממוצע הציונים (${prev.ממוצע.toFixed(1)} → ${last.ממוצע.toFixed(1)}) ביחס ל"${prev.name}"`, type: 'decline' });
     }
-    if (last.חיסורים < prev.חיסורים && prev.חיסורים > 0) {
+    if (prev.חיסורים - last.חיסורים >= 2) {
       lines.push({ icon: TrendingUp, text: `בתקופה "${last.name}" פחות חיסורים (${last.חיסורים}) ביחס ל"${prev.name}" (${prev.חיסורים})`, type: 'improve' });
-    } else if (last.חיסורים > prev.חיסורים && prev.חיסורים >= 0) {
+    } else if (last.חיסורים - prev.חיסורים >= 2) {
       lines.push({ icon: TrendingDown, text: `בתקופה "${last.name}" יותר חיסורים (${last.חיסורים}) ביחס ל"${prev.name}" (${prev.חיסורים})`, type: 'decline' });
     }
-    if (last.שליליים < prev.שליליים && prev.שליליים > 0) {
+    if (prev.שליליים - last.שליליים >= 2) {
       lines.push({ icon: ThumbsUp, text: `בתקופה "${last.name}" פחות אירועים שליליים ביחס ל"${prev.name}"`, type: 'improve' });
-    } else if (last.שליליים > prev.שליליים) {
+    } else if (last.שליליים - prev.שליליים >= 2) {
       lines.push({ icon: AlertCircle, text: `בתקופה "${last.name}" יותר אירועים שליליים ביחס ל"${prev.name}"`, type: 'decline' });
     }
     return lines;
@@ -564,21 +564,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       if (subjectGrades.length > 0) {
         stats.avg = parseFloat(weightedGradeAverage(subjectGrades).toFixed(1));
         stats.classAvg = classAvgBySubject[subj] || 0;
-        
-        // Calculate trend for this subject
-        const sortedGrades = subjectGrades.sort((a, b) => a.date.getTime() - b.date.getTime());
-        
-        if (sortedGrades.length >= 2) {
-          const recent = sortedGrades.slice(-Math.min(3, sortedGrades.length));
-          const older = sortedGrades.slice(0, Math.max(0, sortedGrades.length - recent.length));
-          if (older.length > 0) {
-            const recentAvg = weightedGradeAverage(recent);
-            const olderAvg = weightedGradeAverage(older);
-            
-            if (recentAvg - olderAvg > 3) stats.trend = 'improving';
-            else if (recentAvg - olderAvg < -3) stats.trend = 'declining';
-          }
-        }
+        stats.trend = gradeTrendForGrades(subjectGrades).trend;
       }
       
       // Calculate behavior score for this subject
@@ -636,14 +622,16 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     
     let earlyLateComparison: { early: { avg: number; behaviorScore: number }; late: { avg: number; behaviorScore: number } } | null = null;
     
-    if (sortedGrades.length >= 4 && sortedEvents.length >= 4) {
-      const midPoint = Math.floor(sortedGrades.length / 2);
-      const earlyGrades = sortedGrades.slice(0, midPoint);
-      const lateGrades = sortedGrades.slice(midPoint);
-      
-      const midEventPoint = Math.floor(sortedEvents.length / 2);
-      const earlyEvents = sortedEvents.slice(0, midEventPoint);
-      const lateEvents = sortedEvents.slice(midEventPoint);
+    if (sortedGrades.length >= 4) {
+      const gradeWindow = sortedGrades.length % 2 === 1 ? sortedGrades.slice(1) : sortedGrades;
+      const midPoint = gradeWindow.length / 2;
+      const earlyGrades = gradeWindow.slice(0, midPoint);
+      const lateGrades = gradeWindow.slice(midPoint);
+
+      const eventWindow = sortedEvents.length % 2 === 1 ? sortedEvents.slice(1) : sortedEvents;
+      const midEventPoint = eventWindow.length / 2;
+      const earlyEvents = eventWindow.slice(0, midEventPoint);
+      const lateEvents = eventWindow.slice(midEventPoint);
       
       const earlyAvg = weightedGradeAverage(earlyGrades);
       const lateAvg = weightedGradeAverage(lateGrades);
@@ -1722,21 +1710,21 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                         <div className="text-slate-600">ממוצע: {temporalAnalysis.earlyLateComparison.early.avg.toFixed(1)}</div>
                                     </div>
                                     <div className={`p-2 rounded ${
-                                        temporalAnalysis.earlyLateComparison.late.avg > temporalAnalysis.earlyLateComparison.early.avg + 3
+                                        temporalAnalysis.earlyLateComparison.late.avg > temporalAnalysis.earlyLateComparison.early.avg + 5
                                             ? 'bg-emerald-50 border border-emerald-200' 
-                                            : temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 3
+                                            : temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 5
                                             ? 'bg-red-50 border border-red-200'
                                             : 'bg-slate-50'
                                     }`}>
                                         <div className="font-medium text-slate-700">סוף תקופה</div>
                                         <div className="text-slate-600">ממוצע: {temporalAnalysis.earlyLateComparison.late.avg.toFixed(1)}</div>
-                                        {temporalAnalysis.earlyLateComparison.late.avg > temporalAnalysis.earlyLateComparison.early.avg + 3 && (
+                                        {temporalAnalysis.earlyLateComparison.late.avg > temporalAnalysis.earlyLateComparison.early.avg + 5 && (
                                             <div className="text-emerald-700 font-semibold mt-1 flex items-center gap-1">
                                                 <TrendingUp size={12} />
                                                 שיפור של {(temporalAnalysis.earlyLateComparison.late.avg - temporalAnalysis.earlyLateComparison.early.avg).toFixed(1)} נקודות!
                                             </div>
                                         )}
-                                        {temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 3 && (
+                                        {temporalAnalysis.earlyLateComparison.late.avg < temporalAnalysis.earlyLateComparison.early.avg - 5 && (
                                             <div className="text-red-700 font-semibold mt-1 flex items-center gap-1">
                                                 <TrendingDown size={12} />
                                                 ירידה של {(temporalAnalysis.earlyLateComparison.early.avg - temporalAnalysis.earlyLateComparison.late.avg).toFixed(1)} נקודות

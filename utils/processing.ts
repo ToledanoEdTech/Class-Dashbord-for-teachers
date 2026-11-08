@@ -384,7 +384,7 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
   }
 
   // === פענוח כל עמודת ציון ===
-  const headerMeta: Record<number, { subject: string, teacher: string, assignment: string, date: Date, weight: number }> = {};
+  const headerMeta: Record<number, { subject: string, teacher: string, assignment: string, date: Date | null, weight: number, dateIsInferred: boolean }> = {};
 
   for (let c = startColIndex; c < gradeHeaders.length; c++) {
     const headerRaw = gradeHeaders[c];
@@ -442,14 +442,39 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
     // --- חילוץ משקל מ-weightLine ---
     // דוגמה: "משקל 45" או פשוט "45"
     const weightMatch = weightLine.match(/משקל\s*(\d+)/) || weightLine.match(/^(\d+)$/);
+    const parsedDate = dateMatch ? parseDate(dateMatch[0]) : null;
 
     headerMeta[c] = {
       subject: normalizeSubjectName(subject || 'כללי'),
       teacher: teacher.trim(),
       assignment: assignment || `אירוע ${c - startColIndex + 1}`,
-      date: dateMatch ? parseDate(dateMatch[0])! : new Date(),
-      weight: weightMatch ? parseInt(weightMatch[1]) : 1
+      date: parsedDate,
+      weight: weightMatch ? parseInt(weightMatch[1]) : 1,
+      dateIsInferred: !parsedDate
     };
+  }
+
+  // עמודה בלי תאריך לא מקבלת "היום" — אחרת היא נראית כמו הציון האחרון.
+  // אם יש עמודות מתוארכות, משחזרים תאריך ביניהן. אם אין בכלל, התאריך נשאר ריק.
+  const metaCols = Object.keys(headerMeta).map(Number).sort((a, b) => a - b);
+  const datedCols = metaCols.filter((col) => headerMeta[col].date && !headerMeta[col].dateIsInferred);
+  for (const col of metaCols) {
+    if (!headerMeta[col].dateIsInferred && headerMeta[col].date) continue;
+    const prev = [...datedCols].reverse().find((k) => k < col);
+    const next = datedCols.find((k) => k > col);
+    if (prev != null && next != null) {
+      const span = next - prev;
+      const frac = span === 0 ? 0 : (col - prev) / span;
+      const t0 = headerMeta[prev].date!.getTime();
+      const t1 = headerMeta[next].date!.getTime();
+      headerMeta[col].date = new Date(t0 + frac * (t1 - t0));
+    } else if (prev != null) {
+      headerMeta[col].date = new Date(headerMeta[prev].date!);
+    } else if (next != null) {
+      headerMeta[col].date = new Date(headerMeta[next].date!);
+    } else {
+      headerMeta[col].date = new Date(0);
+    }
   }
 
   for (let i = dataStartIndex; i < gradesData.length; i++) {
@@ -476,11 +501,17 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
       const score = parseFloat(scoreVal);
       if (isNaN(score)) continue;
 
+      const meta = headerMeta[c];
       grades.push({
         studentId,
         studentName,
         score,
-        ...headerMeta[c]
+        subject: meta.subject,
+        teacher: meta.teacher,
+        assignment: meta.assignment,
+        date: meta.date ?? new Date(0),
+        weight: meta.weight,
+        dateIsInferred: meta.dateIsInferred
       });
     }
   }
@@ -524,6 +555,142 @@ export function weightedGradeAverage(grades: ReadonlyArray<{ score: number; weig
   return scoreSum / grades.length;
 }
 
+export type TrendDirection = 'improving' | 'declining' | 'stable';
+
+/** פער מינימלי (נקודות) לפני שמגמת ציונים עוזבת את "יציב". */
+const GRADE_TREND_THRESHOLD = 5;
+/** לפחות שני ציונים בכל חצי — פחות מזה לא מספיק כדי לקבוע מגמה. */
+const GRADE_TREND_MIN = 4;
+/**
+ * הפרש מינימלי לפני שמגמת התנהגות עוזבת את "יציב".
+ * בחצאים שווים, אירוע אחד שהתהפך משנה את האות ב-2, לכן הסף הוא 4
+ * (שני אירועים לכל הפחות).
+ */
+const BEHAVIOR_SIGNAL_THRESHOLD = 4;
+const BEHAVIOR_TREND_MIN = 4;
+
+function evenTail<T>(items: readonly T[], maxCount: number, minCount: number): T[] {
+  const cap = Math.min(items.length, maxCount);
+  const n = cap - (cap % 2);
+  if (n < minCount) return [];
+  return items.slice(items.length - n);
+}
+
+function gradeSeriesDelta(grades: readonly Grade[]): { delta: number; count: number } | null {
+  const sorted = [...grades].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const window = evenTail(sorted, 6, GRADE_TREND_MIN);
+  if (window.length < GRADE_TREND_MIN) return null;
+  const mid = window.length / 2;
+  const delta = weightedGradeAverage(window.slice(mid)) - weightedGradeAverage(window.slice(0, mid));
+  return { delta, count: window.length };
+}
+
+function trendFromGradeDelta(delta: number): TrendDirection {
+  if (delta > GRADE_TREND_THRESHOLD) return 'improving';
+  if (delta < -GRADE_TREND_THRESHOLD) return 'declining';
+  return 'stable';
+}
+
+/**
+ * מגמת ציונים: חצאים שווים של 4 או 6 הציונים האחרונים בכל מקצוע.
+ * ירידה או שיפור רק מפער של יותר מ-5 נקודות, ורק אם רוב הציונים שנמדדו
+ * (לפי מקצוע) באותו כיוון. מקצוע בודד עם מעט ציונים לא הופך את המצב הכללי.
+ * ציונים בלי תאריך מהקובץ לא נכנסים למגמה כשיש ציונים מתוארכים.
+ */
+export function gradeTrendForGrades(grades: readonly Grade[]): { trend: TrendDirection; delta: number } {
+  const explicit = grades.filter((g) => !g.dateIsInferred && g.date && g.date.getTime() > 0);
+  const usable = explicit.length > 0 ? explicit : grades;
+  const groups = new Map<string, Grade[]>();
+  for (const g of usable) {
+    const key = normalizeSubjectName((g.subject || '').trim() || 'כללי');
+    const list = groups.get(key);
+    if (list) list.push(g);
+    else groups.set(key, [g]);
+  }
+
+  const measured: { delta: number; count: number }[] = [];
+  for (const list of groups.values()) {
+    const result = gradeSeriesDelta(list);
+    if (result) measured.push(result);
+  }
+
+  if (measured.length >= 2) {
+    const total = measured.reduce((sum, item) => sum + item.count, 0);
+    const down = measured
+      .filter((item) => item.delta < -GRADE_TREND_THRESHOLD)
+      .reduce((sum, item) => sum + item.count, 0);
+    const up = measured
+      .filter((item) => item.delta > GRADE_TREND_THRESHOLD)
+      .reduce((sum, item) => sum + item.count, 0);
+    const delta = measured.reduce((sum, item) => sum + item.delta * item.count, 0) / total;
+    if (down > total / 2 && down > up) return { trend: 'declining', delta };
+    if (up > total / 2 && up > down) return { trend: 'improving', delta };
+    return { trend: 'stable', delta };
+  }
+
+  if (measured.length === 1) {
+    return { trend: trendFromGradeDelta(measured[0].delta), delta: measured[0].delta };
+  }
+  return { trend: 'stable', delta: 0 };
+}
+
+/**
+ * מגמת התנהגות: שני חצאים שווים של עד 12 האירועים האחרונים (חיובי/שלילי בלבד).
+ * אירוע בודד לא משנה את התווית — צריך לפחות שני אירועים הבדל.
+ */
+export function behaviorTrendForEvents(
+  events: readonly BehaviorEvent[],
+  options?: { excludeAbsences?: boolean }
+): TrendDirection {
+  const relevant = events.filter((e) => {
+    if (options?.excludeAbsences && isAbsenceEvent(e)) return false;
+    return e.category === EventType.POSITIVE || e.category === EventType.NEGATIVE;
+  });
+  const sorted = [...relevant].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const window = evenTail(sorted, 12, BEHAVIOR_TREND_MIN);
+  if (window.length < BEHAVIOR_TREND_MIN) return 'stable';
+  const mid = window.length / 2;
+  const prev = window.slice(0, mid);
+  const curr = window.slice(mid);
+  const count = (list: BehaviorEvent[], category: EventType) =>
+    list.filter((e) => e.category === category).length;
+  const signal =
+    count(prev, EventType.NEGATIVE) -
+    count(curr, EventType.NEGATIVE) +
+    (count(curr, EventType.POSITIVE) - count(prev, EventType.POSITIVE));
+  if (signal >= BEHAVIOR_SIGNAL_THRESHOLD) return 'improving';
+  if (signal <= -BEHAVIOR_SIGNAL_THRESHOLD) return 'declining';
+  return 'stable';
+}
+
+/**
+ * מגמת חיסורים מול תקופה קודמת באותו אורך.
+ * בלי נתונים בתקופה הקודמת לא מסמנים ירידה (החלון ריק, לא "אפס חיסורים").
+ * הפרש של חיסור אחד נשאר יציב.
+ */
+export function absenceTrend(
+  currentAbsences: number,
+  previousAbsences: number,
+  previousPeriodHasData: boolean
+): TrendDirection {
+  if (!previousPeriodHasData) return 'stable';
+  const delta = currentAbsences - previousAbsences;
+  if (delta >= 2) return 'declining';
+  if (delta <= -2) return 'improving';
+  return 'stable';
+}
+
+/** ציון בלי תאריך מהקובץ. includeUndated שומר אותו בממוצע הכללי, אבל לא בכל חודש בנפרד. */
+export function isGradeInRange(
+  grade: Pick<Grade, 'date'>,
+  start: Date,
+  end: Date,
+  includeUndated = false
+): boolean {
+  if (!grade.date || grade.date.getTime() === 0) return includeUndated;
+  return grade.date >= start && grade.date <= end;
+}
+
 /**
  * מחשבת מחדש את כל הסטטיסטיקות של תלמיד (ממוצע, מגמות, סיכון, קורלציות)
  * לפי grades ו-behaviorEvents הנוכחיים והגדרות הסיכון.
@@ -541,62 +708,22 @@ export function calculateStudentStats(
   const negativeCount = sEvents.filter((e) => e.category === EventType.NEGATIVE).length;
   const positiveCount = sEvents.filter((e) => e.category === EventType.POSITIVE).length;
   const absenceCount = sEvents.filter((e) => isAbsenceEvent(e)).length;
-  const nonAbsenceEvents = sEvents.filter((e) => !isAbsenceEvent(e));
 
-  let gradeTrend: 'improving' | 'declining' | 'stable' = 'stable';
-  let gradeDelta = 0;
-  if (sGrades.length >= 2) {
-    const recentGrades = sGrades.slice(-6);
-    const mid = Math.floor(recentGrades.length / 2);
-    const prevHalf = recentGrades.slice(0, mid);
-    const currHalf = recentGrades.slice(mid);
-    const avgPrev = weightedGradeAverage(prevHalf);
-    const avgCurr = weightedGradeAverage(currHalf);
-    gradeDelta = avgCurr - avgPrev;
-    if (gradeDelta > 3) gradeTrend = 'improving';
-    else if (gradeDelta < -3) gradeTrend = 'declining';
-  }
+  const { trend: gradeTrend, delta: gradeDelta } = gradeTrendForGrades(sGrades);
+  const behaviorTrend = behaviorTrendForEvents(sEvents);
+  const behaviorOnlyTrend = behaviorTrendForEvents(sEvents, { excludeAbsences: true });
 
-  let behaviorTrend: 'improving' | 'declining' | 'stable' = 'stable';
   let recentBehaviorScore = 0;
   if (sEvents.length >= 2) {
     const recentEvents = sEvents.slice(-12);
     const mid = Math.floor(recentEvents.length / 2);
-    const prevHalf = recentEvents.slice(0, mid);
     const currHalf = recentEvents.slice(mid);
     const getScore = (e: BehaviorEvent) => {
       if (e.category === EventType.POSITIVE) return 1;
       if (e.category === EventType.NEGATIVE) return -2;
       return 0;
     };
-    const scoreCurr = currHalf.reduce((sum, e) => sum + getScore(e), 0);
-    recentBehaviorScore = scoreCurr;
-
-    const negPrev = prevHalf.filter(e => e.category === EventType.NEGATIVE).length;
-    const negCurr = currHalf.filter(e => e.category === EventType.NEGATIVE).length;
-    const posPrev = prevHalf.filter(e => e.category === EventType.POSITIVE).length;
-    const posCurr = currHalf.filter(e => e.category === EventType.POSITIVE).length;
-    const improvementSignal = (negPrev - negCurr) + (posCurr - posPrev);
-
-    if (improvementSignal > 0) behaviorTrend = 'improving';
-    else if (improvementSignal < 0) behaviorTrend = 'declining';
-  }
-
-  let behaviorOnlyTrend: 'improving' | 'declining' | 'stable' = 'stable';
-  if (nonAbsenceEvents.length >= 2) {
-    const recent = nonAbsenceEvents.slice(-12);
-    const mid = Math.floor(recent.length / 2);
-    const prevHalf = recent.slice(0, mid);
-    const currHalf = recent.slice(mid);
-
-    const negPrevBO = prevHalf.filter(e => e.category === EventType.NEGATIVE).length;
-    const negCurrBO = currHalf.filter(e => e.category === EventType.NEGATIVE).length;
-    const posPrevBO = prevHalf.filter(e => e.category === EventType.POSITIVE).length;
-    const posCurrBO = currHalf.filter(e => e.category === EventType.POSITIVE).length;
-    const improvementSignalBO = (negPrevBO - negCurrBO) + (posCurrBO - posPrevBO);
-
-    if (improvementSignalBO > 0) behaviorOnlyTrend = 'improving';
-    else if (improvementSignalBO < 0) behaviorOnlyTrend = 'declining';
+    recentBehaviorScore = currHalf.reduce((sum, e) => sum + getScore(e), 0);
   }
 
   const minGT = settings.minGradeThreshold;
@@ -693,6 +820,8 @@ export interface StudentStatsResult {
   behaviorOnlyTrend: 'improving' | 'declining' | 'stable';
   riskLevel: 'high' | 'medium' | 'low';
   riskScore: number;
+  /** ציונים + אירועים שנכנסו לחלון. 0 = אין בסיס להשוואת תקופה. */
+  activityCount: number;
 }
 
 export function computeStudentStatsFromData(
@@ -718,6 +847,7 @@ export function computeStudentStatsFromData(
     behaviorOnlyTrend: full.behaviorOnlyTrend ?? full.behaviorTrend,
     riskLevel: full.riskLevel,
     riskScore: full.riskScore,
+    activityCount: grades.length + behaviorEvents.length,
   };
 }
 

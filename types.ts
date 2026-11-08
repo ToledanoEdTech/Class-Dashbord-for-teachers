@@ -37,6 +37,8 @@ export interface Grade {
   date: Date;
   score: number;
   weight: number;
+  /** התאריך לא הופיע בקובץ (או שוחזר לפי עמודות שכנות) — לא לדרג לפיו מגמה כשיש ציונים מתוארכים. */
+  dateIsInferred?: boolean;
 }
 
 export interface Correlation {

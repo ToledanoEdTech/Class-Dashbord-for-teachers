@@ -23,7 +23,7 @@ import {
   ComposedChart,
 } from 'recharts';
 import { format, subDays, startOfDay, endOfDay, differenceInDays, eachWeekOfInterval, endOfWeek, isSameWeek, eachDayOfInterval, isSameDay, addMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { computeStudentStatsFromData, normalizeSubjectName, weightedGradeAverage } from '../utils/processing';
+import { absenceTrend, computeStudentStatsFromData, isGradeInRange, normalizeSubjectName, weightedGradeAverage } from '../utils/processing';
 import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
 import HelpTip from './HelpTip';
@@ -100,8 +100,12 @@ function DashboardWidgetWrap({
 const getDateRangeFromStudents = (students: Student[]): { min: Date; max: Date } | null => {
   const dates: number[] = [];
   students.forEach((s) => {
-    s.grades.forEach((g) => dates.push(g.date.getTime()));
-    s.behaviorEvents.forEach((e) => dates.push(e.date.getTime()));
+    s.grades.forEach((g) => {
+      if (g.date && g.date.getTime() > 0) dates.push(g.date.getTime());
+    });
+    s.behaviorEvents.forEach((e) => {
+      if (e.date && e.date.getTime() > 0) dates.push(e.date.getTime());
+    });
   });
   if (dates.length === 0) return null;
   return {
@@ -210,7 +214,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
 
   const studentsInRange = useMemo(() => {
     return studentsFilteredBySubjectTeacher.map((s) => {
-      const g = s.grades.filter((gr) => gr.date >= rangeStart && gr.date <= rangeEnd);
+      const g = s.grades.filter((gr) => isGradeInRange(gr, rangeStart, rangeEnd, true));
       const e = s.behaviorEvents.filter((ev) => ev.date >= rangeStart && ev.date <= rangeEnd);
       const stats = computeStudentStatsFromData(g, e, riskSettings);
       return { ...s, ...stats, grades: g, behaviorEvents: e };
@@ -340,7 +344,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
         (s) =>
           s.riskLevel === 'high' &&
           (s.gradeTrend === 'declining' ||
-            s.behaviorTrend === 'declining' ||
+            (s.behaviorOnlyTrend ?? s.behaviorTrend) === 'declining' ||
             s.behaviorEvents.filter((e) => isAbsenceEvent(e)).length >= attThr)
       )
       .sort((a, b) => a.riskScore - b.riskScore)
@@ -348,7 +352,7 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
   }, [studentsInRange, riskSettings?.attendanceThreshold]);
 
   const improvingCount = useMemo(
-    () => studentsInRange.filter((s) => s.gradeTrend === 'improving' || s.behaviorTrend === 'improving').length,
+    () => studentsInRange.filter((s) => s.gradeTrend === 'improving' || (s.behaviorOnlyTrend ?? s.behaviorTrend) === 'improving').length,
     [studentsInRange]
   );
 
@@ -1504,9 +1508,9 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
               <tr className="bg-slate-50/80 text-slate-500 text-sm">
                 <th className="px-3 sm:px-6 py-4 font-semibold text-right">שם התלמיד</th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">ממוצע</th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="השוואה בין ממוצע 3 הציונים האחרונים ל-3 שלפניהם. שיפור = עלייה, ירידה = ירידה." /></th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">חיסורים <HelpTip text="מספר חיסורים במגמה – שיפור/ירידה ביחס לתקופה הקודמת." /></th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת התנהגות (ללא חיסורים) <HelpTip text="מגמה לפי אירועי משמעת בלבד (ללא חיסורים)." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="בכל מקצוע משווים את ממוצע 2–3 הציונים האחרונים לאותו מספר ציונים לפניהם. ירידה או שיפור רק כשיש פער של יותר מ-5 נקודות, ולפחות ב-4 ציונים. אם יש כמה מקצועות, התווית משתנה רק כשרוב הציונים באותו כיוון." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">חיסורים <HelpTip text="המספר הוא סך החיסורים בטווח המוצג. המגמה משווה לתקופה הקודמת באותו אורך, ורק אם יש בה נתונים. ירידה או שיפור רק מהפרש של שני חיסורים לפחות. בלי תקופה קודמת המגמה יציבה." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת התנהגות (ללא חיסורים) <HelpTip text="שני חצאים שווים של עד 12 אירועי המשמעת האחרונים, בלי חיסורים. מידרדר או משתפר רק כשהחצי האחרון שונה בלפחות שני אירועים. אירוע בודד, או פחות מ-4 אירועים, נשאר יציב." /></th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">אירועים</th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">סיכון <HelpTip text="ציון סיכון 1-10 (1=סיכון גבוה, 10=סיכון נמוך). מחושב לפי ציונים, מגמות, אירועים שליליים וחיסורים." /></th>
                 <th className="px-3 sm:px-6 py-4 w-12"></th>
@@ -1548,13 +1552,11 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                       const prev = prevStatsByStudentId.get(student.id);
                       const currAbs = (student as any).absenceCount ?? (student.behaviorEvents?.filter((e: BehaviorEvent) => isAbsenceEvent(e)).length ?? 0);
                       const prevAbs = prev?.absenceCount ?? 0;
-                      let absenceTrend: 'improving' | 'declining' | 'stable' = 'stable';
-                      if (currAbs < prevAbs) absenceTrend = 'improving';
-                      else if (currAbs > prevAbs) absenceTrend = 'declining';
+                      const absTrend = absenceTrend(currAbs, prevAbs, (prev?.activityCount ?? 0) > 0);
                       return (
                         <div className="flex flex-col items-center gap-0.5">
                           <span className="font-medium text-slate-700">{currAbs}</span>
-                          <TrendBadge trend={absenceTrend} type="grade" />
+                          <TrendBadge trend={absTrend} type="grade" />
                         </div>
                       );
                     })()}
