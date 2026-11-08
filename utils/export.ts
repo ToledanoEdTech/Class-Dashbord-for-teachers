@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { Student, ClassGroup, RiskSettings, EventType, Grade, BehaviorEvent } from '../types';
 import { format, eachWeekOfInterval, eachDayOfInterval, isSameWeek, isSameDay, endOfWeek, differenceInDays } from 'date-fns';
 import { isAbsenceEvent, isOtherNegativeEvent } from '../types';
-import { normalizeSubjectName } from './processing';
+import { normalizeSubjectName, weightedGradeAverage } from './processing';
 import html2canvas from 'html2canvas';
 
 /**
@@ -853,7 +853,7 @@ export async function exportClassSummaryToExcel(
   subjectsHeaderRow.height = 35;
 
   // חישוב סטטיסטיקות לפי מקצוע
-  const subjectStats: Record<string, { students: Set<string>, grades: number[], events: number }> = {};
+  const subjectStats: Record<string, { students: Set<string>, grades: { score: number; weight?: number }[], events: number }> = {};
   
   students.forEach((student) => {
     student.grades.forEach((grade) => {
@@ -862,7 +862,7 @@ export async function exportClassSummaryToExcel(
         subjectStats[subject] = { students: new Set(), grades: [], events: 0 };
       }
       subjectStats[subject].students.add(student.id);
-      subjectStats[subject].grades.push(grade.score);
+      subjectStats[subject].grades.push(grade);
     });
     
     student.behaviorEvents.forEach((event) => {
@@ -877,9 +877,7 @@ export async function exportClassSummaryToExcel(
   Object.entries(subjectStats)
     .sort((a, b) => a[0].localeCompare(b[0], 'he'))
     .forEach(([subject, stats]) => {
-      const avg = stats.grades.length > 0 
-        ? stats.grades.reduce((sum, g) => sum + g, 0) / stats.grades.length 
-        : 0;
+      const avg = weightedGradeAverage(stats.grades);
       
       const row = subjectsSheet.addRow([
         subject,
@@ -1118,7 +1116,7 @@ export function exportClassSummaryToPDF(
   const totalPositive = students.reduce((sum, s) => sum + s.positiveCount, 0);
 
   // חישוב סטטיסטיקות לפי מקצוע
-  const subjectStats: Record<string, { students: Set<string>, grades: number[], events: number }> = {};
+  const subjectStats: Record<string, { students: Set<string>, grades: { score: number; weight?: number }[], events: number }> = {};
   
   students.forEach((student) => {
     student.grades.forEach((grade) => {
@@ -1127,7 +1125,7 @@ export function exportClassSummaryToPDF(
         subjectStats[subject] = { students: new Set(), grades: [], events: 0 };
       }
       subjectStats[subject].students.add(student.id);
-      subjectStats[subject].grades.push(grade.score);
+      subjectStats[subject].grades.push(grade);
     });
     
     student.behaviorEvents.forEach((event) => {
@@ -1589,9 +1587,7 @@ export function exportClassSummaryToPDF(
             ${Object.entries(subjectStats)
               .sort((a, b) => a[0].localeCompare(b[0], 'he'))
               .map(([subject, stats]) => {
-                const avg = stats.grades.length > 0 
-                  ? stats.grades.reduce((sum, g) => sum + g, 0) / stats.grades.length 
-                  : 0;
+                const avg = weightedGradeAverage(stats.grades);
                 const avgClass = avg < 60 ? 'grade-low' : avg < 80 ? 'grade-medium' : 'grade-high';
                 return `
                   <tr>

@@ -2,6 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { ClassGroup, RiskSettings, PerClassRiskSettings, PeriodDefinition } from '../types';
 import { saveToStorage, loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets, type UserPreferences } from '../utils/storage';
 import { saveToFirestore, subscribeToFirestore } from '../utils/firestoreSync';
+
+type CloudSavePayload = Parameters<typeof saveToFirestore>[1];
+
+interface PendingCloudSave {
+  uid: string;
+  payload: CloudSavePayload;
+  allowEmpty: boolean;
+  resolvers: Array<{ resolve: () => void; reject: (error: unknown) => void }>;
+}
 import { isFirebaseConfigured } from '../firebase';
 import { normalizeDashboardWidgets } from '../constants/dashboardWidgets';
 import type { DashboardWidgetsState } from '../constants/dashboardWidgets';
@@ -76,10 +85,55 @@ export function useCloudSync({
   const previousUserIdRef = useRef<string | null>(null);
   const lastCloudHadDataRef = useRef(false);
   const lastCloudUpdatedAtRef = useRef(0);
-  const lastAddClassAtRef = useRef(0);
   const recentlyDeletedClassIdsRef = useRef<Set<string>>(new Set());
   const recentlyDeletedExpiryRef = useRef<Map<string, number>>(new Map());
   const flushFirestoreSaveRef = useRef<() => void>(() => {});
+  const cloudSaveQueueRef = useRef<PendingCloudSave[]>([]);
+  const cloudSavePumpingRef = useRef(false);
+
+  const enqueueCloudSave = (uid: string, payloadToSave: CloudSavePayload, allowEmpty: boolean) => {
+    return new Promise<void>((resolve, reject) => {
+      const resolver = { resolve, reject };
+      const tail = cloudSaveQueueRef.current[cloudSaveQueueRef.current.length - 1];
+      // The job already running was shifted off the queue. Later snapshots of the same
+      // user replace the queued one so an older full-state write cannot commit last.
+      if (tail && tail.uid === uid) {
+        tail.payload = payloadToSave;
+        tail.allowEmpty = allowEmpty;
+        tail.resolvers.push(resolver);
+      } else {
+        cloudSaveQueueRef.current.push({
+          uid,
+          payload: payloadToSave,
+          allowEmpty,
+          resolvers: [resolver],
+        });
+      }
+      void pumpCloudSaveQueue();
+    });
+  };
+
+  const pumpCloudSaveQueue = () => {
+    if (cloudSavePumpingRef.current) return;
+    cloudSavePumpingRef.current = true;
+    void (async () => {
+      try {
+        while (cloudSaveQueueRef.current.length > 0) {
+          const job = cloudSaveQueueRef.current.shift();
+          if (!job) break;
+          try {
+            await saveToFirestore(job.uid, job.payload, job.allowEmpty);
+            job.resolvers.forEach((r) => r.resolve());
+          } catch (error) {
+            job.resolvers.forEach((r) => r.reject(error));
+          }
+        }
+      } finally {
+        cloudSavePumpingRef.current = false;
+        if (cloudSaveQueueRef.current.length > 0) pumpCloudSaveQueue();
+      }
+    })();
+  };
 
   const { darkMode, fontSize, dashboardWidgets } = preferences;
 
@@ -120,14 +174,18 @@ export function useCloudSync({
             }
           }
           setPayload((prev) => {
-            const recentlyAdded = now - lastAddClassAtRef.current < 3000;
             let cloudClasses = sortClassesByUpdatedAt(data.classes);
             cloudClasses = cloudClasses.filter((c) => !deletedSet.has(c.id));
-            const mergedClasses = mergeClassesByLatest(prev.classes, cloudClasses);
-            const classesToUse = recentlyAdded ? mergedClasses : cloudClasses;
+            const localClasses = prev.classes.filter((c) => !deletedSet.has(c.id));
+            // Always keep the newer copy of each class. A cloud snapshot from a save that
+            // started before a rename must not roll the name (or student data) backwards.
+            const classesToUse = mergeClassesByLatest(localClasses, cloudClasses);
             // Prefer current user selection (prev.activeClassId) when still valid, so cloud
             // updates (e.g. from our own save or cache) don't override the class they just clicked.
-            const validPrev = prev.activeClassId && classesToUse.some((c) => c.id === prev.activeClassId);
+            const validPrev =
+              prev.activeClassId &&
+              !deletedSet.has(prev.activeClassId) &&
+              classesToUse.some((c) => c.id === prev.activeClassId);
             const validCloud = data.activeClassId && classesToUse.some((c) => c.id === data.activeClassId);
             const activeClassId = validPrev
               ? prev.activeClassId
@@ -143,23 +201,6 @@ export function useCloudSync({
               periodDefinitions: data.periodDefinitions ?? prev.periodDefinitions ?? [],
             };
           });
-          // Try to save to localStorage (only non-deleted classes so deleted never come back from storage)
-          try {
-            const classesToSave = (deletedSet.size ? data.classes.filter((c) => !deletedSet.has(c.id)) : data.classes);
-            saveToStorage(
-              {
-                classes: classesToSave,
-                activeClassId: data.activeClassId,
-                riskSettings: data.riskSettings,
-                perClassRiskSettings: data.perClassRiskSettings ?? {},
-                periodDefinitions: data.periodDefinitions ?? [],
-              },
-              userId
-            );
-          } catch (e) {
-            // localStorage quota exceeded - continue anyway, data is in Firestore
-            console.warn('Could not save to localStorage (quota exceeded), continuing with cloud data', e);
-          }
           if (data.preferences) {
             setPreferences({
               darkMode: data.preferences.darkMode,
@@ -247,8 +288,7 @@ export function useCloudSync({
         } as UserPreferences,
       };
       const allowEmpty = lastCloudHadDataRef.current;
-      type FirestorePayload = Parameters<typeof saveToFirestore>[1];
-      saveToFirestore(userId, fullPayload as FirestorePayload, allowEmpty)
+      enqueueCloudSave(userId, fullPayload as CloudSavePayload, allowEmpty)
         .then(() => setCloudSyncError(null))
         .catch((err) => {
           setCloudSyncError(
@@ -297,7 +337,6 @@ export function useCloudSync({
   ]);
 
   const markClassAdded = () => {
-    lastAddClassAtRef.current = Date.now();
     lastCloudHadDataRef.current = true;
   };
 
@@ -324,8 +363,7 @@ export function useCloudSync({
     };
     try {
       const allowEmpty = lastCloudHadDataRef.current;
-      type FirestorePayload = Parameters<typeof saveToFirestore>[1];
-      await saveToFirestore(userId, fullPayload as FirestorePayload, allowEmpty);
+      await enqueueCloudSave(userId, fullPayload as CloudSavePayload, allowEmpty);
       setCloudSyncError(null);
       return true;
     } catch (err: any) {

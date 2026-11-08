@@ -23,7 +23,7 @@ import {
   ComposedChart,
 } from 'recharts';
 import { format, subDays, startOfDay, endOfDay, differenceInDays, eachWeekOfInterval, endOfWeek, isSameWeek, eachDayOfInterval, isSameDay, addMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { computeStudentStatsFromData, normalizeSubjectName } from '../utils/processing';
+import { computeStudentStatsFromData, normalizeSubjectName, weightedGradeAverage } from '../utils/processing';
 import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
 import HelpTip from './HelpTip';
@@ -1723,7 +1723,7 @@ const getGradeSparklineValues = (grades: Grade[]): number[] => {
     .map((weekStart) => {
       const weeklyGrades = grades.filter((g) => isSameWeek(g.date, weekStart));
       if (weeklyGrades.length === 0) return null;
-      const avg = weeklyGrades.reduce((sum, g) => sum + g.score, 0) / weeklyGrades.length;
+      const avg = weightedGradeAverage(weeklyGrades);
       return parseFloat(avg.toFixed(1));
     })
     .filter((v): v is number => v !== null);

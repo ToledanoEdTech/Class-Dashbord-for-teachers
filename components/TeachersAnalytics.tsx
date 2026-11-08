@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Student, EventType, isAbsenceEvent, isOtherNegativeEvent, PeriodDefinition } from '../types';
 import { startOfDay, endOfDay } from 'date-fns';
-import { normalizeSubjectName } from '../utils/processing';
+import { normalizeSubjectName, weightedGradeAverage } from '../utils/processing';
 import {
   BarChart,
   Bar,
@@ -45,21 +45,17 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, periodD
       const pStart = startOfDay(new Date(p.startDate));
       const pEnd = endOfDay(new Date(p.endDate));
       const inRange = (d: Date) => d >= pStart && d <= pEnd;
-      let gradeSum = 0;
-      let gradeCount = 0;
+      const periodGrades: { score: number; weight?: number }[] = [];
       let absences = 0;
       students.forEach((s) => {
         s.grades.forEach((g) => {
-          if (inRange(g.date)) {
-            gradeSum += g.score;
-            gradeCount += 1;
-          }
+          if (inRange(g.date)) periodGrades.push(g);
         });
         s.behaviorEvents.forEach((e) => {
           if (inRange(e.date) && isAbsenceEvent(e)) absences += 1;
         });
       });
-      const avg = gradeCount > 0 ? Math.round((gradeSum / gradeCount) * 10) / 10 : 0;
+      const avg = periodGrades.length > 0 ? Math.round(weightedGradeAverage(periodGrades) * 10) / 10 : 0;
       return { name: p.name, ממוצע: avg, חיסורים: absences };
     });
   }, [students, periodDefinitions]);
@@ -98,16 +94,15 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, periodD
     };
     const key = (t: string, s: string) => `${t}\0${s}`;
 
-    const gradeByPair: Record<string, { sum: number; count: number }> = {};
+    const gradeByPair: Record<string, { grades: { score: number; weight?: number }[] }> = {};
     const eventsByPair: Record<string, number> = {};
 
     students.forEach((s) => {
       s.grades.forEach((g) => {
         const { teacher, subject } = normalize(g.teacher, g.subject);
         const k = key(teacher, subject);
-        if (!gradeByPair[k]) gradeByPair[k] = { sum: 0, count: 0 };
-        gradeByPair[k].sum += g.score;
-        gradeByPair[k].count += 1;
+        if (!gradeByPair[k]) gradeByPair[k] = { grades: [] };
+        gradeByPair[k].grades.push(g);
       });
       s.behaviorEvents.forEach((e) => {
         const { teacher, subject } = normalize(e.teacher, e.subject);
@@ -121,12 +116,12 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, periodD
     allKeys.forEach((k) => {
       const [teacher, subject] = k.split('\0');
       const g = gradeByPair[k];
-      const avgGrade = g && g.count > 0 ? Math.round((g.sum / g.count) * 10) / 10 : null;
+      const avgGrade = g && g.grades.length > 0 ? Math.round(weightedGradeAverage(g.grades) * 10) / 10 : null;
       pairs.push({
         teacher,
         subject,
         avgGrade: avgGrade ?? null,
-        gradeCount: g?.count ?? 0,
+        gradeCount: g?.grades.length ?? 0,
         eventCount: eventsByPair[k] ?? 0,
       });
     });
@@ -176,20 +171,19 @@ const TeachersAnalytics: React.FC<TeachersAnalyticsProps> = ({ students, periodD
   };
 
   const gradeByTeacher = useMemo(() => {
-    const byTeacher: Record<string, { sum: number; count: number; studentIds: Set<string> }> = {};
+    const byTeacher: Record<string, { grades: { score: number; weight?: number }[]; studentIds: Set<string> }> = {};
     students.forEach((s) => {
       s.grades.forEach((g) => {
         const t = normalizeTeacherForChart(g.teacher) || 'ללא מורה';
-        if (!byTeacher[t]) byTeacher[t] = { sum: 0, count: 0, studentIds: new Set() };
-        byTeacher[t].sum += g.score;
-        byTeacher[t].count += 1;
+        if (!byTeacher[t]) byTeacher[t] = { grades: [], studentIds: new Set() };
+        byTeacher[t].grades.push(g);
         byTeacher[t].studentIds.add(s.id);
       });
     });
-    const result: TeacherGradeStats[] = Object.entries(byTeacher).map(([teacher, { sum, count, studentIds }]) => ({
+    const result: TeacherGradeStats[] = Object.entries(byTeacher).map(([teacher, { grades, studentIds }]) => ({
       teacher,
-      avgGrade: count > 0 ? Math.round((sum / count) * 10) / 10 : 0,
-      gradeCount: count,
+      avgGrade: grades.length > 0 ? Math.round(weightedGradeAverage(grades) * 10) / 10 : 0,
+      gradeCount: grades.length,
       studentCount: studentIds.size,
     }));
     return result.sort((a, b) => b.avgGrade - a.avgGrade);

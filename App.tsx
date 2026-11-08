@@ -265,8 +265,9 @@ const App: React.FC = () => {
         );
         return { ...prev, classes: nextClasses };
       });
+      setTimeout(() => flushSave(), 150);
     },
-    [state.activeClassId, effectiveRiskSettings]
+    [state.activeClassId, effectiveRiskSettings, flushSave]
   );
 
   const handleSaveRiskSettings = useCallback(
@@ -301,7 +302,8 @@ const App: React.FC = () => {
     }));
     setEditingClassId(null);
     setEditingName('');
-  }, []);
+    setTimeout(() => flushSave(), 150);
+  }, [flushSave]);
 
   const startEditClass = useCallback((c: ClassGroup) => {
     setEditingClassId(c.id);

@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { Student, RiskSettings, EventType, Grade, BehaviorEvent } from '../types';
 import { format, eachWeekOfInterval, eachDayOfInterval, isSameWeek, isSameDay, endOfWeek, differenceInDays, startOfDay } from 'date-fns';
 import { isAbsenceEvent, isOtherNegativeEvent } from '../types';
-import { normalizeSubjectName } from './processing';
+import { normalizeSubjectName, weightedGradeAverage } from './processing';
 
 /**
  * ייצוא מפורט של תלמיד בודד ל-Excel עם עיצוב מקצועי וגרפים
@@ -183,7 +183,7 @@ export async function exportStudentProfileToExcel(
   gradesTitleCell.alignment = { vertical: 'middle', horizontal: 'center' };
   gradesSheet.getRow(1).height = 30;
 
-  const gradesHeaders = ['מקצוע', 'מורה', 'מטלה', 'תאריך', 'ציון', 'משקל', 'ציון משוקלל', 'הערות'];
+  const gradesHeaders = ['מקצוע', 'מורה', 'מטלה', 'תאריך', 'ציון', 'משקל', 'תרומה לממוצע', 'הערות'];
   const gradesHeaderRow = gradesSheet.addRow(gradesHeaders);
   gradesHeaderRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
   gradesHeaderRow.fill = {
@@ -194,10 +194,15 @@ export async function exportStudentProfileToExcel(
   gradesHeaderRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
   gradesHeaderRow.height = 35;
 
+  const gradeWeightTotal = student.grades.reduce((sum, g) => sum + (Number(g.weight) || 0), 0);
   student.grades
     .sort((a, b) => b.date.getTime() - a.date.getTime())
     .forEach((grade) => {
-      const weightedScore = grade.score * (grade.weight / 100);
+      const contribution = gradeWeightTotal > 0
+        ? (grade.score * (Number(grade.weight) || 0)) / gradeWeightTotal
+        : student.grades.length > 0
+          ? grade.score / student.grades.length
+          : 0;
       const row = gradesSheet.addRow([
         normalizeSubjectName(grade.subject || 'כללי'),
         grade.teacher,
@@ -205,7 +210,7 @@ export async function exportStudentProfileToExcel(
         format(grade.date, 'dd/MM/yyyy'),
         grade.score,
         grade.weight,
-        weightedScore.toFixed(1),
+        contribution.toFixed(1),
         grade.score < 60 ? 'נכשל' : grade.score < 80 ? 'צריך שיפור' : 'טוב'
       ]);
       
@@ -380,14 +385,14 @@ export async function exportStudentProfileToExcel(
   subjectsHeaderRow.height = 35;
 
   // חישוב סטטיסטיקות לפי מקצוע
-  const subjectStats: Record<string, { grades: number[], positiveEvents: number, negativeEvents: number }> = {};
+  const subjectStats: Record<string, { grades: { score: number; weight?: number }[], positiveEvents: number, negativeEvents: number }> = {};
   
   student.grades.forEach((grade) => {
     const subject = normalizeSubjectName(grade.subject || 'כללי');
     if (!subjectStats[subject]) {
       subjectStats[subject] = { grades: [], positiveEvents: 0, negativeEvents: 0 };
     }
-    subjectStats[subject].grades.push(grade.score);
+    subjectStats[subject].grades.push(grade);
   });
   
   student.behaviorEvents.forEach((event) => {
@@ -405,9 +410,7 @@ export async function exportStudentProfileToExcel(
   Object.entries(subjectStats)
     .sort((a, b) => a[0].localeCompare(b[0], 'he'))
     .forEach(([subject, stats]) => {
-      const avg = stats.grades.length > 0 
-        ? stats.grades.reduce((sum, g) => sum + g, 0) / stats.grades.length 
-        : 0;
+      const avg = weightedGradeAverage(stats.grades);
       
       const row = subjectsSheet.addRow([
         subject,

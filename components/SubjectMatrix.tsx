@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Student, Grade } from '../types';
 import { getDisplayName } from '../utils/displayName';
-import { normalizeSubjectName } from '../utils/processing';
+import { normalizeSubjectName, weightedGradeAverage } from '../utils/processing';
 import { Search, ArrowUp, ArrowDown, ChevronUp, ChevronDown, Minus, BarChart3, X, ListFilter } from 'lucide-react';
 import HelpTip from './HelpTip';
 import { format } from 'date-fns';
@@ -23,7 +23,6 @@ interface SubjectMatrixProps {
 
 interface CellData {
   avg: number | null;
-  weightedAvg: number | null;
   count: number;
   grades: Grade[];
 }
@@ -32,26 +31,14 @@ interface RowData {
   student: Student;
   displayName: string;
   generalAvg: number;
-  weightedGeneralAvg: number;
   cells: CellData[];
 }
 
 function getSubjectData(grades: Grade[], subject: string): CellData {
   const bySubject = grades.filter((g) => normalizeSubjectName((g.subject || '').trim() || 'כללי') === subject);
-  if (bySubject.length === 0) return { avg: null, weightedAvg: null, count: 0, grades: [] };
-  const sum = bySubject.reduce((s, g) => s + g.score, 0);
-  const avg = Math.round((sum / bySubject.length) * 10) / 10;
-  const totalWeight = bySubject.reduce((s, g) => s + (g.weight || 1), 0);
-  const weightedSum = bySubject.reduce((s, g) => s + g.score * (g.weight || 1), 0);
-  const weightedAvg = totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : avg;
-  return { avg, weightedAvg, count: bySubject.length, grades: bySubject };
-}
-
-function getWeightedGeneralAvg(grades: Grade[]): number {
-  if (grades.length === 0) return 0;
-  const totalWeight = grades.reduce((s, g) => s + (g.weight || 1), 0);
-  const weightedSum = grades.reduce((s, g) => s + g.score * (g.weight || 1), 0);
-  return totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : 0;
+  if (bySubject.length === 0) return { avg: null, count: 0, grades: [] };
+  const avg = Math.round(weightedGradeAverage(bySubject) * 10) / 10;
+  return { avg, count: bySubject.length, grades: bySubject };
 }
 
 function getCellClass(grade: number | null): string {
@@ -106,10 +93,7 @@ interface GradeDetailDialogProps {
 
 function GradeDetailDialog({ studentName, subject, grades, onClose }: GradeDetailDialogProps) {
   const sorted = [...grades].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const avg = grades.length > 0
-    ? Math.round((grades.reduce((s, g) => s + g.score, 0) / grades.length) * 10) / 10
-    : null;
-  const weightedAvg = grades.length > 0 ? getSubjectData(grades, subject).weightedAvg : null;
+  const avg = grades.length > 0 ? Math.round(weightedGradeAverage(grades) * 10) / 10 : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
@@ -126,7 +110,7 @@ function GradeDetailDialog({ studentName, subject, grades, onClose }: GradeDetai
           </button>
         </div>
         <div className="px-4 py-2 border-b border-slate-100 text-sm text-slate-600">
-          ממוצע פשוט: {avg ?? '—'} | ממוצע משוקלל: {weightedAvg ?? '—'} | סה״כ {grades.length} ציונים
+          ממוצע: {avg ?? '—'} | סה״כ {grades.length} ציונים
         </div>
         <div className="overflow-auto flex-1 p-4">
           <table className="w-full text-right text-sm">
@@ -232,10 +216,9 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
   const [gradeRangeFilter, setGradeRangeFilter] = useState<GradeRangeFilter>('all');
   const [gradeDetailCell, setGradeDetailCell] = useState<{ student: Student; subject: string; grades: Grade[]; displayName: string } | null>(null);
   const [radarRow, setRadarRow] = useState<RowData | null>(null);
-  const [showWeighted, setShowWeighted] = useState(false);
   const [showSubjectPopover, setShowSubjectPopover] = useState(false);
 
-  const { subjectList, columns, rows, classAverages, classWeightedAverages } = useMemo(() => {
+  const { subjectList, columns, rows, classAverages } = useMemo(() => {
     const subjectSet = new Set<string>();
     students.forEach((s) => {
       s.grades.forEach((g) => {
@@ -250,12 +233,10 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       const subjectListLocal = list;
       const cells: CellData[] = subjectListLocal.map((subj) => getSubjectData(student.grades, subj));
       const generalAvg = student.averageScore;
-      const weightedGeneralAvg = getWeightedGeneralAvg(student.grades);
       return {
         student,
         displayName: getDisplayName(student.name, idx, isAnonymous),
         generalAvg,
-        weightedGeneralAvg,
         cells,
       };
     });
@@ -270,19 +251,11 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
       return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
     });
 
-    const classWeighted: (number | null)[] = cols.map((_, colIdx) => {
-      if (colIdx === 0) return classAvgs[0];
-      const subjIdx = colIdx - 1;
-      const vals = r.map((x) => x.cells[subjIdx]?.weightedAvg).filter((v): v is number => v != null);
-      return vals.length > 0 ? Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10 : null;
-    });
-
     return {
       subjectList: list,
       columns: cols,
       rows: r,
       classAverages: classAvgs,
-      classWeightedAverages: classWeighted,
     };
   }, [students, isAnonymous]);
 
@@ -384,7 +357,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
 
     const subjIdx = fullColIdx - 1;
     const cell = row.cells[subjIdx];
-    const displayVal = showWeighted ? cell?.weightedAvg : cell?.avg;
+    const displayVal = cell?.avg ?? null;
     const hasGrades = cell && cell.grades.length > 0;
 
     return (
@@ -504,14 +477,6 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
             </>
           )}
         </div>
-        <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showWeighted}
-            onChange={(e) => setShowWeighted(e.target.checked)}
-          />
-          ממוצע משוקלל בתאים
-        </label>
         <span className="text-xs text-slate-400 self-center">
           {displayRows.length} מתוך {rows.length} תלמידים
         </span>
@@ -574,9 +539,7 @@ const SubjectMatrix: React.FC<SubjectMatrixProps> = ({ students, isAnonymous = f
                 </td>
                 {filteredColumns.map((_, colIdx) => {
                   const fullIdx = colIndexInFull(colIdx);
-                  const avg = showWeighted && fullIdx >= 1
-                    ? classWeightedAverages[fullIdx]
-                    : classAverages[fullIdx];
+                  const avg = classAverages[fullIdx];
                   return (
                     <td
                       key={colIdx}

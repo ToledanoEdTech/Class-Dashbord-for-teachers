@@ -506,6 +506,25 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
 };
 
 /**
+ * ממוצע משוקלל של אירועי ציון: סכום(ציון × משקל) / סכום המשקלים.
+ * אם סכום המשקלים הוא 0, חוזרים לממוצע פשוט. מערך ריק מחזיר 0.
+ */
+export function weightedGradeAverage(grades: ReadonlyArray<{ score: number; weight?: number }>): number {
+  if (grades.length === 0) return 0;
+  let totalWeight = 0;
+  let weightedSum = 0;
+  let scoreSum = 0;
+  for (const g of grades) {
+    const w = Number(g.weight) || 0;
+    totalWeight += w;
+    weightedSum += g.score * w;
+    scoreSum += g.score;
+  }
+  if (totalWeight > 0) return weightedSum / totalWeight;
+  return scoreSum / grades.length;
+}
+
+/**
  * מחשבת מחדש את כל הסטטיסטיקות של תלמיד (ממוצע, מגמות, סיכון, קורלציות)
  * לפי grades ו-behaviorEvents הנוכחיים והגדרות הסיכון.
  * פונקציה טהורה – מתאימה לעדכון אחרי עריכה ידנית או שינוי הגדרות.
@@ -517,14 +536,7 @@ export function calculateStudentStats(
   const sGrades = [...student.grades].sort((a, b) => a.date.getTime() - b.date.getTime());
   const sEvents = [...student.behaviorEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  const totalWeight = sGrades.reduce((sum, g) => sum + g.weight, 0);
-  const weightedSum = sGrades.reduce((sum, g) => sum + g.score * g.weight, 0);
-  const average =
-    totalWeight > 0
-      ? weightedSum / totalWeight
-      : sGrades.length > 0
-        ? sGrades.reduce((a, b) => a + b.score, 0) / sGrades.length
-        : 0;
+  const average = weightedGradeAverage(sGrades);
 
   const negativeCount = sEvents.filter((e) => e.category === EventType.NEGATIVE).length;
   const positiveCount = sEvents.filter((e) => e.category === EventType.POSITIVE).length;
@@ -538,8 +550,8 @@ export function calculateStudentStats(
     const mid = Math.floor(recentGrades.length / 2);
     const prevHalf = recentGrades.slice(0, mid);
     const currHalf = recentGrades.slice(mid);
-    const avgPrev = prevHalf.length > 0 ? prevHalf.reduce((s, g) => s + g.score, 0) / prevHalf.length : 0;
-    const avgCurr = currHalf.length > 0 ? currHalf.reduce((s, g) => s + g.score, 0) / currHalf.length : 0;
+    const avgPrev = weightedGradeAverage(prevHalf);
+    const avgCurr = weightedGradeAverage(currHalf);
     gradeDelta = avgCurr - avgPrev;
     if (gradeDelta > 3) gradeTrend = 'improving';
     else if (gradeDelta < -3) gradeTrend = 'declining';

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent, PeriodDefinition } from '../types';
-import { calculateStudentStats, computeStudentStatsFromData } from '../utils/processing';
+import { calculateStudentStats, computeStudentStatsFromData, weightedGradeAverage } from '../utils/processing';
 import { ArrowRight, ArrowLeft, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer, TrendingUp, TrendingDown, BarChart3, Target, Users, Zap, Star, MessageSquare, ThumbsUp, Lightbulb, ChevronRight, ChevronLeft, FileText, Check, Grid, LayoutGrid } from 'lucide-react';
 import HelpTip from './HelpTip';
 import {
@@ -313,11 +313,11 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
         
         if (weeklyGrades.length === 0) return null;
 
-        const avg = weeklyGrades.reduce((sum, g) => sum + g.score, 0) / weeklyGrades.length;
+        const avg = weightedGradeAverage(weeklyGrades);
         
         return {
             date: `${format(weekStart, 'dd/MM')}-${format(weekEnd, 'dd/MM')}`,
-            score: parseFloat(avg.toFixed(1)), // Weekly Average
+            score: parseFloat(avg.toFixed(1)), // Weekly weighted average
             grades: weeklyGrades, // Details for tooltip
             count: weeklyGrades.length
         };
@@ -353,7 +353,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
         
         if (weeklyGrades.length === 0) return null;
 
-        const avg = weeklyGrades.reduce((sum, g) => sum + g.score, 0) / weeklyGrades.length;
+        const avg = weightedGradeAverage(weeklyGrades);
         
         return {
           date: `${format(weekStart, 'dd/MM')}-${format(weekEnd, 'dd/MM')}`,
@@ -380,8 +380,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       );
       
       if (allSubjectGrades.length > 0) {
-        const sum = allSubjectGrades.reduce((acc, g) => acc + g.score, 0);
-        result[subject] = parseFloat((sum / allSubjectGrades.length).toFixed(1));
+        result[subject] = parseFloat(weightedGradeAverage(allSubjectGrades).toFixed(1));
       }
     });
     
@@ -552,10 +551,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
         );
         
         if (allSubjectGrades.length > 0) {
-          // Calculate weighted average for class
-          const totalWeight = allSubjectGrades.reduce((acc, g) => acc + (g.weight || 1), 0);
-          const weightedSum = allSubjectGrades.reduce((acc, g) => acc + g.score * (g.weight || 1), 0);
-          classAvgBySubject[subj] = totalWeight > 0 ? parseFloat((weightedSum / totalWeight).toFixed(1)) : 0;
+          classAvgBySubject[subj] = parseFloat(weightedGradeAverage(allSubjectGrades).toFixed(1));
         }
       });
     }
@@ -566,10 +562,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       const subjectGrades = effectiveStudent.grades.filter(g => displaySubject(g.subject) === subj);
       
       if (subjectGrades.length > 0) {
-        // Calculate weighted average for student
-        const totalWeight = subjectGrades.reduce((acc, g) => acc + (g.weight || 1), 0);
-        const weightedSum = subjectGrades.reduce((acc, g) => acc + g.score * (g.weight || 1), 0);
-        stats.avg = totalWeight > 0 ? parseFloat((weightedSum / totalWeight).toFixed(1)) : 0;
+        stats.avg = parseFloat(weightedGradeAverage(subjectGrades).toFixed(1));
         stats.classAvg = classAvgBySubject[subj] || 0;
         
         // Calculate trend for this subject
@@ -579,14 +572,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
           const recent = sortedGrades.slice(-Math.min(3, sortedGrades.length));
           const older = sortedGrades.slice(0, Math.max(0, sortedGrades.length - recent.length));
           if (older.length > 0) {
-            // Calculate weighted averages for trend
-            const recentWeight = recent.reduce((acc, g) => acc + (g.weight || 1), 0);
-            const recentWeightedSum = recent.reduce((acc, g) => acc + g.score * (g.weight || 1), 0);
-            const recentAvg = recentWeight > 0 ? recentWeightedSum / recentWeight : 0;
-            
-            const olderWeight = older.reduce((acc, g) => acc + (g.weight || 1), 0);
-            const olderWeightedSum = older.reduce((acc, g) => acc + g.score * (g.weight || 1), 0);
-            const olderAvg = olderWeight > 0 ? olderWeightedSum / olderWeight : 0;
+            const recentAvg = weightedGradeAverage(recent);
+            const olderAvg = weightedGradeAverage(older);
             
             if (recentAvg - olderAvg > 3) stats.trend = 'improving';
             else if (recentAvg - olderAvg < -3) stats.trend = 'declining';
@@ -658,8 +645,8 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
       const earlyEvents = sortedEvents.slice(0, midEventPoint);
       const lateEvents = sortedEvents.slice(midEventPoint);
       
-      const earlyAvg = earlyGrades.length > 0 ? earlyGrades.reduce((s, g) => s + g.score, 0) / earlyGrades.length : 0;
-      const lateAvg = lateGrades.length > 0 ? lateGrades.reduce((s, g) => s + g.score, 0) / lateGrades.length : 0;
+      const earlyAvg = weightedGradeAverage(earlyGrades);
+      const lateAvg = weightedGradeAverage(lateGrades);
       
       const earlyBehaviorScore = earlyEvents.reduce((sum, e) => {
         if (e.category === EventType.POSITIVE) return sum + 1;
@@ -729,11 +716,14 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
   const advancedTrends = useMemo(() => {
     const sortedGrades = [...effectiveStudent.grades].sort((a, b) => a.date.getTime() - b.date.getTime());
     
-    // Consistency (volatility) - standard deviation
+    // Consistency (volatility) - weighted standard deviation around the weighted mean
     let consistency = 0;
     if (sortedGrades.length >= 2) {
-      const avg = sortedGrades.reduce((s, g) => s + g.score, 0) / sortedGrades.length;
-      const variance = sortedGrades.reduce((s, g) => s + Math.pow(g.score - avg, 2), 0) / sortedGrades.length;
+      const avg = weightedGradeAverage(sortedGrades);
+      const totalWeight = sortedGrades.reduce((sum, g) => sum + (Number(g.weight) || 0), 0);
+      const variance = totalWeight > 0
+        ? sortedGrades.reduce((s, g) => s + (Number(g.weight) || 0) * Math.pow(g.score - avg, 2), 0) / totalWeight
+        : sortedGrades.reduce((s, g) => s + Math.pow(g.score - avg, 2), 0) / sortedGrades.length;
       consistency = Math.sqrt(variance);
     }
     
@@ -746,9 +736,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
         sortedGrades.slice(Math.floor(sortedGrades.length * 2 / 3))
       ];
       
-      const avgs = thirds.map(third => 
-        third.length > 0 ? third.reduce((s, g) => s + g.score, 0) / third.length : 0
-      );
+      const avgs = thirds.map((third) => weightedGradeAverage(third));
       
       const change1 = avgs[1] - avgs[0];
       const change2 = avgs[2] - avgs[1];
@@ -758,26 +746,24 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
     }
     
     // Recovery patterns - grades after negative events
-    const recoveryPatterns: Array<{ eventDate: Date; gradesAfter: number[] }> = [];
+    const recoveryPatterns: Array<{ eventDate: Date; avg: number }> = [];
     const negativeEvents = effectiveStudent.behaviorEvents
       .filter(e => e.category === EventType.NEGATIVE && !isAbsenceEvent(e))
       .sort((a, b) => a.date.getTime() - b.date.getTime());
     
     negativeEvents.forEach(event => {
-      const gradesAfter = sortedGrades
-        .filter(g => {
-          const daysDiff = (g.date.getTime() - event.date.getTime()) / (1000 * 60 * 60 * 24);
-          return daysDiff > 0 && daysDiff <= 7; // Grades within 7 days after event
-        })
-        .map(g => g.score);
+      const gradesAfter = sortedGrades.filter(g => {
+        const daysDiff = (g.date.getTime() - event.date.getTime()) / (1000 * 60 * 60 * 24);
+        return daysDiff > 0 && daysDiff <= 7;
+      });
       
       if (gradesAfter.length > 0) {
-        recoveryPatterns.push({ eventDate: event.date, gradesAfter });
+        recoveryPatterns.push({ eventDate: event.date, avg: weightedGradeAverage(gradesAfter) });
       }
     });
     
     const avgRecovery = recoveryPatterns.length > 0
-      ? recoveryPatterns.reduce((sum, p) => sum + (p.gradesAfter.reduce((s, g) => s + g, 0) / p.gradesAfter.length), 0) / recoveryPatterns.length
+      ? recoveryPatterns.reduce((sum, p) => sum + p.avg, 0) / recoveryPatterns.length
       : null;
     
     return { consistency, acceleration, avgRecovery, recoveryPatterns: recoveryPatterns.length };

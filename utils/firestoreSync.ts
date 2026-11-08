@@ -452,7 +452,11 @@ export async function saveToFirestore(
       const persisted = toPersistedClass(c);
       const compressed = compress(persisted);
       const classRef = doc(colRef, c.id);
-      const existingClassSnap = await getDoc(classRef);
+      const fitsInline = utf8ByteLength(compressed) <= MAX_CHUNK_BYTES;
+      // Prepare the slow payload first, then read the server clock immediately
+      // before writing so an older in-flight save cannot pass a stale cache check.
+      const chunks = fitsInline ? null : splitStudentsIntoChunks(persisted.students, c.name);
+      const existingClassSnap = await getDocFromServer(classRef);
       if (existingClassSnap.exists()) {
         const existingRaw = existingClassSnap.data() as { lastUpdated?: string; meta?: { lastUpdated?: string } };
         const existingLastUpdated = existingRaw.lastUpdated || existingRaw.meta?.lastUpdated;
@@ -466,7 +470,7 @@ export async function saveToFirestore(
         }
       }
 
-      if (utf8ByteLength(compressed) <= MAX_CHUNK_BYTES) {
+      if (fitsInline) {
         await queueSet(classRef, {
           v: COMPRESSED_VERSION,
           d: compressed,
@@ -474,7 +478,7 @@ export async function saveToFirestore(
           t: Date.now(),
         });
       } else {
-        const chunks = splitStudentsIntoChunks(persisted.students, c.name);
+        const preparedChunks = chunks ?? [];
 
         await queueSet(classRef, {
           meta: {
@@ -483,16 +487,16 @@ export async function saveToFirestore(
             lastUpdated: c.lastUpdated.toISOString(),
           },
           lastUpdated: c.lastUpdated.toISOString(),
-          chunkCount: chunks.length,
+          chunkCount: preparedChunks.length,
           t: Date.now(),
         });
 
         const chunksRef = collection(db, 'users', userId, 'classes', c.id, 'chunks');
         const existingChunks = await getDocs(chunksRef);
-        for (let i = 0; i < chunks.length; i++) {
-          await queueSet(doc(chunksRef, String(i)), { d: chunks[i].compressed });
+        for (let i = 0; i < preparedChunks.length; i++) {
+          await queueSet(doc(chunksRef, String(i)), { d: preparedChunks[i].compressed });
         }
-        for (let i = chunks.length; i < existingChunks.docs.length; i++) {
+        for (let i = preparedChunks.length; i < existingChunks.docs.length; i++) {
           await queueDelete(doc(chunksRef, String(i)));
         }
       }

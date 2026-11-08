@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { Student, Grade, BehaviorEvent, isAbsenceEvent, EventType } from '../types';
 import { format } from 'date-fns';
+import { weightedGradeAverage } from './processing';
 
 interface CertificateOptions {
   selectedSubjects?: string[];
@@ -12,16 +13,7 @@ interface CertificateOptions {
  */
 function calculateSubjectAverage(grades: Grade[], subject: string): number {
   const subjectGrades = grades.filter(g => g.subject === subject);
-  if (subjectGrades.length === 0) return 0;
-  
-  const totalWeight = subjectGrades.reduce((sum, g) => sum + g.weight, 0);
-  const weightedSum = subjectGrades.reduce((sum, g) => sum + g.score * g.weight, 0);
-  
-  if (totalWeight > 0) {
-    return weightedSum / totalWeight;
-  }
-  
-  return subjectGrades.reduce((sum, g) => sum + g.score, 0) / subjectGrades.length;
+  return weightedGradeAverage(subjectGrades);
 }
 
 /**

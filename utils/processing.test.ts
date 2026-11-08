@@ -171,6 +171,21 @@ describe('calculateStudentStats', () => {
       const result = calculateStudentStats(student);
       expect(result.gradeTrend).toBe('stable');
     });
+
+    it('weights each half when grade weights differ', () => {
+      const base = new Date(2024, 0, 1);
+      // Equal weights would be improving: prev (40+90)/2=65, curr (70+72)/2=71.
+      // With weights, prev is (40*1 + 90*10)/11 ≈ 85.5 and curr is 71, so the trend declines.
+      const grades: Grade[] = [
+        makeGrade({ score: 40, date: new Date(base), weight: 1 }),
+        makeGrade({ score: 90, date: new Date(base.getTime() + 1), weight: 10 }),
+        makeGrade({ score: 70, date: new Date(base.getTime() + 2), weight: 1 }),
+        makeGrade({ score: 72, date: new Date(base.getTime() + 3), weight: 1 }),
+      ];
+      const student = { id: '1', name: 'S', grades, behaviorEvents: [] };
+      const result = calculateStudentStats(student);
+      expect(result.gradeTrend).toBe('declining');
+    });
   });
 
   describe('behavior counts and trend', () => {
