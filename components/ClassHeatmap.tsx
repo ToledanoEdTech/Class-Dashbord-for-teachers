@@ -7,6 +7,7 @@ const DEFAULT_MIN_LESSON = 0;
 const DEFAULT_MAX_LESSON = 9;
 
 export type HeatmapMode = 'all' | 'absences' | 'other';
+export type HeatmapPolarity = 'negative' | 'positive';
 
 interface CellData {
   day: number;
@@ -31,6 +32,17 @@ function filterNegativeByMode(events: BehaviorEvent[], mode: HeatmapMode): Behav
   return neg.filter(isOtherNegativeEvent);
 }
 
+function filterEventsByView(
+  events: BehaviorEvent[],
+  polarity: HeatmapPolarity,
+  mode: HeatmapMode
+): BehaviorEvent[] {
+  if (polarity === 'positive') {
+    return events.filter((e) => e.category === EventType.POSITIVE);
+  }
+  return filterNegativeByMode(events, mode);
+}
+
 const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
   students,
   mode: controlledMode,
@@ -39,6 +51,7 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
   const [internalMode, setInternalMode] = useState<HeatmapMode>('all');
   const mode = controlledMode ?? internalMode;
   const setMode = onModeChange ?? setInternalMode;
+  const [polarity, setPolarity] = useState<HeatmapPolarity>('negative');
 
   const [tooltip, setTooltip] = useState<CellData | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
@@ -53,12 +66,18 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
     return () => window.removeEventListener('resize', check);
   }, []);
 
+  useEffect(() => {
+    setTooltip(null);
+    setTooltipPos(null);
+    setActiveCell(null);
+  }, [polarity, mode]);
+
   const { grid, maxIntensity, minLesson, maxLesson } = useMemo(() => {
-    const negEvents = students.flatMap((s) =>
-      filterNegativeByMode(s.behaviorEvents, mode)
+    const viewedEvents = students.flatMap((s) =>
+      filterEventsByView(s.behaviorEvents, polarity, mode)
     );
 
-    const rawLessonNumbers = negEvents
+    const rawLessonNumbers = viewedEvents
       .filter((e) => e.date.getDay() <= 5)
       .map((e) => {
         const n = e.lessonNumber;
@@ -73,7 +92,7 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
       string,
       { count: number; types: Record<string, number>; subjects: Record<string, number> }
     > = {};
-    negEvents.forEach((e) => {
+    viewedEvents.forEach((e) => {
       const day = e.date.getDay();
       if (day > 5) return;
       const lessonNum =
@@ -122,46 +141,85 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
       grid.push(row);
     }
     return { grid, maxIntensity, minLesson, maxLesson };
-  }, [students, mode]);
+  }, [students, mode, polarity]);
+
+  const isPositive = polarity === 'positive';
+  const heatColors = isPositive
+    ? { low: 'bg-emerald-200', mid: 'bg-emerald-400', high: 'bg-emerald-500', max: 'bg-emerald-700' }
+    : { low: 'bg-red-200', mid: 'bg-red-400', high: 'bg-red-500', max: 'bg-red-700' };
 
   const getBgColor = (count: number) => {
     if (count === 0) return 'bg-slate-100';
     if (maxIntensity === 0) return 'bg-slate-100';
     const ratio = count / maxIntensity;
-    if (ratio <= 0.25) return 'bg-red-200';
-    if (ratio <= 0.5) return 'bg-red-400';
-    if (ratio <= 0.75) return 'bg-red-500';
-    return 'bg-red-700';
+    if (ratio <= 0.25) return heatColors.low;
+    if (ratio <= 0.5) return heatColors.mid;
+    if (ratio <= 0.75) return heatColors.high;
+    return heatColors.max;
   };
 
   return (
     <div className="relative bg-white rounded-2xl shadow-card border border-slate-100/80 p-5 md:p-6 hover:shadow-card-hover transition-shadow duration-300">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
         <h3 className="text-lg font-bold text-slate-800">
-          מתי מתרחשים אירועי משמעת? (חום לפי יום ושיעור)
+          {isPositive
+            ? 'מתי מתרחשים אירועים חיוביים? (חום לפי יום ושיעור)'
+            : 'מתי מתרחשים אירועי משמעת? (חום לפי יום ושיעור)'}
         </h3>
-        <div className="flex flex-wrap gap-2">
-          <span className="text-slate-500 text-sm">הצג:</span>
-          {(
-            [
-              { value: 'all' as HeatmapMode, label: 'כל השליליים' },
-              { value: 'absences' as HeatmapMode, label: 'חיסורים בלבד' },
-              { value: 'other' as HeatmapMode, label: 'שליליים ללא חיסורים' },
-            ] as const
-          ).map(({ value, label }) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setMode(value)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                mode === value
-                  ? 'bg-primary-500 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-col items-stretch sm:items-end gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-slate-500 text-sm">הצג:</span>
+            {(
+              [
+                { value: 'negative' as HeatmapPolarity, label: 'שליליים' },
+                { value: 'positive' as HeatmapPolarity, label: 'חיוביים' },
+              ] as const
+            ).map(({ value, label }) => {
+              const active = polarity === value;
+              const activeClass =
+                value === 'positive'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-red-600 text-white';
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setPolarity(value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    active ? activeClass : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {!isPositive && (
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  { value: 'all' as HeatmapMode, label: 'כל השליליים' },
+                  { value: 'absences' as HeatmapMode, label: 'חיסורים בלבד' },
+                  { value: 'other' as HeatmapMode, label: 'שליליים ללא חיסורים' },
+                ] as const
+              ).map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={mode === value}
+                  onClick={() => setMode(value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    mode === value
+                      ? 'bg-primary-500 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -202,7 +260,7 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
                 return (
                   <div
                     key={`${cell.day}-${cell.lessonNumber}`}
-                    className={`min-h-[2.25rem] sm:min-h-[2rem] min-w-[2.25rem] sm:min-w-[2rem] rounded-md transition-all duration-200 touch-manipulation ${getBgColor(cell.count)} ${cell.count > 0 ? 'cursor-pointer ring-1 ring-slate-200/80 hover:ring-2 hover:ring-primary-400 hover:scale-105 active:scale-95' : ''} ${isActive ? 'ring-2 ring-primary-500 ring-offset-2' : ''}`}
+                    className={`min-h-[2.25rem] sm:min-h-[2rem] min-w-[2.25rem] sm:min-w-[2rem] rounded-md transition-all duration-200 touch-manipulation ${getBgColor(cell.count)} ${cell.count > 0 ? `cursor-pointer ring-1 ring-slate-200/80 hover:ring-2 hover:scale-105 active:scale-95 ${isPositive ? 'hover:ring-emerald-400' : 'hover:ring-primary-400'}` : ''} ${isActive ? `ring-2 ring-offset-2 ${isPositive ? 'ring-emerald-500' : 'ring-primary-500'}` : ''}`}
                     style={{ gridColumn: cell.day + 2, gridRow: rowIdx + 2 }}
                     onMouseEnter={(e) => {
                       setActiveCell(null);
@@ -259,11 +317,11 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
             <p className="font-bold text-slate-900 dark:text-slate-100 text-base border-b border-slate-200 dark:border-slate-600 pb-2 mb-2 pr-6">
               {DAY_LABELS_HE[tooltip.day]} • שיעור {tooltip.lessonNumber}
             </p>
-            <p className="text-primary-700 dark:text-primary-400 font-semibold text-sm mb-2">
+            <p className={`font-semibold text-sm mb-2 ${isPositive ? 'text-emerald-700 dark:text-emerald-400' : 'text-primary-700 dark:text-primary-400'}`}>
               סה״כ אירועים: {tooltip.count}
             </p>
             <p className="text-slate-700 dark:text-slate-300 text-sm">
-              <span className="text-slate-600 dark:text-slate-400 font-medium">נושא עיקרי:</span> <span className="text-slate-900 dark:text-slate-100">{tooltip.topIssue}</span>
+              <span className="text-slate-600 dark:text-slate-400 font-medium">{isPositive ? 'סוג עיקרי:' : 'נושא עיקרי:'}</span> <span className="text-slate-900 dark:text-slate-100">{tooltip.topIssue}</span>
             </p>
             <p className="text-slate-700 dark:text-slate-300 text-sm mt-1">
               <span className="text-slate-600 dark:text-slate-400 font-medium">מקצוע:</span> <span className="text-slate-900 dark:text-slate-100">{tooltip.topSubject}</span>
@@ -296,13 +354,13 @@ const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
           <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-slate-100 shrink-0" /> 0
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-red-200 shrink-0" /> נמוך
+          <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded shrink-0 ${heatColors.low}`} /> נמוך
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-red-500 shrink-0" /> בינוני
+          <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded shrink-0 ${heatColors.high}`} /> בינוני
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-red-700 shrink-0" /> גבוה
+          <span className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded shrink-0 ${heatColors.max}`} /> גבוה
         </span>
       </div>
     </div>
