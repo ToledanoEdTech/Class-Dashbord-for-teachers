@@ -1509,8 +1509,8 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
               <tr className="bg-slate-50/80 text-slate-500 text-sm">
                 <th className="px-3 sm:px-6 py-4 font-semibold text-right">שם התלמיד</th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">ממוצע</th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="בכל מקצוע משווים את ממוצע 2–3 הציונים האחרונים לאותו מספר ציונים לפניהם. עד 3 נקודות — יציב. יותר מ-3 ועד 8 — ירידה מתונה. יותר מ-8, או ירידה ברוב המקצועות — ירידה חדה. ירידה במקצוע אחד בלבד נשארת מתונה." /></th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">חיסורים <HelpTip text="המספר הוא סך החיסורים בטווח המוצג. המגמה משווה לתקופה הקודמת באותו אורך, ורק אם יש בה נתונים. חיסור או שניים יותר — ירידה מתונה. שלושה ויותר — ירידה חדה." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="משווים את הציונים המוקדמים למאוחרים, גם כשיש מעט ציונים וכמה מקצועות. עד 3 נקודות — יציב. יותר מ-3 ועד 8 — ירידה מתונה. יותר מ-8, או ירידה ברוב המקצועות — ירידה חדה. עלייה של יותר מ-3 נקודות — שיפור." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">חיסורים <HelpTip text="המספר הוא סך החיסורים בטווח המוצג. אם יש תקופה קודמת משווים אליה. אם אין, משווים את חצי התקופה הראשון לשני. חיסור אחד יותר — ירידה מתונה. שלושה ויותר — ירידה חדה. חיסור אחד פחות — שיפור." /></th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">מגמת התנהגות (ללא חיסורים) <HelpTip text="שני חצאים שווים של עד 12 אירועי המשמעת האחרונים, בלי חיסורים. אירוע אחד לרעה — ירידה מתונה. שני אירועים ויותר — מידרדר." /></th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">אירועים</th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">סיכון <HelpTip text="ציון סיכון 1-10 (1=סיכון גבוה, 10=סיכון נמוך). מחושב לפי ציונים, מגמות, אירועים שליליים וחיסורים." /></th>
@@ -1553,7 +1553,15 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                       const prev = prevStatsByStudentId.get(student.id);
                       const currAbs = (student as any).absenceCount ?? (student.behaviorEvents?.filter((e: BehaviorEvent) => isAbsenceEvent(e)).length ?? 0);
                       const prevAbs = prev?.absenceCount ?? 0;
-                      const absTrend = absenceTrend(currAbs, prevAbs, (prev?.activityCount ?? 0) > 0);
+                      const midMs = rangeStart.getTime() + (rangeEnd.getTime() - rangeStart.getTime()) / 2;
+                      let earlyAbs = 0;
+                      let lateAbs = 0;
+                      for (const event of student.behaviorEvents) {
+                        if (!isAbsenceEvent(event)) continue;
+                        if (event.date.getTime() < midMs) earlyAbs += 1;
+                        else lateAbs += 1;
+                      }
+                      const absTrend = absenceTrend(currAbs, prevAbs, (prev?.activityCount ?? 0) > 0, { early: earlyAbs, late: lateAbs });
                       return (
                         <div className="flex flex-col items-center gap-0.5">
                           <span className="font-medium text-slate-700">{currAbs}</span>

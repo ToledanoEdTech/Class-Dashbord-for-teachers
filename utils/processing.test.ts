@@ -124,7 +124,7 @@ describe('calculateStudentStats', () => {
   });
 
   describe('grade trend', () => {
-    it('returns stable when fewer than 4 grades', () => {
+    it('shows a sharp decline from two grades when the gap is large', () => {
       const base = new Date(2024, 0, 1);
       const student = {
         id: '1',
@@ -136,7 +136,37 @@ describe('calculateStudentStats', () => {
         behaviorEvents: [],
       };
       const result = calculateStudentStats(student);
-      expect(result.gradeTrend).toBe('stable');
+      expect(result.gradeTrend).toBe('sharp_decline');
+    });
+
+    it('shows a decline across subjects even when each subject has a single grade', () => {
+      const base = new Date(2024, 0, 1);
+      const grades: Grade[] = [
+        makeGrade({ subject: 'Math', score: 90, date: new Date(base), weight: 1 }),
+        makeGrade({ subject: 'English', score: 80, date: new Date(base.getTime() + 1), weight: 1 }),
+        makeGrade({ subject: 'History', score: 70, date: new Date(base.getTime() + 2), weight: 1 }),
+        makeGrade({ subject: 'Science', score: 60, date: new Date(base.getTime() + 3), weight: 1 }),
+      ];
+      const student = { id: '1', name: 'S', grades, behaviorEvents: [] };
+      const result = calculateStudentStats(student);
+      expect(result.gradeTrend).toBe('sharp_decline');
+    });
+
+    it('shows improvement when one subject rises and the other is flat', () => {
+      const base = new Date(2024, 0, 1);
+      const grades: Grade[] = [
+        makeGrade({ subject: 'Math', score: 60, date: new Date(base), weight: 1 }),
+        makeGrade({ subject: 'English', score: 70, date: new Date(base.getTime() + 1), weight: 1 }),
+        makeGrade({ subject: 'Math', score: 62, date: new Date(base.getTime() + 2), weight: 1 }),
+        makeGrade({ subject: 'English', score: 71, date: new Date(base.getTime() + 3), weight: 1 }),
+        makeGrade({ subject: 'Math', score: 80, date: new Date(base.getTime() + 4), weight: 1 }),
+        makeGrade({ subject: 'English', score: 72, date: new Date(base.getTime() + 5), weight: 1 }),
+        makeGrade({ subject: 'Math', score: 85, date: new Date(base.getTime() + 6), weight: 1 }),
+        makeGrade({ subject: 'English', score: 72, date: new Date(base.getTime() + 7), weight: 1 }),
+      ];
+      const student = { id: '1', name: 'S', grades, behaviorEvents: [] };
+      const result = calculateStudentStats(student);
+      expect(result.gradeTrend).toBe('improving');
     });
 
     it('returns improving when recent half is more than 5 points higher', () => {
@@ -314,14 +344,20 @@ describe('calculateStudentStats', () => {
   });
 
   describe('absence trend', () => {
-    it('stays stable when the previous period has no data', () => {
-      expect(absenceTrend(8, 0, false)).toBe('stable');
-    });
-
     it('marks one or two extra absences as a moderate decline', () => {
       expect(absenceTrend(4, 3, true)).toBe('moderate_decline');
       expect(absenceTrend(4, 2, true)).toBe('moderate_decline');
-      expect(absenceTrend(3, 4, true)).toBe('stable');
+    });
+
+    it('marks one fewer absence as improvement', () => {
+      expect(absenceTrend(3, 4, true)).toBe('improving');
+    });
+
+    it('uses the two halves of the current period when there is no previous period', () => {
+      expect(absenceTrend(8, 0, false)).toBe('stable');
+      expect(absenceTrend(8, 0, false, { early: 1, late: 6 })).toBe('sharp_decline');
+      expect(absenceTrend(3, 0, false, { early: 2, late: 1 })).toBe('improving');
+      expect(absenceTrend(4, 0, false, { early: 2, late: 2 })).toBe('stable');
     });
 
     it('marks three or more extra absences as a sharp decline', () => {
