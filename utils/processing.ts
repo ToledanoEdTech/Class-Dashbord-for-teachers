@@ -571,35 +571,48 @@ function evenTail<T>(items: readonly T[], maxCount: number, minCount: number): T
   return items.slice(items.length - n);
 }
 
-function splitGradeDelta(sorted: readonly Grade[]): number | null {
+function splitGradeDelta(sorted: readonly Grade[]): { delta: number; weight: number } | null {
   if (sorted.length < 2) return null;
   const mid = Math.floor(sorted.length / 2);
   const prev = sorted.slice(0, mid);
   const curr = sorted.slice(mid);
   if (prev.length === 0 || curr.length === 0) return null;
-  return weightedGradeAverage(curr) - weightedGradeAverage(prev);
+  const weight = [...prev, ...curr].reduce((sum, grade) => sum + (Number(grade.weight) || 0), 0);
+  return {
+    delta: weightedGradeAverage(curr) - weightedGradeAverage(prev),
+    weight: weight > 0 ? weight : sorted.length,
+  };
 }
 
 /**
- * משווה את חצי הציונים המוקדם למאוחר, וגם את החלון האחרון (עד 6).
- * אם אחד מהם יציב והשני לא, נשמרת המגמה שנמצאה — כדי שרצף ארוך
- * או שינוי אחרון לא ייעלמו.
+ * מגמת ציונים שמייצגת את מצב הציונים: בכל מקצוע בנפרד משווים את החצי המוקדם למאוחר,
+ * ואז משקללים לפי משקל הציונים. מקצוע עם ציון בודד לא יוצר מגמה, ומקצועות שונים
+ * לא נשרשרים לרצף אחד. עד 3 נקודות בממוצע המשוקלל — יציב.
  */
-function gradeSeriesDelta(grades: readonly Grade[]): { delta: number; count: number } | null {
-  const sorted = [...grades].sort((a, b) => a.date.getTime() - b.date.getTime());
-  if (sorted.length < 2) return null;
-  const full = splitGradeDelta(sorted);
-  const recentGrades = sorted.slice(-Math.min(6, sorted.length));
-  const recent = recentGrades.length >= 2 && recentGrades.length < sorted.length
-    ? splitGradeDelta(recentGrades)
-    : null;
-  const fullTrend = full == null ? 'stable' : trendFromGradeDelta(full);
-  const recentTrend = recent == null ? 'stable' : trendFromGradeDelta(recent);
-  let delta = full ?? 0;
-  if (recentTrend !== 'stable' && recent != null) delta = recent;
-  else if (fullTrend !== 'stable' && full != null) delta = full;
-  else if (recent != null) delta = recent;
-  return { delta, count: sorted.length };
+export function gradeTrendForGrades(grades: readonly Grade[]): { trend: TrendDirection; delta: number } {
+  const dated = grades.filter((g) => g.date && g.date.getTime() > 0);
+  const usable = dated.length >= 2 ? dated : grades;
+  const groups = new Map<string, Grade[]>();
+  for (const grade of usable) {
+    const key = normalizeSubjectName((grade.subject || '').trim() || 'כללי');
+    const list = groups.get(key);
+    if (list) list.push(grade);
+    else groups.set(key, [grade]);
+  }
+
+  let weightedDelta = 0;
+  let totalWeight = 0;
+  for (const list of groups.values()) {
+    const sorted = [...list].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const part = splitGradeDelta(sorted);
+    if (!part) continue;
+    weightedDelta += part.delta * part.weight;
+    totalWeight += part.weight;
+  }
+
+  if (totalWeight <= 0) return { trend: 'stable', delta: 0 };
+  const delta = weightedDelta / totalWeight;
+  return { trend: trendFromGradeDelta(delta), delta };
 }
 
 function trendFromGradeDelta(delta: number): TrendDirection {
@@ -607,58 +620,6 @@ function trendFromGradeDelta(delta: number): TrendDirection {
   if (delta < -GRADE_SHARP_DROP) return 'sharp_decline';
   if (delta < -GRADE_MODERATE_DROP) return 'moderate_decline';
   return 'stable';
-}
-
-/**
- * מגמת ציונים לפי הרצף הכרונולוגי, גם כשיש רק שני ציונים.
- * כשיש כמה מקצועות, ירידה או עלייה במקצוע אחד מוצגת ולא נבלעת.
- * ירידה ברוב המקצועות היא ירידה חדה. ירידה במקצוע אחד נשארת מתונה.
- * ציונים בלי שום תאריך לא נכנסים למגמה כשיש ציונים מתוארכים.
- */
-export function gradeTrendForGrades(grades: readonly Grade[]): { trend: TrendDirection; delta: number } {
-  const dated = grades.filter((g) => g.date && g.date.getTime() > 0);
-  const usable = dated.length >= 2 ? dated : grades;
-  const groups = new Map<string, Grade[]>();
-  for (const g of usable) {
-    const key = normalizeSubjectName((g.subject || '').trim() || 'כללי');
-    const list = groups.get(key);
-    if (list) list.push(g);
-    else groups.set(key, [g]);
-  }
-
-  const measured: { delta: number; count: number }[] = [];
-  for (const list of groups.values()) {
-    const result = gradeSeriesDelta(list);
-    if (result) measured.push(result);
-  }
-  const overall = gradeSeriesDelta(usable);
-
-  if (measured.length >= 2) {
-    const total = measured.reduce((sum, item) => sum + item.count, 0);
-    const down = measured
-      .filter((item) => item.delta < -GRADE_MODERATE_DROP)
-      .reduce((sum, item) => sum + item.count, 0);
-    const up = measured
-      .filter((item) => item.delta > GRADE_MODERATE_DROP)
-      .reduce((sum, item) => sum + item.count, 0);
-    const delta = measured.reduce((sum, item) => sum + item.delta * item.count, 0) / total;
-    if (down > total / 2 && down > up) return { trend: 'sharp_decline', delta };
-    if (down > up && down > 0) return { trend: 'moderate_decline', delta };
-    if (up > down && up > 0) return { trend: 'improving', delta };
-    if (overall) {
-      const overallTrend = trendFromGradeDelta(overall.delta);
-      if (overallTrend !== 'stable') return { trend: overallTrend, delta: overall.delta };
-    }
-    return { trend: 'stable', delta };
-  }
-
-  if (measured.length === 1) {
-    const subjectTrend = trendFromGradeDelta(measured[0].delta);
-    if (subjectTrend !== 'stable') return { trend: subjectTrend, delta: measured[0].delta };
-  }
-
-  if (overall) return { trend: trendFromGradeDelta(overall.delta), delta: overall.delta };
-  return { trend: 'stable', delta: 0 };
 }
 
 /**
@@ -691,17 +652,24 @@ export function behaviorTrendForEvents(
   return 'stable';
 }
 
-function absenceDeltaTrend(delta: number): TrendDirection {
-  if (delta >= 3) return 'sharp_decline';
-  if (delta >= 1) return 'moderate_decline';
-  if (delta <= -1) return 'improving';
-  return 'stable';
+function absenceLevel(earlier: number, later: number): TrendDirection {
+  const delta = later - earlier;
+  const gap = Math.abs(delta);
+  if (gap < 2) return 'stable';
+  const low = Math.min(earlier, later);
+  const high = Math.max(earlier, later);
+  const ratio = low === 0 ? Infinity : high / low;
+  if (ratio < 1.5) return 'stable';
+  const worsening = delta > 0;
+  const sharp = gap >= 4 || (gap >= 3 && ratio >= 2);
+  if (worsening) return sharp ? 'sharp_decline' : 'moderate_decline';
+  return 'improving';
 }
 
 /**
- * מגמת חיסורים. אם יש תקופה קודמת עם נתונים — משווים אליה.
- * אם אין (למשל בתצוגת כל השנה) — משווים את חצי התקופה המוקדם למאוחר.
- * חיסור אחד יותר הוא ירידה מתונה, שלושה ויותר ירידה חדה, וחיסור אחד פחות הוא שיפור.
+ * מגמת חיסורים בתוך התקופה המוצגת: חצי מוקדם מול חצי מאוחר.
+ * הפרש קטן, או ששני החצאים גבוהים באותה מידה, נשאר יציב.
+ * עלייה ברורה בקצב היא ירידה מתונה, ועלייה גדולה היא ירידה חדה.
  */
 export function absenceTrend(
   currentAbsences: number,
@@ -709,11 +677,9 @@ export function absenceTrend(
   previousPeriodHasData: boolean,
   withinPeriod?: { early: number; late: number }
 ): TrendDirection {
-  if (!previousPeriodHasData) {
-    if (!withinPeriod) return 'stable';
-    return absenceDeltaTrend(withinPeriod.late - withinPeriod.early);
-  }
-  return absenceDeltaTrend(currentAbsences - previousAbsences);
+  if (withinPeriod) return absenceLevel(withinPeriod.early, withinPeriod.late);
+  if (!previousPeriodHasData) return 'stable';
+  return absenceLevel(previousAbsences, currentAbsences);
 }
 
 /** תווית בעברית לתג המגמה ולייצוא. */
