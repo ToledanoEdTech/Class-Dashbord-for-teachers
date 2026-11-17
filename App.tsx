@@ -15,7 +15,7 @@ import MeetingView from './components/MeetingView';
 import MeetingTeacherForm from './components/MeetingTeacherForm';
 import { Student, AppState, ClassGroup, RiskSettings, PerClassRiskSettings, PeriodDefinition, DEFAULT_RISK_SETTINGS } from './types';
 import { processFiles } from './utils/processing';
-import { calculateStudentStats } from './utils/processing';
+import { buildTrendContext, calculateStudentStats } from './utils/processing';
 import { loadFromStorage, savePreferences, loadPreferences, loadDashboardWidgets } from './utils/storage';
 import { deleteClassFromFirestore } from './utils/firestoreSync';
 import { useAuth } from './context/AuthContext';
@@ -250,7 +250,13 @@ const App: React.FC = () => {
   const handleUpdateStudent = useCallback(
     (updatedStudent: Student) => {
       if (!state.activeClassId) return;
-      const recalculated = calculateStudentStats(updatedStudent, effectiveRiskSettings);
+      const activeStudents = state.classes.find((c) => c.id === state.activeClassId)?.students ?? [];
+      const classStudents = activeStudents.map((s) => (s.id === updatedStudent.id ? updatedStudent : s));
+      const recalculated = calculateStudentStats(
+        updatedStudent,
+        effectiveRiskSettings,
+        buildTrendContext(classStudents.length > 0 ? classStudents : [updatedStudent])
+      );
       setState((prev) => {
         const nextClasses = prev.classes.map((c) =>
           c.id === prev.activeClassId
@@ -267,7 +273,7 @@ const App: React.FC = () => {
       });
       setTimeout(() => flushSave(), 150);
     },
-    [state.activeClassId, effectiveRiskSettings, flushSave]
+    [state.activeClassId, state.classes, effectiveRiskSettings, flushSave]
   );
 
   const handleSaveRiskSettings = useCallback(

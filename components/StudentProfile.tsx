@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Student, EventType, Grade, BehaviorEvent, RiskSettings, isAbsenceEvent, PeriodDefinition, type TrendDirection } from '../types';
-import { calculateStudentStats, computeStudentStatsFromData, gradeTrendForGrades, weightedGradeAverage } from '../utils/processing';
+import { buildTrendContext, calculateStudentStats, describeRateComparison, computeStudentStatsFromData, gradeTrendForGrades, weightedGradeAverage } from '../utils/processing';
 import { ArrowRight, ArrowLeft, Calendar, AlertCircle, AlertTriangle, Award, BookOpen, Clock, Info, Download, UserX, Plus, X, CalendarX2, Printer, TrendingUp, TrendingDown, BarChart3, Target, Users, Zap, Star, MessageSquare, ThumbsUp, Lightbulb, ChevronRight, ChevronLeft, FileText, Check, Grid, LayoutGrid } from 'lucide-react';
 import HelpTip from './HelpTip';
 import {
@@ -187,15 +187,26 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
 
   /** תלמיד "וירטואלי" עם ציונים ואירועים מסוננים לפי תקופה נבחרת (ומחושב מחדש) */
   const effectiveStudent = useMemo(() => {
-    if (!selectedPeriod) return student;
+    const classStudents = students.length > 0 ? students : [student];
+    if (!selectedPeriod) {
+      return calculateStudentStats(student, riskSettings ?? undefined, buildTrendContext(classStudents));
+    }
     const pStart = startOfDay(new Date(selectedPeriod.startDate));
     const pEnd = endOfDay(new Date(selectedPeriod.endDate));
     const inRange = (d: Date) => d >= pStart && d <= pEnd;
     const grades = student.grades.filter((g) => inRange(g.date));
     const behaviorEvents = student.behaviorEvents.filter((e) => inRange(e.date));
-    const base = { id: student.id, name: student.name, grades, behaviorEvents };
-    return calculateStudentStats(base, riskSettings ?? undefined);
-  }, [student, selectedPeriod, riskSettings]);
+    const base = { ...student, grades, behaviorEvents };
+    const context = buildTrendContext(classStudents, { start: pStart, end: pEnd });
+    return calculateStudentStats(base, riskSettings ?? undefined, context);
+  }, [student, students, selectedPeriod, riskSettings]);
+
+  const behaviorOnlyTrend = effectiveStudent.behaviorOnlyTrend ?? effectiveStudent.behaviorTrend;
+  const absenceExplanation = describeRateComparison(
+    effectiveStudent.trendDetails?.absences,
+    effectiveStudent.trendDetails?.recentDays ?? 0,
+    'חיסורים'
+  );
 
   /** סטטיסטיקות של התלמיד לפי כל תקופה (להשוואה בין תקופות) */
   const periodStatsForStudent = useMemo(() => {
@@ -2075,7 +2086,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                 </div>
                             </li>
                         )}
-                        {effectiveStudent.behaviorTrend === 'improving' && (
+                        {behaviorOnlyTrend === 'improving' && (
                             <li className="flex gap-3 items-start bg-emerald-50/50 p-3 rounded-lg border-r-4 border-emerald-500">
                                 <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 text-xs font-bold">✨</div>
                                 <div className="flex-1">
@@ -2120,10 +2131,19 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ student, students = [],
                                 <p className="text-sm text-slate-700">ריבוי אירועי משמעת. יש לבדוק האם הקושי נובע מחוסר עניין בחומר או בעיות אישיות.</p>
                             </li>
                         )}
-                         {(effectiveStudent.behaviorTrend === 'sharp_decline' || effectiveStudent.behaviorTrend === 'moderate_decline') && (
+                         {(behaviorOnlyTrend === 'sharp_decline' || behaviorOnlyTrend === 'moderate_decline') && (
                             <li className="flex gap-3 items-start">
-                                <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${effectiveStudent.behaviorTrend === 'sharp_decline' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>!</div>
-                                <p className="text-sm text-slate-700">{effectiveStudent.behaviorTrend === 'sharp_decline' ? 'זוהתה ירידה חדה בהתנהגות לאחרונה. נדרשת בדיקת עומק.' : 'יש ירידה מתונה בהתנהגות. כדאי לעקוב אם היא נמשכת.'}</p>
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${behaviorOnlyTrend === 'sharp_decline' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>!</div>
+                                <p className="text-sm text-slate-700">{behaviorOnlyTrend === 'sharp_decline' ? 'זוהתה ירידה חדה בהתנהגות לאחרונה. נדרשת בדיקת עומק.' : 'יש ירידה מתונה בהתנהגות. כדאי לעקוב אם היא נמשכת.'}</p>
+                            </li>
+                        )}
+                         {(effectiveStudent.absenceTrend === 'sharp_decline' || effectiveStudent.absenceTrend === 'moderate_decline') && (
+                            <li className="flex gap-3 items-start">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${effectiveStudent.absenceTrend === 'sharp_decline' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>!</div>
+                                <p className="text-sm text-slate-700">
+                                    {effectiveStudent.absenceTrend === 'sharp_decline' ? 'החיסורים עלו מאוד לאחרונה. מומלץ לברר את הסיבה מול התלמיד והבית.' : 'יש עלייה מתונה בחיסורים לאחרונה. כדאי לעקוב.'}
+                                    {absenceExplanation && <span className="block text-xs text-slate-500 mt-1">{absenceExplanation}</span>}
+                                </p>
                             </li>
                         )}
                         {student.correlations.length > 0 && (

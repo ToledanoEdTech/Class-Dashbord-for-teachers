@@ -23,7 +23,7 @@ import {
   ComposedChart,
 } from 'recharts';
 import { format, subDays, startOfDay, endOfDay, differenceInDays, eachWeekOfInterval, endOfWeek, isSameWeek, eachDayOfInterval, isSameDay, addMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { absenceTrend, computeStudentStatsFromData, isGradeInRange, normalizeSubjectName, trendLabel, weightedGradeAverage } from '../utils/processing';
+import { buildSchoolDays, computeStudentStatsFromData, describeRateComparison, isGradeInRange, normalizeSubjectName, shortRateComparison, trendLabel, weightedGradeAverage, type TrendContext } from '../utils/processing';
 import { getDisplayName } from '../utils/displayName';
 import ClassHeatmap from './ClassHeatmap';
 import HelpTip from './HelpTip';
@@ -212,14 +212,23 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
     }));
   }, [students, subjectFilter, teacherFilter]);
 
+  const schoolDays = useMemo(() => buildSchoolDays(students), [students]);
+
+  /** "לאחרונה" נמדד עד התאריך האחרון שיש בו נתונים, לא עד היום — אחרת ימים בלי קובץ נראים כשיפור. */
+  const trendContext = useMemo<TrendContext>(() => {
+    const lastDataDay = dataRange?.max;
+    const end = lastDataDay && lastDataDay < rangeEnd ? lastDataDay : rangeEnd;
+    return { start: rangeStart, end, schoolDays };
+  }, [rangeStart, rangeEnd, dataRange?.max?.getTime(), schoolDays]);
+
   const studentsInRange = useMemo(() => {
     return studentsFilteredBySubjectTeacher.map((s) => {
       const g = s.grades.filter((gr) => isGradeInRange(gr, rangeStart, rangeEnd, true));
       const e = s.behaviorEvents.filter((ev) => ev.date >= rangeStart && ev.date <= rangeEnd);
-      const stats = computeStudentStatsFromData(g, e, riskSettings);
+      const stats = computeStudentStatsFromData(g, e, riskSettings, trendContext);
       return { ...s, ...stats, grades: g, behaviorEvents: e };
     });
-  }, [studentsFilteredBySubjectTeacher, rangeStart, rangeEnd, riskSettings]);
+  }, [studentsFilteredBySubjectTeacher, rangeStart, rangeEnd, riskSettings, trendContext]);
 
   const periodLengthDays = useMemo(
     () => Math.max(1, differenceInDays(rangeEnd, rangeStart) + 1),
@@ -237,11 +246,6 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
       return computeStudentStatsFromData(g, e, riskSettings);
     });
   }, [studentsFilteredBySubjectTeacher, prevPeriodStart, prevPeriodEnd, riskSettings]);
-
-  const prevStatsByStudentId = useMemo(
-    () => new Map(studentsFilteredBySubjectTeacher.map((s, i) => [s.id, prevStats[i]])),
-    [studentsFilteredBySubjectTeacher, prevStats]
-  );
 
   const totalStudents = studentsInRange.length;
   const atRiskCount = studentsInRange.filter((s) => s.riskLevel === 'high').length;
@@ -1509,9 +1513,9 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
               <tr className="bg-slate-50/80 text-slate-500 text-sm">
                 <th className="px-3 sm:px-6 py-4 font-semibold text-right">שם התלמיד</th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">ממוצע</th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="בכל מקצוע משווים את ממוצע הציונים המוקדמים למאוחרים, ואז משקללים לפי משקל הציונים. ציון בודד במקצוע לא נחשב מגמה. עד 3 נקודות — יציב. יותר מ-3 ועד 8 — ירידה מתונה. יותר מ-8 — ירידה חדה. עלייה של יותר מ-3 — שיפור." /></th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">חיסורים <HelpTip text="המספר הוא סך החיסורים בטווח. המגמה משווה את החצי המוקדם של הטווח לחצי המאוחר. הפרש קטן נשאר יציב. עלייה ברורה בקצב — ירידה מתונה. עלייה גדולה — ירידה חדה. ירידה ברורה בקצב — שיפור." /></th>
-                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת התנהגות (ללא חיסורים) <HelpTip text="שני חצאים שווים של עד 12 אירועי המשמעת האחרונים, בלי חיסורים. אירוע אחד לרעה — ירידה מתונה. שני אירועים ויותר — מידרדר." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת ציונים <HelpTip text="בכל מקצוע משווים את הציונים האחרונים (1–3) לציונים שלפניהם באותו מקצוע, ומשקללים לפי משקל הציונים. ציון בודד במקצוע לא נחשב מגמה. עד 3 נקודות — יציב. יותר מ-3 ועד 8 — ירידה מתונה. יותר מ-8 — ירידה חדה (ציון נמוך בודד הוא לכל היותר ירידה מתונה). עלייה של יותר מ-3 — שיפור." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">חיסורים <HelpTip text="המספר הוא סך החיסורים בטווח. המגמה משווה את 4 השבועות האחרונים לקצב הרגיל של התלמיד ב-12 השבועות שלפני, לפי ימי לימוד (חופשות לא נספרות). פחות מ-2 חיסורים מעבר לרגיל — יציב. לפחות 2 מעבר לרגיל ופי 1.5 — ירידה מתונה. לפחות 8 מעבר לרגיל (יותר מיום לימודים שלם) ופי 2 — ירידה חדה. שבוע אחרון חריג מונע 'שיפור'. מתחת לתג: כמה היו לאחרונה מול כמה רגיל." /></th>
+                <th className="px-3 sm:px-6 py-4 font-semibold">מגמת התנהגות (ללא חיסורים) <HelpTip text="אירועי משמעת שליליים ב-4 השבועות האחרונים מול הקצב הרגיל של התלמיד, לפי ימי לימוד. לפחות 2 מעבר לרגיל ופי 1.5 — ירידה מתונה. לפחות 5 מעבר לרגיל ופי 2 — מידרדר. ירידה ברורה בשליליים, או עלייה ברורה בחיוביים, — משתפר." /></th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">אירועים</th>
                 <th className="px-3 sm:px-6 py-4 font-semibold">סיכון <HelpTip text="ציון סיכון 1-10 (1=סיכון גבוה, 10=סיכון נמוך). מחושב לפי ציונים, מגמות, אירועים שליליים וחיסורים." /></th>
                 <th className="px-3 sm:px-6 py-4 w-12"></th>
@@ -1544,36 +1548,60 @@ const Dashboard: React.FC<DashboardProps> = ({ students, classAverage, onSelectS
                     </div>
                   </td>
                   <td className="px-3 sm:px-6 py-4">
-                    <div className="flex justify-center">
-                      <TrendBadge trend={student.gradeTrend} type="grade" />
-                    </div>
-                  </td>
-                  <td className="px-3 sm:px-6 py-4">
                     {(() => {
-                      const prev = prevStatsByStudentId.get(student.id);
-                      const currAbs = (student as any).absenceCount ?? (student.behaviorEvents?.filter((e: BehaviorEvent) => isAbsenceEvent(e)).length ?? 0);
-                      const prevAbs = prev?.absenceCount ?? 0;
-                      const midMs = rangeStart.getTime() + (rangeEnd.getTime() - rangeStart.getTime()) / 2;
-                      let earlyAbs = 0;
-                      let lateAbs = 0;
-                      for (const event of student.behaviorEvents) {
-                        if (!isAbsenceEvent(event)) continue;
-                        if (event.date.getTime() < midMs) earlyAbs += 1;
-                        else lateAbs += 1;
-                      }
-                      const absTrend = absenceTrend(currAbs, prevAbs, (prev?.activityCount ?? 0) > 0, { early: earlyAbs, late: lateAbs });
+                      const g = student.trendDetails?.grades;
                       return (
-                        <div className="flex flex-col items-center gap-0.5">
-                          <span className="font-medium text-slate-700">{currAbs}</span>
-                          <TrendBadge trend={absTrend} type="grade" />
+                        <div
+                          className="flex flex-col items-center gap-0.5"
+                          title={g ? `ציונים אחרונים בממוצע ${g.recentAverage.toFixed(1)}, לעומת ${g.previousAverage.toFixed(1)} קודם באותם מקצועות (שינוי משוקלל ${g.delta > 0 ? '+' : ''}${g.delta.toFixed(1)}).` : 'אין מספיק ציונים באותו מקצוע כדי לקבוע מגמה.'}
+                        >
+                          <TrendBadge trend={student.gradeTrend} type="grade" />
+                          {g && (
+                            <span className="text-[10px] text-slate-400">
+                              {Math.round(g.previousAverage)} ← {Math.round(g.recentAverage)}
+                            </span>
+                          )}
                         </div>
                       );
                     })()}
                   </td>
                   <td className="px-3 sm:px-6 py-4">
-                    <div className="flex justify-center">
-                      <TrendBadge trend={(student as any).behaviorOnlyTrend ?? student.behaviorTrend} type="behavior" />
-                    </div>
+                    {(() => {
+                      const currAbs = student.absenceCount ?? student.behaviorEvents.filter((e: BehaviorEvent) => isAbsenceEvent(e)).length;
+                      const recentDays = student.trendDetails?.recentDays ?? 0;
+                      const detail = student.trendDetails?.absences;
+                      return (
+                        <div
+                          className="flex flex-col items-center gap-0.5"
+                          title={describeRateComparison(detail, recentDays, 'חיסורים') ?? 'הטווח קצר מדי כדי לקבוע מגמה.'}
+                        >
+                          <span className="font-medium text-slate-700">{currAbs}</span>
+                          <TrendBadge trend={student.absenceTrend ?? 'stable'} type="grade" />
+                          {detail && (
+                            <span className="text-[10px] text-slate-400">{shortRateComparison(detail, recentDays)}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </td>
+                  <td className="px-3 sm:px-6 py-4">
+                    {(() => {
+                      const recentDays = student.trendDetails?.recentDays ?? 0;
+                      const detail = student.trendDetails?.negatives;
+                      const positives = student.trendDetails?.positives;
+                      const title = [
+                        describeRateComparison(detail, recentDays, 'אירועים שליליים'),
+                        describeRateComparison(positives, recentDays, 'אירועים חיוביים'),
+                      ].filter(Boolean).join(' ');
+                      return (
+                        <div className="flex flex-col items-center gap-0.5" title={title || 'הטווח קצר מדי כדי לקבוע מגמה.'}>
+                          <TrendBadge trend={student.behaviorOnlyTrend ?? student.behaviorTrend} type="behavior" />
+                          {detail && (
+                            <span className="text-[10px] text-slate-400">{shortRateComparison(detail, recentDays)}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-3 sm:px-6 py-4">
                     <div className="flex justify-center gap-1 text-sm">

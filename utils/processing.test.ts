@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  absenceTrend,
   calculateStudentStats,
   computeStudentStatsFromData,
+  computeStudentTrends,
+  dayKey,
+  type TrendContext,
 } from './processing';
 import {
   EventType,
@@ -46,6 +48,122 @@ function makeEvent(overrides: Partial<BehaviorEvent> & { date: Date; category: E
     ...rest,
   };
 }
+
+// 12 שבועות, ימי לימוד א'-ה'. החלון האחרון: 4 השבועות האחרונים (שבועות 8–11).
+const TERM_START = new Date(2024, 0, 7); // יום ראשון
+const TERM_WEEKS = 12;
+
+function schoolDay(week: number, day: number): Date {
+  return new Date(TERM_START.getFullYear(), TERM_START.getMonth(), TERM_START.getDate() + week * 7 + day, 10);
+}
+
+function termContext(skipWeeks: number[] = []): TrendContext {
+  const schoolDays = new Set<string>();
+  for (let week = 0; week < TERM_WEEKS; week++) {
+    if (skipWeeks.includes(week)) continue;
+    for (let day = 0; day < 5; day++) schoolDays.add(dayKey(schoolDay(week, day)));
+  }
+  return {
+    start: TERM_START,
+    end: new Date(TERM_START.getFullYear(), TERM_START.getMonth(), TERM_START.getDate() + TERM_WEEKS * 7 - 1),
+    schoolDays,
+  };
+}
+
+/** count אירועים מפוזרים על ימי הלימוד בשבועות הנתונים. */
+function spread(count: number, weeks: number[], make: (date: Date) => BehaviorEvent): BehaviorEvent[] {
+  const days = weeks.flatMap((week) => [0, 1, 2, 3, 4].map((day) => schoolDay(week, day)));
+  return Array.from({ length: count }, (_, i) => make(days[i % days.length]));
+}
+
+const absence = (date: Date) => makeEvent({ date, category: EventType.NEGATIVE, type: 'חיסור' });
+const disruption = (date: Date) => makeEvent({ date, category: EventType.NEGATIVE, type: 'הפרעה' });
+const praise = (date: Date) => makeEvent({ date, category: EventType.POSITIVE, type: 'מילה טובה' });
+
+const BASELINE_WEEKS = [0, 1, 2, 3, 4, 5, 6, 7];
+const RECENT_WEEKS = [8, 9, 10, 11];
+
+describe('computeStudentTrends — absences', () => {
+  it('does not show improvement when the student was absent a lot in the last week', () => {
+    const events = [
+      ...spread(40, BASELINE_WEEKS, absence),
+      ...spread(10, [11], absence),
+    ];
+    const result = computeStudentTrends([], events, termContext());
+    expect(result.absenceTrend).not.toBe('improving');
+  });
+
+  it('keeps a one-absence difference stable and a two-absence rise moderate, never sharp', () => {
+    const baseline = spread(4, BASELINE_WEEKS, absence); // צפוי 2 בחלון האחרון
+    expect(computeStudentTrends([], [...baseline, ...spread(3, RECENT_WEEKS, absence)], termContext()).absenceTrend).toBe('stable');
+    expect(computeStudentTrends([], [...baseline, ...spread(4, RECENT_WEEKS, absence)], termContext()).absenceTrend).toBe('moderate_decline');
+  });
+
+  it('treats one sick day (about 6 lessons) as a moderate decline', () => {
+    const oneDay = Array.from({ length: 6 }, () => absence(schoolDay(10, 2)));
+    const result = computeStudentTrends([], oneDay, termContext());
+    expect(result.absenceTrend).toBe('moderate_decline');
+  });
+
+  it('marks a large recent rise as a sharp decline', () => {
+    const events = [...spread(4, BASELINE_WEEKS, absence), ...spread(18, RECENT_WEEKS, absence)];
+    const result = computeStudentTrends([], events, termContext());
+    expect(result.absenceTrend).toBe('sharp_decline');
+    expect(result.details.absences).toEqual({ recent: 18, expected: 2 });
+  });
+
+  it('shows improvement when recent absences are clearly below the usual rate', () => {
+    const events = [...spread(40, BASELINE_WEEKS, absence), ...spread(4, [8, 9], absence)];
+    expect(computeStudentTrends([], events, termContext()).absenceTrend).toBe('improving');
+  });
+
+  it('does not count a holiday as improvement', () => {
+    // שבועות 8–10 חופשה: נשאר שבוע לימודים אחד בחלון האחרון, עם חיסור אחד.
+    const events = [...spread(20, BASELINE_WEEKS, absence), ...spread(1, [11], absence)];
+    const result = computeStudentTrends([], events, termContext([8, 9, 10]));
+    expect(result.absenceTrend).toBe('stable');
+  });
+
+  it('does not judge a trend from a very short range', () => {
+    const start = schoolDay(0, 0);
+    const context: TrendContext = { start, end: schoolDay(1, 0) };
+    const events = Array.from({ length: 10 }, () => absence(schoolDay(1, 0)));
+    expect(computeStudentTrends([], events, context).absenceTrend).toBe('stable');
+  });
+});
+
+describe('computeStudentTrends — behavior', () => {
+  it('shows improvement when discipline events dropped, even with many recent absences', () => {
+    const events = [
+      ...spread(16, BASELINE_WEEKS, disruption),
+      ...spread(2, RECENT_WEEKS, disruption),
+      ...spread(20, RECENT_WEEKS, absence),
+    ];
+    const result = computeStudentTrends([], events, termContext());
+    expect(result.behaviorOnlyTrend).toBe('improving');
+    expect(result.absenceTrend).toBe('sharp_decline');
+  });
+
+  it('marks a strong rise in discipline events as a sharp decline', () => {
+    const events = [...spread(2, BASELINE_WEEKS, disruption), ...spread(8, RECENT_WEEKS, disruption)];
+    expect(computeStudentTrends([], events, termContext()).behaviorOnlyTrend).toBe('sharp_decline');
+  });
+
+  it('marks a small rise as a moderate decline', () => {
+    const events = [...spread(4, BASELINE_WEEKS, disruption), ...spread(4, RECENT_WEEKS, disruption)];
+    expect(computeStudentTrends([], events, termContext()).behaviorOnlyTrend).toBe('moderate_decline');
+  });
+
+  it('keeps the same rate stable even with many events', () => {
+    const events = [...spread(20, BASELINE_WEEKS, disruption), ...spread(10, RECENT_WEEKS, disruption)];
+    expect(computeStudentTrends([], events, termContext()).behaviorOnlyTrend).toBe('stable');
+  });
+
+  it('shows improvement when positive events rise and negatives do not', () => {
+    const events = [...spread(2, BASELINE_WEEKS, praise), ...spread(6, RECENT_WEEKS, praise)];
+    expect(computeStudentTrends([], events, termContext()).behaviorOnlyTrend).toBe('improving');
+  });
+});
 
 describe('calculateStudentStats', () => {
   describe('grade average (weighted and fallback)', () => {
@@ -124,7 +242,7 @@ describe('calculateStudentStats', () => {
   });
 
   describe('grade trend', () => {
-    it('shows a sharp decline from two grades when the gap is large', () => {
+    it('caps a single low grade at a moderate decline', () => {
       const base = new Date(2024, 0, 1);
       const student = {
         id: '1',
@@ -136,7 +254,17 @@ describe('calculateStudentStats', () => {
         behaviorEvents: [],
       };
       const result = calculateStudentStats(student);
+      expect(result.gradeTrend).toBe('moderate_decline');
+    });
+
+    it('compares the latest grades in a subject to the earlier ones', () => {
+      const base = new Date(2024, 0, 1);
+      const grades: Grade[] = [85, 84, 86, 85, 70, 68].map((score, i) =>
+        makeGrade({ score, date: new Date(base.getTime() + i), weight: 1 })
+      );
+      const result = calculateStudentStats({ id: '1', name: 'S', grades, behaviorEvents: [] });
       expect(result.gradeTrend).toBe('sharp_decline');
+      expect(result.trendDetails?.grades?.recentAverage).toBe(69);
     });
 
     it('does not treat different subjects with one grade each as a decline', () => {
@@ -302,85 +430,12 @@ describe('calculateStudentStats', () => {
       expect(result.positiveCount).toBe(1);
     });
 
-    it('returns stable behavior trend when fewer than 4 events', () => {
-      const base = new Date(2024, 0, 1);
-      const student = {
-        id: '1',
-        name: 'S',
-        grades: [],
-        behaviorEvents: [
-          makeEvent({ date: base, category: EventType.POSITIVE }),
-          makeEvent({ date: new Date(base.getTime() + 1), category: EventType.NEGATIVE }),
-          makeEvent({ date: new Date(base.getTime() + 2), category: EventType.NEGATIVE }),
-        ],
-      };
-      const result = calculateStudentStats(student);
-      expect(result.behaviorTrend).toBe('stable');
+    it('uses the given trend context for absence and behavior trends', () => {
+      const events = [...spread(4, BASELINE_WEEKS, absence), ...spread(18, RECENT_WEEKS, absence)];
+      const result = calculateStudentStats({ id: '1', name: 'S', grades: [], behaviorEvents: events }, DEFAULT_RISK_SETTINGS, termContext());
+      expect(result.absenceTrend).toBe('sharp_decline');
       expect(result.behaviorOnlyTrend).toBe('stable');
-    });
-
-    it('does not call an odd run of similar events a decline', () => {
-      const base = new Date(2024, 0, 1);
-      const events = Array.from({ length: 5 }, (_, i) =>
-        makeEvent({ date: new Date(base.getTime() + i), category: EventType.NEGATIVE, type: 'הפרעה' })
-      );
-      const student = { id: '1', name: 'S', grades: [], behaviorEvents: events };
-      const result = calculateStudentStats(student);
-      expect(result.behaviorOnlyTrend).toBe('stable');
-    });
-
-    it('returns a sharp behavior decline when the recent half is worse by at least 2 events', () => {
-      const base = new Date(2024, 0, 1);
-      const events: BehaviorEvent[] = [
-        makeEvent({ date: base, category: EventType.POSITIVE, type: 'מילה טובה' }),
-        makeEvent({ date: new Date(base.getTime() + 1), category: EventType.POSITIVE, type: 'מילה טובה' }),
-        makeEvent({ date: new Date(base.getTime() + 2), category: EventType.NEGATIVE, type: 'הפרעה' }),
-        makeEvent({ date: new Date(base.getTime() + 3), category: EventType.NEGATIVE, type: 'הפרעה' }),
-      ];
-      const student = { id: '1', name: 'S', grades: [], behaviorEvents: events };
-      const result = calculateStudentStats(student);
-      expect(result.behaviorOnlyTrend).toBe('sharp_decline');
-    });
-
-    it('marks a one-event difference as a moderate decline', () => {
-      const base = new Date(2024, 0, 1);
-      const events: BehaviorEvent[] = [
-        makeEvent({ date: base, category: EventType.NEGATIVE, type: 'הפרעה' }),
-        makeEvent({ date: new Date(base.getTime() + 1), category: EventType.POSITIVE, type: 'מילה טובה' }),
-        makeEvent({ date: new Date(base.getTime() + 2), category: EventType.NEGATIVE, type: 'הפרעה' }),
-        makeEvent({ date: new Date(base.getTime() + 3), category: EventType.NEGATIVE, type: 'הפרעה' }),
-      ];
-      const student = { id: '1', name: 'S', grades: [], behaviorEvents: events };
-      const result = calculateStudentStats(student);
-      expect(result.behaviorOnlyTrend).toBe('moderate_decline');
-    });
-  });
-
-  describe('absence trend', () => {
-    it('ignores a one-absence gap and marks a real rise as moderate', () => {
-      expect(absenceTrend(4, 3, true)).toBe('stable');
-      expect(absenceTrend(4, 2, true)).toBe('moderate_decline');
-    });
-
-    it('marks a clear drop in absences as improvement', () => {
-      expect(absenceTrend(2, 6, true)).toBe('improving');
-      expect(absenceTrend(3, 4, true)).toBe('stable');
-    });
-
-    it('compares the two halves of the displayed period', () => {
-      expect(absenceTrend(8, 0, false)).toBe('stable');
-      expect(absenceTrend(8, 0, false, { early: 1, late: 6 })).toBe('sharp_decline');
-      expect(absenceTrend(4, 0, false, { early: 6, late: 1 })).toBe('improving');
-      expect(absenceTrend(4, 0, false, { early: 2, late: 2 })).toBe('stable');
-      expect(absenceTrend(10, 0, false, { early: 8, late: 9 })).toBe('stable');
-    });
-
-    it('marks three or more extra absences as a sharp decline', () => {
-      expect(absenceTrend(5, 2, true)).toBe('sharp_decline');
-    });
-
-    it('improves when absences fall by at least 2', () => {
-      expect(absenceTrend(1, 4, true)).toBe('improving');
+      expect(result.behaviorTrend).toBe('sharp_decline');
     });
   });
 

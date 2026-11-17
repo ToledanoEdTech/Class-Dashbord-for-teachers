@@ -1,4 +1,4 @@
-import { BehaviorEvent, EventType, Grade, Student, Correlation, RiskSettings, DEFAULT_RISK_SETTINGS, DEFAULT_RISK_WEIGHTS, type TrendDirection } from '../types';
+import { BehaviorEvent, EventType, Grade, Student, Correlation, RiskSettings, DEFAULT_RISK_SETTINGS, DEFAULT_RISK_WEIGHTS, type TrendDirection, type TrendDetails, type RateComparison } from '../types';
 export type { TrendDirection };
 import { isAbsenceEvent } from '../types';
 import { differenceInDays } from 'date-fns';
@@ -521,6 +521,8 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
   const studentsMap = new Map<string, Student>();
   const uniqueStudentIds = Array.from(new Set([...events.map(e => e.studentId), ...grades.map(g => g.studentId)]));
 
+  const classContext = buildTrendContext([{ grades, behaviorEvents: events }]);
+
   uniqueStudentIds.forEach(id => {
     const sEvents = events.filter(e => e.studentId === id).sort((a,b) => a.date.getTime() - b.date.getTime());
     const sGrades = grades.filter(g => g.studentId === id).sort((a,b) => a.date.getTime() - b.date.getTime());
@@ -531,7 +533,7 @@ export const processFiles = async (behaviorFile: File | string, gradesFile: File
       grades: sGrades,
       behaviorEvents: sEvents,
     };
-    studentsMap.set(id, calculateStudentStats(raw, DEFAULT_RISK_SETTINGS));
+    studentsMap.set(id, calculateStudentStats(raw, DEFAULT_RISK_SETTINGS, classContext));
   });
 
   return Array.from(studentsMap.values());
@@ -556,41 +558,304 @@ export function weightedGradeAverage(grades: ReadonlyArray<{ score: number; weig
   return scoreSum / grades.length;
 }
 
+// --- מגמות ---
+//
+// כל המגמות עונות על אותה שאלה: "האם בתקופה האחרונה המצב שונה מהרגיל אצל התלמיד הזה?"
+// החלון האחרון הוא 4 השבועות האחרונים של הטווח המוצג (או חציו, בטווח קצר),
+// והבסיס הוא עד 12 שבועות שלפניו. חיסורים ואירועים נמדדים כקצב לימי לימוד,
+// כך שחופשה בחלון האחרון לא נראית כשיפור, ושבוע עמוס לא נראה כהידרדרות.
+
 /** עד 3 נקודות נשאר יציב. מעבר לזה ירידה מתונה, ומעבר ל-8 ירידה חדה. */
 const GRADE_MODERATE_DROP = 3;
 const GRADE_SHARP_DROP = 8;
-/** בחצאים שווים אירוע אחד שהתהפך משנה את האות ב-2, ושני אירועים ב-4. */
-const BEHAVIOR_MODERATE_SIGNAL = 2;
-const BEHAVIOR_SHARP_SIGNAL = 4;
-const BEHAVIOR_TREND_MIN = 4;
+const RECENT_WINDOW_DAYS = 28;
+const BASELINE_MAX_DAYS = 84;
+const MIN_TREND_SPAN_DAYS = 10;
+const MIN_SCHOOL_DAYS_PER_WINDOW = 3;
 
-function evenTail<T>(items: readonly T[], maxCount: number, minCount: number): T[] {
-  const cap = Math.min(items.length, maxCount);
-  const n = cap - (cap % 2);
-  if (n < minCount) return [];
-  return items.slice(items.length - n);
+/**
+ * ספי הפרש (באירועים מעבר לצפוי) לירידה מתונה וחדה. חיסורים נרשמים לפי שיעור,
+ * כך שיום מחלה אחד (~6 שיעורים) הוא ירידה מתונה, וחדה רק מעבר ליום שלם.
+ */
+const ABSENCE_THRESHOLDS = { moderate: 2, sharp: 8 };
+const NEGATIVE_THRESHOLDS = { moderate: 2, sharp: 5 };
+const POSITIVE_GAIN_FOR_IMPROVEMENT = 3;
+
+export interface TrendContext {
+  /** תחילת הטווח המוצג. */
+  start: Date;
+  /** סוף הטווח — עד התאריך האחרון שיש בו נתונים. */
+  end: Date;
+  /** ימים (yyyy-mm-dd) שבהם נרשם משהו בכיתה — מקרב את ימי הלימודים בפועל. */
+  schoolDays?: ReadonlySet<string>;
 }
 
-function splitGradeDelta(sorted: readonly Grade[]): { delta: number; weight: number } | null {
-  if (sorted.length < 2) return null;
-  const mid = Math.floor(sorted.length / 2);
-  const prev = sorted.slice(0, mid);
-  const curr = sorted.slice(mid);
-  if (prev.length === 0 || curr.length === 0) return null;
-  const weight = [...prev, ...curr].reduce((sum, grade) => sum + (Number(grade.weight) || 0), 0);
+interface TrendWindows {
+  baselineStart: Date;
+  recentStart: Date;
+  end: Date;
+  lastWeekStart: Date | null;
+  baselineSchoolDays: number;
+  recentSchoolDays: number;
+  lastWeekSchoolDays: number;
+  recentCalendarDays: number;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+const endOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+const addLocalDays = (date: Date, days: number) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+
+export function dayKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+const hasRealDate = (date: Date | undefined | null): date is Date => !!date && date.getTime() > 0;
+
+/**
+ * ימי לימוד של הכיתה: כל יום שבו נרשם אירוע לתלמיד כלשהו.
+ * ביום לימודים רגיל נרשמים אירועים (נוכחות, הערות), בחופשה לא.
+ */
+export function buildSchoolDays(students: ReadonlyArray<Pick<Student, 'behaviorEvents'>>): Set<string> {
+  const days = new Set<string>();
+  for (const student of students) {
+    for (const event of student.behaviorEvents) {
+      if (hasRealDate(event.date)) days.add(dayKey(event.date));
+    }
+  }
+  return days;
+}
+
+/** הקשר מגמה לכיתה: הטווח (ברירת מחדל: כל הנתונים) וימי הלימוד. */
+export function buildTrendContext(
+  students: ReadonlyArray<Pick<Student, 'grades' | 'behaviorEvents'>>,
+  range?: { start?: Date; end?: Date }
+): TrendContext | undefined {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const student of students) {
+    for (const event of student.behaviorEvents) {
+      if (!hasRealDate(event.date)) continue;
+      min = Math.min(min, event.date.getTime());
+      max = Math.max(max, event.date.getTime());
+    }
+    for (const grade of student.grades) {
+      if (!hasRealDate(grade.date)) continue;
+      min = Math.min(min, grade.date.getTime());
+      max = Math.max(max, grade.date.getTime());
+    }
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return undefined;
+  const start = range?.start && range.start.getTime() > min ? range.start : new Date(min);
+  const end = range?.end && range.end.getTime() < max ? range.end : new Date(max);
+  if (end < start) return undefined;
+  return { start, end, schoolDays: buildSchoolDays(students) };
+}
+
+function countSchoolDays(context: TrendContext, from: Date, toExclusive: Date): number {
+  let count = 0;
+  for (let day = startOfLocalDay(from); day < toExclusive; day = addLocalDays(day, 1)) {
+    if (context.schoolDays && context.schoolDays.size > 0) {
+      if (context.schoolDays.has(dayKey(day))) count += 1;
+    } else {
+      const weekday = day.getDay();
+      if (weekday !== 5 && weekday !== 6) count += 1;
+    }
+  }
+  return count;
+}
+
+function trendWindows(context: TrendContext): TrendWindows | null {
+  const start = startOfLocalDay(context.start);
+  const endDay = startOfLocalDay(context.end);
+  const end = endOfLocalDay(context.end);
+  const spanDays = Math.round((endDay.getTime() - start.getTime()) / MS_PER_DAY) + 1;
+  if (spanDays < MIN_TREND_SPAN_DAYS) return null;
+
+  const recentCalendarDays = spanDays >= RECENT_WINDOW_DAYS * 2 ? RECENT_WINDOW_DAYS : Math.floor(spanDays / 2);
+  const recentStart = addLocalDays(endDay, -(recentCalendarDays - 1));
+  const earliestBaseline = addLocalDays(recentStart, -BASELINE_MAX_DAYS);
+  const baselineStart = earliestBaseline > start ? earliestBaseline : start;
+  const afterEnd = addLocalDays(endDay, 1);
+
+  const baselineSchoolDays = countSchoolDays(context, baselineStart, recentStart);
+  const recentSchoolDays = countSchoolDays(context, recentStart, afterEnd);
+  if (baselineSchoolDays < MIN_SCHOOL_DAYS_PER_WINDOW || recentSchoolDays < MIN_SCHOOL_DAYS_PER_WINDOW) return null;
+
+  const lastWeekStart = recentCalendarDays >= 14 ? addLocalDays(endDay, -6) : null;
+  const lastWeekSchoolDays = lastWeekStart ? countSchoolDays(context, lastWeekStart, afterEnd) : 0;
+
   return {
-    delta: weightedGradeAverage(curr) - weightedGradeAverage(prev),
-    weight: weight > 0 ? weight : sorted.length,
+    baselineStart,
+    recentStart,
+    end,
+    lastWeekStart,
+    baselineSchoolDays,
+    recentSchoolDays,
+    lastWeekSchoolDays,
+    recentCalendarDays,
+  };
+}
+
+interface RateDetail {
+  recent: number;
+  expected: number;
+  lastWeek: number | null;
+  lastWeekExpected: number | null;
+}
+
+function compareRate(dates: readonly Date[], windows: TrendWindows): RateDetail {
+  let baseline = 0;
+  let recent = 0;
+  let lastWeek = 0;
+  for (const date of dates) {
+    if (date < windows.baselineStart || date > windows.end) continue;
+    if (date < windows.recentStart) {
+      baseline += 1;
+      continue;
+    }
+    recent += 1;
+    if (windows.lastWeekStart && date >= windows.lastWeekStart) lastWeek += 1;
+  }
+  const perDay = baseline / windows.baselineSchoolDays;
+  const hasLastWeek = !!windows.lastWeekStart && windows.lastWeekSchoolDays > 0;
+  return {
+    recent,
+    expected: perDay * windows.recentSchoolDays,
+    lastWeek: hasLastWeek ? lastWeek : null,
+    lastWeekExpected: hasLastWeek ? perDay * windows.lastWeekSchoolDays : null,
   };
 }
 
 /**
- * מגמת ציונים שמייצגת את מצב הציונים: בכל מקצוע בנפרד משווים את החצי המוקדם למאוחר,
- * ואז משקללים לפי משקל הציונים. מקצוע עם ציון בודד לא יוצר מגמה, ומקצועות שונים
- * לא נשרשרים לרצף אחד. עד 3 נקודות בממוצע המשוקלל — יציב.
+ * מסווג אירועים "רעים" (חיסורים, אירועים שליליים): כמה מעבר לצפוי, ובכמה פעמים.
+ * הפרש קטן נשאר יציב גם אם היחס גבוה (1 מול 0), ויחס קטן נשאר יציב גם אם ההפרש גדול
+ * (15 מול 13). שבוע אחרון חריג מונע "שיפור" ומעלה לפחות לירידה מתונה.
  */
-export function gradeTrendForGrades(grades: readonly Grade[]): { trend: TrendDirection; delta: number } {
-  const dated = grades.filter((g) => g.date && g.date.getTime() > 0);
+function classifyAdverse(detail: RateDetail, thresholds: { moderate: number; sharp: number }): TrendDirection {
+  const { recent, expected } = detail;
+  const excess = recent - expected;
+  let trend: TrendDirection = 'stable';
+  if (excess >= thresholds.sharp && recent >= expected * 2) trend = 'sharp_decline';
+  else if (excess >= thresholds.moderate && recent >= expected * 1.5) trend = 'moderate_decline';
+
+  let lastWeekSpike = false;
+  if (detail.lastWeek != null && detail.lastWeekExpected != null) {
+    const spike = detail.lastWeek - detail.lastWeekExpected;
+    const spikeRatio = detail.lastWeek >= detail.lastWeekExpected * 2;
+    if (spike >= thresholds.moderate && spikeRatio) lastWeekSpike = true;
+    if (spikeRatio && spike >= thresholds.sharp * 2) trend = 'sharp_decline';
+    else if (spikeRatio && spike >= thresholds.sharp && trend === 'stable') trend = 'moderate_decline';
+  }
+
+  if (trend === 'stable' && !lastWeekSpike) {
+    const drop = expected - recent;
+    if (drop >= thresholds.moderate && recent <= expected * 0.6) trend = 'improving';
+  }
+  return trend;
+}
+
+function roundDetail(detail: RateDetail): RateComparison {
+  return { recent: detail.recent, expected: Math.round(detail.expected * 10) / 10 };
+}
+
+/** הצירוף של שתי מגמות: הירידה החמורה גוברת, ושיפור רק אם אין ירידה. */
+function combineTrends(a: TrendDirection, b: TrendDirection): TrendDirection {
+  if (a === 'sharp_decline' || b === 'sharp_decline') return 'sharp_decline';
+  if (a === 'moderate_decline' || b === 'moderate_decline') return 'moderate_decline';
+  if (a === 'improving' || b === 'improving') return 'improving';
+  return 'stable';
+}
+
+export interface StudentTrends {
+  gradeTrend: TrendDirection;
+  gradeDelta: number;
+  absenceTrend: TrendDirection;
+  behaviorOnlyTrend: TrendDirection;
+  behaviorTrend: TrendDirection;
+  details: TrendDetails;
+}
+
+function defaultTrendContext(grades: readonly Grade[], events: readonly BehaviorEvent[]): TrendContext | undefined {
+  return buildTrendContext([{ grades: [...grades], behaviorEvents: [...events] }]);
+}
+
+/**
+ * חיסורים והתנהגות: חלון אחרון מול הקצב הרגיל של התלמיד, לפי ימי לימוד.
+ * ציונים: בכל מקצוע הציונים האחרונים מול הקודמים (ראו gradeTrendForGrades).
+ */
+export function computeStudentTrends(
+  grades: readonly Grade[],
+  events: readonly BehaviorEvent[],
+  context?: TrendContext
+): StudentTrends {
+  const grade = gradeTrendForGrades(grades);
+  const ctx = context ?? defaultTrendContext(grades, events);
+  const windows = ctx ? trendWindows(ctx) : null;
+  const details: TrendDetails = {
+    recentDays: windows?.recentCalendarDays ?? 0,
+    grades: grade.recentAverage != null && grade.previousAverage != null
+      ? { delta: grade.delta, recentAverage: grade.recentAverage, previousAverage: grade.previousAverage }
+      : undefined,
+  };
+
+  if (!windows) {
+    return {
+      gradeTrend: grade.trend,
+      gradeDelta: grade.delta,
+      absenceTrend: 'stable',
+      behaviorOnlyTrend: 'stable',
+      behaviorTrend: 'stable',
+      details,
+    };
+  }
+
+  const datesOf = (predicate: (e: BehaviorEvent) => boolean) =>
+    events.filter((e) => hasRealDate(e.date) && predicate(e)).map((e) => e.date);
+  const absences = compareRate(datesOf(isAbsenceEvent), windows);
+  const negatives = compareRate(
+    datesOf((e) => e.category === EventType.NEGATIVE && !isAbsenceEvent(e)),
+    windows
+  );
+  const positives = compareRate(datesOf((e) => e.category === EventType.POSITIVE), windows);
+
+  const absenceTrend = classifyAdverse(absences, ABSENCE_THRESHOLDS);
+  let behaviorOnlyTrend = classifyAdverse(negatives, NEGATIVE_THRESHOLDS);
+  if (behaviorOnlyTrend === 'stable') {
+    const gain = positives.recent - positives.expected;
+    if (gain >= POSITIVE_GAIN_FOR_IMPROVEMENT && positives.recent >= positives.expected * 1.5) {
+      behaviorOnlyTrend = 'improving';
+    }
+  }
+
+  details.absences = roundDetail(absences);
+  details.negatives = roundDetail(negatives);
+  details.positives = roundDetail(positives);
+
+  return {
+    gradeTrend: grade.trend,
+    gradeDelta: grade.delta,
+    absenceTrend,
+    behaviorOnlyTrend,
+    behaviorTrend: combineTrends(absenceTrend, behaviorOnlyTrend),
+    details,
+  };
+}
+
+/**
+ * מגמת ציונים: בכל מקצוע בנפרד, השליש האחרון של הציונים (1–3 ציונים) מול הציונים שלפניו.
+ * המקצועות משוקללים לפי משקל הציונים, כך שבוחן קל לא מכריע מול מבחן.
+ * מקצוע עם ציון אחד לא יוצר מגמה. ציון נמוך בודד הוא לכל היותר ירידה מתונה.
+ */
+export function gradeTrendForGrades(grades: readonly Grade[]): {
+  trend: TrendDirection;
+  delta: number;
+  recentAverage?: number;
+  previousAverage?: number;
+} {
+  const dated = grades.filter((g) => hasRealDate(g.date));
   const usable = dated.length >= 2 ? dated : grades;
   const groups = new Map<string, Grade[]>();
   for (const grade of usable) {
@@ -602,17 +867,33 @@ export function gradeTrendForGrades(grades: readonly Grade[]): { trend: TrendDir
 
   let weightedDelta = 0;
   let totalWeight = 0;
+  let recentGradeCount = 0;
+  const recentAll: Grade[] = [];
+  const previousAll: Grade[] = [];
   for (const list of groups.values()) {
+    if (list.length < 2) continue;
     const sorted = [...list].sort((a, b) => a.date.getTime() - b.date.getTime());
-    const part = splitGradeDelta(sorted);
-    if (!part) continue;
-    weightedDelta += part.delta * part.weight;
-    totalWeight += part.weight;
+    const recentCount = Math.min(3, Math.max(1, Math.ceil(sorted.length / 3)));
+    const previous = sorted.slice(0, sorted.length - recentCount);
+    const recent = sorted.slice(sorted.length - recentCount);
+    const weight = sorted.reduce((sum, g) => sum + (Number(g.weight) || 0), 0) || sorted.length;
+    weightedDelta += (weightedGradeAverage(recent) - weightedGradeAverage(previous)) * weight;
+    totalWeight += weight;
+    recentGradeCount += recent.length;
+    recentAll.push(...recent);
+    previousAll.push(...previous);
   }
 
   if (totalWeight <= 0) return { trend: 'stable', delta: 0 };
   const delta = weightedDelta / totalWeight;
-  return { trend: trendFromGradeDelta(delta), delta };
+  let trend = trendFromGradeDelta(delta);
+  if (trend === 'sharp_decline' && recentGradeCount < 2) trend = 'moderate_decline';
+  return {
+    trend,
+    delta,
+    recentAverage: weightedGradeAverage(recentAll),
+    previousAverage: weightedGradeAverage(previousAll),
+  };
 }
 
 function trendFromGradeDelta(delta: number): TrendDirection {
@@ -622,64 +903,32 @@ function trendFromGradeDelta(delta: number): TrendDirection {
   return 'stable';
 }
 
-/**
- * מגמת התנהגות: שני חצאים שווים של עד 12 האירועים האחרונים (חיובי/שלילי בלבד).
- * אירוע אחד לרעה הוא ירידה מתונה. שני אירועים ויותר הם ירידה חדה.
- */
-export function behaviorTrendForEvents(
-  events: readonly BehaviorEvent[],
-  options?: { excludeAbsences?: boolean }
-): TrendDirection {
-  const relevant = events.filter((e) => {
-    if (options?.excludeAbsences && isAbsenceEvent(e)) return false;
-    return e.category === EventType.POSITIVE || e.category === EventType.NEGATIVE;
-  });
-  const sorted = [...relevant].sort((a, b) => a.date.getTime() - b.date.getTime());
-  const window = evenTail(sorted, 12, BEHAVIOR_TREND_MIN);
-  if (window.length < BEHAVIOR_TREND_MIN) return 'stable';
-  const mid = window.length / 2;
-  const prev = window.slice(0, mid);
-  const curr = window.slice(mid);
-  const count = (list: BehaviorEvent[], category: EventType) =>
-    list.filter((e) => e.category === category).length;
-  const signal =
-    count(prev, EventType.NEGATIVE) -
-    count(curr, EventType.NEGATIVE) +
-    (count(curr, EventType.POSITIVE) - count(prev, EventType.POSITIVE));
-  if (signal >= BEHAVIOR_SHARP_SIGNAL) return 'improving';
-  if (signal <= -BEHAVIOR_SHARP_SIGNAL) return 'sharp_decline';
-  if (signal <= -BEHAVIOR_MODERATE_SIGNAL) return 'moderate_decline';
-  return 'stable';
+/** "4 השבועות האחרונים", "השבוע האחרון" וכו' — לפי אורך החלון האחרון. */
+export function recentWindowLabel(days: number): string {
+  if (days === 7) return 'השבוע האחרון';
+  if (days > 7 && days % 7 === 0) return `${days / 7} השבועות האחרונים`;
+  return `${days} הימים האחרונים`;
 }
 
-function absenceLevel(earlier: number, later: number): TrendDirection {
-  const delta = later - earlier;
-  const gap = Math.abs(delta);
-  if (gap < 2) return 'stable';
-  const low = Math.min(earlier, later);
-  const high = Math.max(earlier, later);
-  const ratio = low === 0 ? Infinity : high / low;
-  if (ratio < 1.5) return 'stable';
-  const worsening = delta > 0;
-  const sharp = gap >= 4 || (gap >= 3 && ratio >= 2);
-  if (worsening) return sharp ? 'sharp_decline' : 'moderate_decline';
-  return 'improving';
+function formatCount(value: number): string {
+  if (value >= 10) return String(Math.round(value));
+  return value.toFixed(1).replace(/\.0$/, '');
 }
 
-/**
- * מגמת חיסורים בתוך התקופה המוצגת: חצי מוקדם מול חצי מאוחר.
- * הפרש קטן, או ששני החצאים גבוהים באותה מידה, נשאר יציב.
- * עלייה ברורה בקצב היא ירידה מתונה, ועלייה גדולה היא ירידה חדה.
- */
-export function absenceTrend(
-  currentAbsences: number,
-  previousAbsences: number,
-  previousPeriodHasData: boolean,
-  withinPeriod?: { early: number; late: number }
-): TrendDirection {
-  if (withinPeriod) return absenceLevel(withinPeriod.early, withinPeriod.late);
-  if (!previousPeriodHasData) return 'stable';
-  return absenceLevel(previousAbsences, currentAbsences);
+/** משפט שמסביר למורה על מה מבוססת מגמת חיסורים/אירועים. */
+export function describeRateComparison(
+  comparison: RateComparison | undefined,
+  recentDays: number,
+  noun: string
+): string | null {
+  if (!comparison || recentDays <= 0) return null;
+  return `${recentWindowLabel(recentDays)}: ${comparison.recent} ${noun}. הקצב הרגיל של התלמיד לתקופה באותו אורך: ${formatCount(comparison.expected)}.`;
+}
+
+/** תקציר קצר מתחת לתג: "6 מול ~2 רגיל". */
+export function shortRateComparison(comparison: RateComparison | undefined, recentDays: number): string | null {
+  if (!comparison || recentDays <= 0) return null;
+  return `${comparison.recent} מול ~${formatCount(comparison.expected)} רגיל`;
 }
 
 /** תווית בעברית לתג המגמה ולייצוא. */
@@ -705,10 +954,12 @@ export function isGradeInRange(
  * מחשבת מחדש את כל הסטטיסטיקות של תלמיד (ממוצע, מגמות, סיכון, קורלציות)
  * לפי grades ו-behaviorEvents הנוכחיים והגדרות הסיכון.
  * פונקציה טהורה – מתאימה לעדכון אחרי עריכה ידנית או שינוי הגדרות.
+ * trendContext: הטווח וימי הלימוד של הכיתה. בלעדיו המגמה מחושבת לפי נתוני התלמיד בלבד.
  */
 export function calculateStudentStats(
   student: Pick<Student, 'id' | 'name' | 'grades' | 'behaviorEvents'>,
-  settings: RiskSettings = DEFAULT_RISK_SETTINGS
+  settings: RiskSettings = DEFAULT_RISK_SETTINGS,
+  trendContext?: TrendContext
 ): Student {
   const sGrades = [...student.grades].sort((a, b) => a.date.getTime() - b.date.getTime());
   const sEvents = [...student.behaviorEvents].sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -719,9 +970,8 @@ export function calculateStudentStats(
   const positiveCount = sEvents.filter((e) => e.category === EventType.POSITIVE).length;
   const absenceCount = sEvents.filter((e) => isAbsenceEvent(e)).length;
 
-  const { trend: gradeTrend, delta: gradeDelta } = gradeTrendForGrades(sGrades);
-  const behaviorTrend = behaviorTrendForEvents(sEvents);
-  const behaviorOnlyTrend = behaviorTrendForEvents(sEvents, { excludeAbsences: true });
+  const trends = computeStudentTrends(sGrades, sEvents, trendContext);
+  const { gradeTrend, gradeDelta, behaviorTrend, behaviorOnlyTrend, absenceTrend } = trends;
 
   let recentBehaviorScore = 0;
   if (sEvents.length >= 2) {
@@ -813,6 +1063,8 @@ export function calculateStudentStats(
     gradeTrend,
     behaviorTrend,
     behaviorOnlyTrend,
+    absenceTrend,
+    trendDetails: trends.details,
     riskLevel,
     riskScore: score,
     correlations,
@@ -828,6 +1080,8 @@ export interface StudentStatsResult {
   gradeTrend: TrendDirection;
   behaviorTrend: TrendDirection;
   behaviorOnlyTrend: TrendDirection;
+  absenceTrend: TrendDirection;
+  trendDetails?: TrendDetails;
   riskLevel: 'high' | 'medium' | 'low';
   riskScore: number;
   /** ציונים + אירועים שנכנסו לחלון. 0 = אין בסיס להשוואת תקופה. */
@@ -837,7 +1091,8 @@ export interface StudentStatsResult {
 export function computeStudentStatsFromData(
   grades: Grade[],
   behaviorEvents: BehaviorEvent[],
-  settings: RiskSettings = DEFAULT_RISK_SETTINGS
+  settings: RiskSettings = DEFAULT_RISK_SETTINGS,
+  trendContext?: TrendContext
 ): StudentStatsResult {
   const raw: Pick<Student, 'id' | 'name' | 'grades' | 'behaviorEvents'> = {
     id: '',
@@ -845,7 +1100,7 @@ export function computeStudentStatsFromData(
     grades,
     behaviorEvents,
   };
-  const full = calculateStudentStats(raw, settings);
+  const full = calculateStudentStats(raw, settings, trendContext);
   const absenceCount = behaviorEvents.filter((e) => isAbsenceEvent(e)).length;
   return {
     averageScore: full.averageScore,
@@ -855,6 +1110,8 @@ export function computeStudentStatsFromData(
     gradeTrend: full.gradeTrend,
     behaviorTrend: full.behaviorTrend,
     behaviorOnlyTrend: full.behaviorOnlyTrend ?? full.behaviorTrend,
+    absenceTrend: full.absenceTrend ?? 'stable',
+    trendDetails: full.trendDetails,
     riskLevel: full.riskLevel,
     riskScore: full.riskScore,
     activityCount: grades.length + behaviorEvents.length,

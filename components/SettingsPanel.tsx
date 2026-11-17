@@ -9,7 +9,7 @@ import {
   Student,
   normalizeRiskSettings,
 } from '../types';
-import { calculateStudentStats } from '../utils/processing';
+import { buildTrendContext, calculateStudentStats } from '../utils/processing';
 import { ArrowRight, Sliders, Copy, Calendar, Plus, Trash2, LayoutGrid, Users, Download, Check, X, RefreshCw } from 'lucide-react';
 import {
   DASHBOARD_WIDGET_IDS,
@@ -379,8 +379,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     let high = 0,
       medium = 0,
       low = 0;
+    const trendContext = buildTrendContext(students);
     students.forEach((s) => {
-      const computed = calculateStudentStats(s, draftSettings);
+      const computed = calculateStudentStats(s, draftSettings, trendContext);
       if (computed.riskLevel === 'high') high++;
       else if (computed.riskLevel === 'medium') medium++;
       else low++;

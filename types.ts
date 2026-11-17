@@ -51,6 +51,23 @@ export interface Correlation {
 /** יציב, שיפור, ירידה מתונה או ירידה חדה. */
 export type TrendDirection = 'improving' | 'stable' | 'moderate_decline' | 'sharp_decline';
 
+/** כמה אירועים היו בחלון האחרון, מול כמה היו צפויים לפי הקצב הרגיל של התלמיד. */
+export interface RateComparison {
+  recent: number;
+  /** מספר האירועים שהיה צפוי באותו מספר ימי לימוד, לפי התקופה שלפני. */
+  expected: number;
+}
+
+/** הבסיס המספרי של המגמות — כדי שאפשר יהיה להציג למורה על מה התווית מבוססת. */
+export interface TrendDetails {
+  /** אורך החלון האחרון בימים קלנדריים (בדרך כלל 28). */
+  recentDays: number;
+  absences?: RateComparison;
+  negatives?: RateComparison;
+  positives?: RateComparison;
+  grades?: { delta: number; recentAverage: number; previousAverage: number };
+}
+
 export interface Student {
   id: string;
   name: string;
@@ -65,6 +82,9 @@ export interface Student {
   behaviorTrend: TrendDirection;
   /** מגמת התנהגות ללא חיסורים (רק אירועים שליליים/חיוביים אחרים) */
   behaviorOnlyTrend?: TrendDirection;
+  /** מגמת חיסורים: חלון אחרון מול הקצב הרגיל של התלמיד */
+  absenceTrend?: TrendDirection;
+  trendDetails?: TrendDetails;
   riskLevel: 'high' | 'medium' | 'low';
   riskScore: number; // Score from 1 (High Risk) to 10 (Low Risk)
   correlations: Correlation[];
